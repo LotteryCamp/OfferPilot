@@ -1,6 +1,17 @@
-# OfferPilot
+<h1 align="center"> OfferPilot </h1>
 
-OfferPilot 是一款简单易用的推免 Agent 管理工作台。你可以在一个平台管理院校和个人信息，自动核查条件，高效助力保研。
+<p align="center">
+	<br/>
+	简单易用的推免 Agent 管理工作台
+	<br/>
+	一个平台管理院校和个人信息，自动核查条件，高效助力保研
+</p>
+
+<div align="center">
+
+  [![GitHub Repo stars](https://img.shields.io/github/stars/LotteryCamp/OfferPilot?style=for-the-badge)](https://github.com/LotteryCamp/OfferPilot)
+
+</div>
 
 ## Installation
 
