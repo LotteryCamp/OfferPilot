@@ -16,7 +16,7 @@ cd OfferPilot
 
 ## Commit Rules
 
-我们参考 Angular 规范。每条 Commit Message 应当按照如下格式编写：
+我们参考 Angular 规范。每条 Commit message 应当按照如下格式编写：
 
 ```
 <type>(<scope>): <subject>
@@ -26,12 +26,13 @@ cd OfferPilot
 - `scope` 说明 Commit 影响的范围，可选项。
 - `subject` 是 Commit 目的的简短描述，不超过 50 个字符。以动词开头，使用第一人称现在时。
 
+我们建议一般贡献者遵循此规范。当然，如果一般贡献者写出了和规范不符的 Commit message，在 PR 时，有权限合并的审查者应当使用 Squash and Merge 以重写为合规的 Commit message。
+
 ## Pull Request
 
 我们借鉴了 GitFlow 模式：
 
-- `main` 分支作为主分支，同时也是开发分支。
-- `main` 分支代表了最新的开发进度，其他分支都从这里分支出去，最终 PR 合并回这里。
+- `main` 分支作为主分支，同时也是开发分支。其代表最新的开发进度，其他分支都从 `main` 分叉出去，最终合并回这里。
 - `feat` 分支用于开发新功能，应当命名为 `feat/<feature-name>`
 - `fix` 分支用于修复问题，应当命名为 `fix/<fix-name>`
 
