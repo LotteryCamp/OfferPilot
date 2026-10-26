@@ -12,6 +12,8 @@ cd OfferPilot
 
 ## Environment
 
+为了开发 OfferPilot，你需要准备以下开发工具：
+
 （待定）
 
 ## Commit Rules
@@ -20,11 +22,14 @@ cd OfferPilot
 
 ```
 <type>(<scope>): <subject>
+
+<body>
 ```
 
-- `type` 说明 Commit 的类别，只允许 `feat`、`fix`、`docs`、`refactor`、`test` 和 `chore`。
+- `type` 说明 Commit 的类别，允许 `feat`、`fix`、`docs`、`refactor`、`test`、`chore` 等。
 - `scope` 说明 Commit 影响的范围，可选项。
 - `subject` 是 Commit 目的的简短描述，不超过 50 个字符。以动词开头，使用第一人称现在时。
+- `body` 是 Commit 的具体说明，可选项。
 
 我们建议一般贡献者遵循此规范。当然，如果一般贡献者写出了和规范不符的 Commit message，在 PR 时，有权限合并的审查者应当使用 Squash and Merge 以重写为合规的 Commit message。
 
@@ -33,8 +38,7 @@ cd OfferPilot
 我们借鉴了 GitFlow 模式：
 
 - `main` 分支作为主分支，同时也是开发分支。其代表最新的开发进度，其他分支都从 `main` 分叉出去，最终合并回这里。
-- `feat` 分支用于开发新功能，应当命名为 `feat/<feature-name>`
-- `fix` 分支用于修复问题，应当命名为 `fix/<fix-name>`
+- 功能性分支的类型参考 Commit Rules 的 `type`，比如 `feat` 分支代表新功能。命名规范遵循 `<type>/<name>`。
 
 为了提交 PR：
 
