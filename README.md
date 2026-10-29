@@ -26,10 +26,10 @@
 
 ## For Developers
 
-请查阅文档和 [Contributing](/CONTRIBUTING.md) 以获取项目信息。当前不接受外部 PR。
+请查阅文档和 [Contributing](/CONTRIBUTING.md) 以获取项目信息。注意当前不接受 LotteryCamp（鹦伟达）组织外的 PR。
 
-## License & Copyright
+## License
 
-当前本项目处于“源码可见”状态。你可以查看、使用本项目的源代码，但是不可基于本项目进行二次开发。我们可能会在恰当的时候重新评估本项目的授权与许可证。
+OfferPilot is licensed under the MIT License. Please see [LICENSE](/LICENSE) for detail.
 
-Copyright (c) 2026 LotteryCamp. All rights reserved.
+Copyright (c) 2026 LotteryCamp.
