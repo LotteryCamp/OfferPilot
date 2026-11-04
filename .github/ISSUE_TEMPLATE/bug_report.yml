@@ -17,7 +17,7 @@ body:
         - label: 我确认我已经检查。如果我不按照说明进行操作，该问题可能会被直接关闭。
           required: true
   - type: input
-    id: game_version
+    id: app_version
     attributes:
       label: 版本
       description: |

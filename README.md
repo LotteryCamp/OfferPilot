@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="/assets/logo.png" alt="Logo of OfferPilot" width="192px">
+  <img src="assets/logo.png" alt="Logo of OfferPilot" width="192px">
 </p>
 
 <h1 align="center"> OfferPilot </h1>
@@ -26,10 +26,10 @@
 
 ## For Developers
 
-请查阅文档和 [Contributing](/CONTRIBUTING.md) 以获取项目信息。注意当前不接受 LotteryCamp（鹦伟达）组织外的 PR。
+请查阅文档和 [Contributing](CONTRIBUTING.md) 以获取项目信息。注意当前不接受 LotteryCamp（鹦伟达）组织外的 PR。
 
 ## License
 
-OfferPilot is licensed under the MIT License. Please see [LICENSE](/LICENSE) for detail.
+OfferPilot is licensed under the MIT License. Please see [LICENSE](LICENSE) for detail.
 
 Copyright (c) 2026 LotteryCamp.
