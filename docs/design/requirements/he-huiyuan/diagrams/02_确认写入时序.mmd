@@ -1,0 +1,33 @@
+sequenceDiagram
+    actor U as 学生
+    participant UI as 学生界面
+    participant WS as 工作区服务
+    participant SRC as 来源工具
+    participant AG as Agent编排器
+    participant CK as 校验器
+    actor R as 规则复核人员
+    participant DB as 存储服务
+    U->>UI: 导入通知及目标范围
+    UI->>WS: 1 导入请求
+    WS->>DB: 1.1 读取上下文及授权
+    WS->>SRC: 1.2 读取公开资料并保存快照
+    SRC-->>WS: 来源版本 附件读取状态
+    WS->>AG: 1.3 提取候选要求及证据
+    AG->>CK: 1.4 检查范围 条件 日期 引用
+    CK-->>R: 规则核验项及冲突
+    R-->>WS: 核验记录或待核实原因
+    WS-->>UI: 1.5 返回候选结果或暂停原因
+    Note over UI,DB: 后续按HHY-UC04生成候选计划 此时未建立正式任务
+    U->>UI: 审阅并接受具体候选计划
+    UI->>WS: 2 确认 候选版本 操作标识
+    WS->>DB: 2.1 检查授权 依据版本 操作标识
+    alt 已处理的重复操作
+        DB-->>WS: 返回原操作结果
+    else 版本变化或授权不符
+        DB-->>WS: 阻止写入 说明失效原因
+    else 校验通过
+        WS->>DB: 2.2 原子保存任务 关联及确认记录
+        DB-->>WS: 实际成功或失败状态
+    end
+    WS-->>UI: 2.3 返回实际结果及恢复入口
+    UI-->>U: 显示结果 不把失败标为完成
