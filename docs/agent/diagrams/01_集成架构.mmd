@@ -1,0 +1,55 @@
+flowchart TB
+    student["学生（事项所有者）"]
+    official["官方网站与通知"]
+    maintainer["规则维护与复核人员"]
+
+    subgraph web["PC Web 前端"]
+        ws["个人事项工作区"]
+    end
+
+    subgraph biz["业务系统"]
+        api["业务服务 API<br/>身份校验 · 事项归属 · 状态维护"]
+        auth["授权与确认服务<br/>L0-L3 授权 · 确认记录 · 版本校验"]
+        store[("业务数据<br/>事项 · 任务 · 个人事实 · 材料版本 · 执行记录")]
+    end
+
+    subgraph agent["Agent 子系统"]
+        orch["Agent 编排器<br/>上下文组装 · 输出校验 · 运行检查点"]
+    end
+
+    llm["外部模型服务"]
+    gw["工具调用网关<br/>参数 · 权限 · 授权等级 · 输入版本 · 操作标识"]
+
+    subgraph readTools["只读工具"]
+        t1["官方资料检索"]
+        t2["通知与附件解析"]
+        t3["条件与日期校验"]
+    end
+
+    subgraph writeTools["写入工具"]
+        t4["个人任务写入"]
+        t5["材料诊断与改写"]
+        t6["材料检查与 DOCX 导出"]
+    end
+
+    subgraph kb["领域知识库"]
+        src[("官方来源与版本<br/>原文切片 · 复核状态")]
+        rules[("规则条目<br/>推免规则包 · 竞赛规则包")]
+        tpl[("事项模板<br/>推免 · 试点竞赛")]
+    end
+
+    student --> ws
+    official -->|"用户导入"| ws
+    ws <--> api
+    api <--> auth
+    api <--> store
+    api <-->|"创建运行 · 事件流 · 提交确认 · 经授权的上下文"| orch
+    orch <-->|"授权材料逐次确认后发送"| llm
+    orch <--> gw
+    gw -->|"校验授权与版本"| auth
+    gw <--> readTools
+    gw <--> writeTools
+    readTools --> kb
+    writeTools -->|"携带操作标识经业务接口写入"| api
+    official -->|"通知与附件"| maintainer
+    maintainer -->|"整理与独立复核"| kb
