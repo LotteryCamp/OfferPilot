@@ -1523,22 +1523,24 @@ sequenceDiagram
     API->>AU: checkOwner(user, object)
     alt 本人对象
         AU-->>API: allow
+        API->>AG: 发起需要模型的处理
+        AG->>GW: beginSend(user, 服务商, 用途, 字段, 资料版本)——临界区内核对
+        alt 已同意、所涉事实授权有效且授权版本有效
+            GW->>AUD: 登记传输记录(请求标识/字段类别/授权版本/状态=在途/持有租约)
+            GW-->>AG: 发送许可(仅同意字段)
+            loop 每个分块写入前
+                AG->>GW: checkChunk(许可, 分块)
+                GW-->>AG: 授权版本与所涉事实授权仍有效，放行写入
+            end
+            AG->>GW: 完成/失败，按实际结果更新记录
+        else 未同意/已撤回/所涉事实授权已撤回/超出字段/资料版本不符
+            GW-->>AG: deny
+            AG->>AUD: 记录停止传输与替代路径
+        end
     else 非本人或未授权
         AU-->>API: 403 拒绝
         AU->>AUD: 记录拒绝
-    end
-    AG->>GW: beginSend(user, 服务商, 用途, 字段, 资料版本)——临界区内核对
-    alt 已同意、所涉事实授权有效且授权版本有效
-        GW->>AUD: 登记传输记录(请求标识/字段类别/授权版本/状态=在途/持有租约)
-        GW-->>AG: 发送许可(仅同意字段)
-        loop 每个分块写入前
-            AG->>GW: checkChunk(许可, 分块)
-            GW-->>AG: 授权版本与所涉事实授权仍有效，放行写入
-        end
-        AG->>GW: 完成/失败，按实际结果更新记录
-    else 未同意/已撤回/所涉事实授权已撤回/超出字段/资料版本不符
-        GW-->>AG: deny
-        AG->>AUD: 记录停止传输与替代路径
+        API-->>USR: 返回 403，流程终止
     end
     USR->>API: 撤回模型传输同意或撤回事实授权
     API->>GW: revokeScope(user, 范围)——与发送同一串行化机制
