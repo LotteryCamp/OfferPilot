@@ -1,36 +1,57 @@
-flowchart TD
-    start(("开始")) --> goal["提出目标或导入通知"]
-    goal --> clear{"目标明确且只涉及一个事项？"}
-    clear -->|"否"| ask["追问或拆分事项"]
-    ask --> goal
-    clear -->|"是"| retrieve["检索官方来源并解析要求"]
-    retrieve --> usable{"来源可核对且信息足够？"}
-    usable -->|"缺个人信息"| supply["标为待补充信息并请求补充"]
-    usable -->|"来源冲突、过期或缺页"| manual["标为需人工核实并展示原文"]
-    supply --> wait1{"用户处理方式"}
-    manual --> wait1
-    wait1 -->|"已补充或已核实"| retrieve
-    wait1 -->|"暂缓"| draft["保存探索草稿"]
-    wait1 -->|"停止"| stop["停止后续调用并说明已完成动作"]
-    usable -->|"是"| check["条件对照（四态结果）"]
-    check --> plan["生成候选计划<br/>区分官方必需、官方建议、自主可选、待核实"]
-    plan --> decide{"用户审阅候选计划"}
-    decide -->|"调整"| plan
-    decide -->|"拒绝或关闭"| keep["保留决定与草稿，不建正式任务"]
-    decide -->|"确认"| recheck{"授权、来源与事实版本未变？"}
-    recheck -->|"已变化"| expire["旧候选失效并说明原因"]
-    expire --> plan
-    recheck -->|"未变化"| exec["经工具网关执行获准工具"]
-    exec --> result{"执行结果"}
-    result -->|"失败或超时"| query["查询操作状态，保留已完成步骤和错误"]
-    query --> retry{"用户选择"}
-    retry -->|"重试"| exec
-    retry -->|"放弃"| record
-    result -->|"用户取消"| stop
-    result -->|"成功"| verify["核对实际产物"]
-    verify --> show["展示产物、来源、未完成项与下一步"]
-    show --> record["保存执行记录"]
-    draft --> record
-    keep --> record
-    stop --> record
-    record --> finish(("本次处理结束"))
+---
+config:
+  theme: base
+  themeCSS: 'text.messageText { paint-order: stroke; stroke: white; stroke-width: 5px; stroke-linejoin: round; }'
+  themeVariables:
+    fontFamily: "Microsoft YaHei, sans-serif"
+    fontSize: "21px"
+    primaryColor: "#EDF4FE"
+    primaryBorderColor: "#83A0C1"
+    primaryTextColor: "#19354D"
+    secondaryColor: "#EBF6F1"
+    tertiaryColor: "#F5F8FC"
+    lineColor: "#55708D"
+    edgeLabelBackground: "#FFFFFF"
+    clusterBkg: "#F4F8FC"
+    clusterBorder: "#B3C8DC"
+    actorBkg: "#EDF4FE"
+    actorBorder: "#8DAAC8"
+    actorTextColor: "#19354D"
+    actorLineColor: "#B8CBDE"
+    signalColor: "#294E70"
+    signalTextColor: "#19354D"
+    labelBoxBkgColor: "#EBF6F1"
+    labelBoxBorderColor: "#9ABBAE"
+    loopTextColor: "#19354D"
+    actorFontSize: "20px"
+    messageFontSize: "19px"
+    sequenceNumberColor: "#FFFFFF"
+  flowchart:
+    curve: linear
+    wrappingWidth: 300
+    nodeSpacing: 45
+    rankSpacing: 52
+  sequence:
+    mirrorActors: true
+    actorMargin: 60
+    messageMargin: 25
+    boxMargin: 12
+---
+flowchart TB
+    S([开始]) --> R["查官方通知，读正文和附件"]
+    R --> C["提取要求并逐项检查"]
+    C --> Q{"规则与数据可用？"}
+    Q -->|"缺个人数据"| P["待补充信息"]
+    Q -->|"规则存疑"| H["需人工核实"]
+    Q -->|"可判断"| V["符合已核实条件<br/>或尚未符合"]
+    P --> E["标记待处理，补充后复查"]
+    H --> E
+    V --> N["展示依据与候选计划"]
+    N --> J{"用户确认？"}
+    J -->|"确认且版本有效"| W["写入个人任务"]
+    J -->|"暂不确认"| D["保留候选计划"]
+    W --> X([展示实际结果])
+    classDef core fill:#E7F0FF,stroke:#7196C3
+    classDef wait fill:#FFF3E2,stroke:#C09B68
+    class R,C,N,W core
+    class P,H,E,D wait
