@@ -1,0 +1,61 @@
+---
+config:
+  theme: base
+  themeCSS: 'text.messageText { paint-order: stroke; stroke: white; stroke-width: 5px; stroke-linejoin: round; }'
+  themeVariables:
+    fontFamily: "Microsoft YaHei, sans-serif"
+    fontSize: "21px"
+    primaryColor: "#EDF4FE"
+    primaryBorderColor: "#83A0C1"
+    primaryTextColor: "#19354D"
+    secondaryColor: "#EBF6F1"
+    tertiaryColor: "#F5F8FC"
+    lineColor: "#55708D"
+    edgeLabelBackground: "#FFFFFF"
+    clusterBkg: "#F4F8FC"
+    clusterBorder: "#B3C8DC"
+    actorBkg: "#EDF4FE"
+    actorBorder: "#8DAAC8"
+    actorTextColor: "#19354D"
+    actorLineColor: "#B8CBDE"
+    signalColor: "#294E70"
+    signalTextColor: "#19354D"
+    labelBoxBkgColor: "#EBF6F1"
+    labelBoxBorderColor: "#9ABBAE"
+    loopTextColor: "#19354D"
+    actorFontSize: "20px"
+    messageFontSize: "19px"
+    sequenceNumberColor: "#FFFFFF"
+  flowchart:
+    curve: linear
+    wrappingWidth: 300
+    nodeSpacing: 45
+    rankSpacing: 52
+  sequence:
+    mirrorActors: true
+    actorMargin: 60
+    messageMargin: 25
+    boxMargin: 12
+---
+stateDiagram-v2
+    direction LR
+    state "运行中" as R
+    state "等待处理" as W {
+        direction TB
+        state "等待用户补充或核实" as P
+        state "等待计划确认" as C
+        state "等待重试" as T
+    }
+    state "已完成" as D
+    state "已取消" as X
+    state "失败" as F
+    [*] --> R
+    R --> W: 缺项、待确认或失败
+    W --> R: 复查通过后恢复
+    W --> X: 拒绝或停止
+    W --> F: 放弃或无法重试
+    R --> X: 用户停止
+    R --> D: 产物核对完成
+    D --> [*]
+    X --> [*]
+    F --> [*]

@@ -1,0 +1,59 @@
+---
+config:
+  theme: base
+  themeCSS: 'text.messageText { paint-order: stroke; stroke: white; stroke-width: 5px; stroke-linejoin: round; }'
+  themeVariables:
+    fontFamily: "Microsoft YaHei, sans-serif"
+    fontSize: "21px"
+    primaryColor: "#EDF4FE"
+    primaryBorderColor: "#83A0C1"
+    primaryTextColor: "#19354D"
+    secondaryColor: "#EBF6F1"
+    tertiaryColor: "#F5F8FC"
+    lineColor: "#55708D"
+    edgeLabelBackground: "#FFFFFF"
+    clusterBkg: "#F4F8FC"
+    clusterBorder: "#B3C8DC"
+    actorBkg: "#EDF4FE"
+    actorBorder: "#8DAAC8"
+    actorTextColor: "#19354D"
+    actorLineColor: "#B8CBDE"
+    signalColor: "#294E70"
+    signalTextColor: "#19354D"
+    labelBoxBkgColor: "#EBF6F1"
+    labelBoxBorderColor: "#9ABBAE"
+    loopTextColor: "#19354D"
+    actorFontSize: "20px"
+    messageFontSize: "19px"
+    sequenceNumberColor: "#FFFFFF"
+  flowchart:
+    curve: linear
+    wrappingWidth: 300
+    nodeSpacing: 45
+    rankSpacing: 52
+  sequence:
+    mirrorActors: true
+    actorMargin: 60
+    messageMargin: 25
+    boxMargin: 12
+---
+sequenceDiagram
+    actor U as 学生
+    participant B as 业务服务
+    participant A as Agent
+    participant T as 受控工具
+    U->>B: 导入通知
+    B->>A: 传入事项与必要信息
+    A->>T: 读原文与附件，提取要求并自动检查
+    T-->>A: 四态结果与原文依据
+    A-->>B: 提交候选计划
+    B-->>U: 展示自查与计划
+    U->>B: 确认具体版本
+    alt 确认有效且首次受理
+        B->>A: 授权执行
+        A->>T: 写入个人任务
+        T->>B: 复查版本并写入
+        B-->>U: 展示写入结果
+    else 版本已变或重复确认
+        B-->>U: 提示重新审阅或返回已有结果
+    end
