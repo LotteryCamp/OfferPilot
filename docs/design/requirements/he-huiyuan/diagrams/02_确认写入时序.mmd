@@ -1,33 +1,33 @@
 sequenceDiagram
-    actor U as 学生
-    participant UI as 学生界面
-    participant WS as 工作区服务
-    participant SRC as 来源工具
-    participant AG as Agent编排器
-    participant CK as 校验器
-    actor R as 规则复核人员
-    participant DB as 存储服务
-    U->>UI: 导入通知及目标范围
-    UI->>WS: 1 导入请求
-    WS->>DB: 1.1 读取上下文及授权
-    WS->>SRC: 1.2 读取公开资料并保存快照
-    SRC-->>WS: 来源版本 附件读取状态
-    WS->>AG: 1.3 提取候选要求及证据
-    AG->>CK: 1.4 检查范围 条件 日期 引用
-    CK-->>R: 规则核验项及冲突
-    R-->>WS: 核验记录或待核实原因
-    WS-->>UI: 1.5 返回候选结果或暂停原因
-    Note over UI,DB: 后续按HHY-UC04生成候选计划 此时未建立正式任务
-    U->>UI: 审阅并接受具体候选计划
-    UI->>WS: 2 确认 候选版本 操作标识
-    WS->>DB: 2.1 检查授权 依据版本 操作标识
-    alt 已处理的重复操作
-        DB-->>WS: 返回原操作结果
-    else 版本变化或授权不符
-        DB-->>WS: 阻止写入 说明失效原因
-    else 校验通过
-        WS->>DB: 2.2 原子保存任务 关联及确认记录
-        DB-->>WS: 实际成功或失败状态
+    autonumber
+    actor U as 当前用户
+    participant UI as 个人界面
+    participant WS as 事项服务
+    participant AG as Agent
+    participant CK as 检查器
+    participant DB as 业务存储
+    U->>UI: 请求个人候选计划
+    UI->>WS: 当前事项和所选档案
+    WS->>AG: 依据版本及个人目标
+    AG->>CK: 检查依赖 日期 与引用
+    CK-->>AG: 检查结果或具体疑点
+    AG-->>WS: 候选及引用版本
+    WS-->>UI: 展示候选和义务性质
+    U->>UI: 逐项接受或拒绝
+    UI->>WS: 确认候选版本及opId
+    WS->>DB: 开事务 按序锁Source及Workspace守卫
+    DB-->>WS: 锁内当前来源及本人版本
+    WS->>CK: 在锁内复查授权及候选版本
+    Note over WS,DB: 刷新及本人资料变更共用对应守卫
+    alt 已提交的opId
+        CK-->>WS: 返回原任务与确认记录
+        WS-->>UI: 原结果 不重复写入
+    else 授权或版本不符
+        CK-->>WS: 拒绝旧确认
+        WS->>DB: 整体回滚
+        WS-->>UI: 待核对对象和恢复入口
+    else 确认有效
+        WS->>DB: 写任务 确认 审计并提交
+        DB-->>WS: 同次操作真实结果
+        WS-->>UI: 正式任务或实际失败
     end
-    WS-->>UI: 2.3 返回实际结果及恢复入口
-    UI-->>U: 显示结果 不把失败标为完成
