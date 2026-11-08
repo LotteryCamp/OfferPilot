@@ -1,55 +1,55 @@
+---
+config:
+  theme: base
+  themeCSS: 'text.messageText { paint-order: stroke; stroke: white; stroke-width: 5px; stroke-linejoin: round; }'
+  themeVariables:
+    fontFamily: "Microsoft YaHei, sans-serif"
+    fontSize: "21px"
+    primaryColor: "#EDF4FE"
+    primaryBorderColor: "#83A0C1"
+    primaryTextColor: "#19354D"
+    secondaryColor: "#EBF6F1"
+    tertiaryColor: "#F5F8FC"
+    lineColor: "#55708D"
+    edgeLabelBackground: "#FFFFFF"
+    clusterBkg: "#F4F8FC"
+    clusterBorder: "#B3C8DC"
+    actorBkg: "#EDF4FE"
+    actorBorder: "#8DAAC8"
+    actorTextColor: "#19354D"
+    actorLineColor: "#B8CBDE"
+    signalColor: "#294E70"
+    signalTextColor: "#19354D"
+    labelBoxBkgColor: "#EBF6F1"
+    labelBoxBorderColor: "#9ABBAE"
+    loopTextColor: "#19354D"
+    actorFontSize: "20px"
+    messageFontSize: "19px"
+    sequenceNumberColor: "#FFFFFF"
+  flowchart:
+    curve: linear
+    wrappingWidth: 300
+    nodeSpacing: 45
+    rankSpacing: 52
+  sequence:
+    mirrorActors: true
+    actorMargin: 60
+    messageMargin: 25
+    boxMargin: 12
+---
 flowchart TB
-    student["学生（事项所有者）"]
-    official["官方网站与通知"]
-    maintainer["规则维护与复核人员"]
-
-    subgraph web["PC Web 前端"]
-        ws["个人事项工作区"]
+    U["个人工作区"] <--> B["业务服务<br/>身份、版本、确认"]
+    B <--> A["Agent 编排器"]
+    A <-->|本次授权| M["外部模型"]
+    A <--> G["受控工具"]
+    subgraph TOOLS["工具能力"]
+    R["检索与解析<br/>读正文、附件"]
+    C["程序检查<br/>计算与四态自查"]
+    W["任务与材料操作<br/>通过业务服务写入"]
     end
-
-    subgraph biz["业务系统"]
-        api["业务服务 API<br/>身份校验 · 事项归属 · 状态维护"]
-        auth["授权与确认服务<br/>L0-L3 授权 · 确认记录 · 版本校验"]
-        store[("业务数据<br/>事项 · 任务 · 个人事实 · 材料版本 · 执行记录")]
-    end
-
-    subgraph agent["Agent 子系统"]
-        orch["Agent 编排器<br/>上下文组装 · 输出校验 · 运行检查点"]
-    end
-
-    llm["外部模型服务"]
-    gw["工具调用网关<br/>参数 · 权限 · 授权等级 · 输入版本 · 操作标识"]
-
-    subgraph readTools["只读工具"]
-        t1["官方资料检索"]
-        t2["通知与附件解析"]
-        t3["条件与日期校验"]
-    end
-
-    subgraph writeTools["写入工具"]
-        t4["个人任务写入"]
-        t5["材料诊断与改写"]
-        t6["材料检查与 DOCX 导出"]
-    end
-
-    subgraph kb["领域知识库"]
-        src[("官方来源与版本<br/>原文切片 · 复核状态")]
-        rules[("规则条目<br/>推免规则包 · 竞赛规则包")]
-        tpl[("事项模板<br/>推免 · 试点竞赛")]
-    end
-
-    student --> ws
-    official -->|"用户导入"| ws
-    ws <--> api
-    api <--> auth
-    api <--> store
-    api <-->|"创建运行 · 事件流 · 提交确认 · 经授权的上下文"| orch
-    orch <-->|"授权材料逐次确认后发送"| llm
-    orch <--> gw
-    gw -->|"校验授权与版本"| auth
-    gw <--> readTools
-    gw <--> writeTools
-    readTools --> kb
-    writeTools -->|"携带操作标识经业务接口写入"| api
-    official -->|"通知与附件"| maintainer
-    maintainer -->|"整理与独立复核"| kb
+    G --> TOOLS
+    R --> S[("官方来源与历史版本")]
+    classDef core fill:#E7F0FF,stroke:#7196C3
+    classDef tools fill:#E9F6F0,stroke:#77A994
+    class U,B,A,G core
+    class R,C,W,S tools
