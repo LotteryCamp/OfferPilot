@@ -502,7 +502,7 @@ flowchart LR
 
 ##### 4.1.4.2 系统层次结构
 
-层次、层内模块与层间通信如图 4-4。图中只画层间关系：L2 将职责相近的配置项合并为 6 个模块（括注 SCI 编号），同层模块之间的调用不画，细节见 4.1.4.1 与 4.1.4.3。上层调用下层；智能体层只经业务服务（含来源服务）与授权代理访问数据，不直连用户会话，也不持有数据库凭据；L5 的运行观测旁路覆盖其余各层（图中不画反向连线），其余箭头为调用关系。
+层次、层内模块与层间通信如图 4-4。图中只画层间关系：L2 将职责相近的配置项合并为 6 个模块（括注 SCI 编号），同层模块之间的调用不画，细节见 4.1.4.1 与 4.1.4.3。上层调用下层；智能体层只经业务服务（含来源服务）与授权代理访问数据，不直连用户会话，也不持有数据库凭据；向外部模型服务的请求仅经层内出站网关发出（IF-04，见图 4-9）；L5 的运行观测旁路覆盖其余各层（图中不画反向连线），其余箭头为调用关系。
 
 ```mermaid
 flowchart TB
@@ -523,6 +523,7 @@ flowchart TB
         KP["SCI-16<br/>规则包"]
         VAL["SCI-17<br/>确定性校验"]
         INBOX["SCI-18<br/>收件箱"]
+        OGW["出站网关"]
     end
     subgraph L4["L4 来源与证据层（SCI-05/06）"]
         SRC["SCI-05<br/>来源检索/导入"]
@@ -541,7 +542,7 @@ flowchart TB
     L3 -->|"检索/读取"| L4
     L4 -->|"IF-05/IF-06"| L5
     L2 -->|"IF-05/IF-06"| L5
-    L3 -->|"IF-04"| LLM
+    OGW -->|"IF-04"| LLM
     L4 -->|"IF-03 只读"| OFF
 ```
 
@@ -1670,7 +1671,7 @@ stateDiagram-v2
 | IF-01 | 用户 ↔ CSCI-WEB | 人机界面 | HTTPS 页面 | CSCI-WEB |
 | IF-02 | CSCI-WEB ↔ CSCI-CORE | 软件—软件 | REST/JSON over HTTPS，JWT；Agent 进度经 SSE（`GET /agent-runs/{runId}/events`） | 双方均为本项目 |
 | IF-03 | CSCI-SOURCE ↔ 官方来源 | 软件—外部系统 | P0 按需检索与人工导入（HTTP(S) 只读，取回一律经 URL 校验层）；P1 定期巡检 | 本系统受约束（D-24、D-31） |
-| IF-04 | CSCI-AGENT ↔ CSCI-LLM | 软件—外部服务 | 模型 API（HTTPS，JSON） | 外部服务 |
+| IF-04 | CSCI-AGENT（出站网关） ↔ CSCI-LLM | 软件—外部服务 | 模型 API（HTTPS，JSON） | 外部服务 |
 | IF-05 | CSCI-CORE/MATERIAL ↔ CSCI-DB | 软件—软件 | SQL（PostgreSQL 5432） | CSCI-DB |
 | IF-06 | CSCI-CORE/MATERIAL ↔ CSCI-STOR | 软件—软件 | S3 兼容 API | CSCI-STOR |
 | IF-07 | CSCI-CORE/AGENT ↔ CSCI-QUEUE | 软件—软件 | 任务队列（消息 JSON） | 双方均为本项目 |
@@ -1685,7 +1686,8 @@ flowchart LR
     U2["质量保障（交付期）"] ---|"IF-08"| WEB
     WEB ---|"IF-02 REST/JSON + SSE"| CORE["CSCI-CORE"]
     SRC["CSCI-SOURCE"] ---|"IF-03 导入/只读"| OFF["官方来源"]
-    AG["CSCI-AGENT"] ---|"IF-04 模型API"| LLM["CSCI-LLM"]
+    AG["CSCI-AGENT"] ---|"模型请求"| OGW["出站网关<br/>（CSCI-AGENT 内）"]
+    OGW ---|"IF-04 模型API"| LLM["CSCI-LLM"]
     AG ---|"IF-11 内部API"| CORE
     CORE ---|"IF-05 SQL"| DB[("CSCI-DB")]
     MAT["CSCI-MATERIAL"] ---|"IF-05 SQL"| DB
