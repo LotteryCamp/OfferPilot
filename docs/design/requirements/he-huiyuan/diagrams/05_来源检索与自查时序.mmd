@@ -1,0 +1,30 @@
+sequenceDiagram
+    autonumber
+    actor U as 当前用户
+    participant API as 事项服务
+    participant AG as Agent
+    participant SRC as 官方检索
+    participant CK as 自动检查
+    participant DB as 分层存储
+    U->>API: 目标或上传通知线索
+    API->>DB: 保存当前事项私有线索
+    API->>AG: 公开事项目标及当前范围
+    AG->>SRC: 最小化公开查询
+    SRC->>SRC: 检查发布入口及地址范围
+    SRC-->>AG: 独立官方原文与附件
+    AG->>CK: 提取字段和原文定位
+    CK->>DB: 开短事务并锁定来源行
+    DB-->>CK: 锁内复查当前快照版本
+    alt 版本最新且检查完成
+        CK->>DB: 登记官方证据及机器状态并提交
+        API->>DB: 读取本人确认的事实版本
+        API->>CK: 执行个人条件对照
+        CK-->>API: 四态结果及依据
+        API-->>U: 个人自查和后续选择
+    else 关键疑点经补检仍不明
+        CK->>DB: 保存具体缺口并提交
+        CK-->>U: 待用户核对及原文位置
+    else 旧快照较晚返回
+        CK->>DB: 旧结果仅存历史并提交 当前版本不回退
+        CK-->>API: 按最新依据重新处理
+    end

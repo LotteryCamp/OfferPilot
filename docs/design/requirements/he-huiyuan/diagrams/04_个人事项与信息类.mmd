@@ -1,0 +1,75 @@
+classDiagram
+    class User {
+      userId
+    }
+    class Workspace {
+      workspaceId
+      ownerId
+    }
+    class Matter {
+      matterId
+      workspaceId
+      parentMatterId
+      scope
+    }
+    class MatterInfoItem {
+      ownerId
+      matterId
+      sourceType
+    }
+    class Fact {
+      factId
+      ownerId
+      factVersion
+      confirmedAt
+    }
+    class PersonalDocument {
+      ownerId
+      docId
+    }
+    class DocumentVersion {
+      versionId
+      docId
+      fileVersion
+      validUntil
+    }
+    class DocumentUsage {
+      usageId
+      matterId
+      documentVersionId
+    }
+    class FactGrant {
+      factId
+      factVersion
+      matterId
+      purpose
+    }
+    class Source {
+      sourceId
+      currentSnapshot
+    }
+    class Snapshot {
+      snapshotId
+      sourceId
+      snapshotVersion
+      fetchedAt
+      machineStatus
+    }
+    class Requirement {
+      matterId
+      locator
+    }
+    User "1" *-- "1" Workspace
+    Workspace "1" *-- "0..*" Matter
+    Matter "0..1" *-- "0..*" Matter : 子事项
+    Matter "1" *-- "0..*" MatterInfoItem
+    Workspace "1" *-- "0..*" Fact
+    Workspace "1" *-- "0..*" PersonalDocument
+    PersonalDocument "1" *-- "1..*" DocumentVersion
+    Matter "1" *-- "0..*" DocumentUsage
+    DocumentUsage --> DocumentVersion : 固定所选版本
+    Matter --> FactGrant : 本人选用
+    FactGrant --> Fact : 绑定事实版本
+    Source "1" *-- "1..*" Snapshot
+    Matter "1" *-- "0..*" Requirement
+    Requirement --> Snapshot : 原文定位
