@@ -834,6 +834,7 @@ classDiagram
     class ModelTransferConsent {
         +String consentId
         +String userId
+        +String matterId
         +String provider
         +String fieldScope
         +String purpose
@@ -844,9 +845,14 @@ classDiagram
     class ModelTransferRecord {
         +String recordId
         +String requestId
+        +String userId
+        +String matterId
         +String runId
+        +Mode mode
         +String provider
+        +String purpose
         +String fieldScope
+        +String materialVersionId
         +long consentVersion
         +TransferStatus status
         +String knownSentScope
