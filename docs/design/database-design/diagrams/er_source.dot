@@ -1,0 +1,21 @@
+digraph ER {
+    graph [rankdir=TB, splines=ortho, nodesep=0.12, ranksep=0.30,
+           fontname="Microsoft YaHei", bgcolor="white", pad="0.2"];
+    node  [fontname="Microsoft YaHei", shape=plaintext];
+    edge  [fontname="Microsoft YaHei", fontsize=10, color="#5B6B85",
+           dir=both, arrowtail=tee, arrowhead=crow, penwidth=1.2];
+
+    "ops.source" [shape=plaintext, fontsize=15, label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#0E6E62" BGCOLOR="white"><TR><TD WIDTH="162" BGCOLOR="#E9F6F3" ALIGN="CENTER"><FONT COLOR="#0E6E62">来源<BR/>source</FONT></TD><TD BGCOLOR="#E9F6F3"></TD><TD BGCOLOR="#E9F6F3"></TD></TR><TR><TD ALIGN="LEFT" PORT="id">id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">PK</TD></TR><TR><TD ALIGN="LEFT" PORT="publisher">publisher</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT"></TD></TR><TR><TD ALIGN="LEFT" PORT="url">url</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">UK</TD></TR></TABLE>>];
+    "ops.snapshot" [shape=plaintext, fontsize=15, label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#0E6E62" BGCOLOR="white"><TR><TD WIDTH="162" BGCOLOR="#E9F6F3" ALIGN="CENTER"><FONT COLOR="#0E6E62">快照<BR/>snapshot</FONT></TD><TD BGCOLOR="#E9F6F3"></TD><TD BGCOLOR="#E9F6F3"></TD></TR><TR><TD ALIGN="LEFT" PORT="id">id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">PK</TD></TR><TR><TD ALIGN="LEFT" PORT="source_id">source_id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">FK</TD></TR><TR><TD ALIGN="LEFT" PORT="fetched_at">fetched_at</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT"></TD></TR></TABLE>>];
+    "core.requirement" [shape=plaintext, fontsize=15, label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#1F3A5F" BGCOLOR="white"><TR><TD WIDTH="162" BGCOLOR="#EDF3FB" ALIGN="CENTER"><FONT COLOR="#1F3A5F">要求<BR/>requirement</FONT></TD><TD BGCOLOR="#EDF3FB"></TD><TD BGCOLOR="#EDF3FB"></TD></TR><TR><TD ALIGN="LEFT" PORT="id">id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">PK</TD></TR><TR><TD ALIGN="LEFT" PORT="snapshot_id">snapshot_id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">FK</TD></TR><TR><TD ALIGN="LEFT" PORT="field_key">field_key</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT"></TD></TR></TABLE>>];
+    "ops.evidence" [shape=plaintext, fontsize=15, label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#0E6E62" BGCOLOR="white"><TR><TD WIDTH="162" BGCOLOR="#E9F6F3" ALIGN="CENTER"><FONT COLOR="#0E6E62">证据<BR/>evidence</FONT></TD><TD BGCOLOR="#E9F6F3"></TD><TD BGCOLOR="#E9F6F3"></TD></TR><TR><TD ALIGN="LEFT" PORT="id">id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">PK</TD></TR><TR><TD ALIGN="LEFT" PORT="snapshot_id">snapshot_id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">FK</TD></TR><TR><TD ALIGN="LEFT" PORT="locator">locator</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT"></TD></TR></TABLE>>];
+    "core.evaluation" [shape=plaintext, fontsize=15, label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#1F3A5F" BGCOLOR="white"><TR><TD WIDTH="162" BGCOLOR="#EDF3FB" ALIGN="CENTER"><FONT COLOR="#1F3A5F">四态评估<BR/>evaluation</FONT></TD><TD BGCOLOR="#EDF3FB"></TD><TD BGCOLOR="#EDF3FB"></TD></TR><TR><TD ALIGN="LEFT" PORT="id">id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">PK</TD></TR><TR><TD ALIGN="LEFT" PORT="requirement_id">requirement_id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">FK</TD></TR><TR><TD ALIGN="LEFT" PORT="conclusion">conclusion</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT"></TD></TR></TABLE>>];
+    "ops.source_gap" [shape=plaintext, fontsize=15, label=<<TABLE BORDER="1" CELLBORDER="0" CELLSPACING="0" CELLPADDING="6" COLOR="#0E6E62" BGCOLOR="white"><TR><TD WIDTH="162" BGCOLOR="#E9F6F3" ALIGN="CENTER"><FONT COLOR="#0E6E62">来源缺口<BR/>source_gap</FONT></TD><TD BGCOLOR="#E9F6F3"></TD><TD BGCOLOR="#E9F6F3"></TD></TR><TR><TD ALIGN="LEFT" PORT="id">id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">PK</TD></TR><TR><TD ALIGN="LEFT" PORT="matter_id">matter_id</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT">FK</TD></TR><TR><TD ALIGN="LEFT" PORT="gap_type">gap_type</TD><TD WIDTH="14"></TD><TD ALIGN="LEFT"></TD></TR></TABLE>>];
+
+    "ops.source" -> "ops.snapshot" [label="发布"];
+    "ops.snapshot" -> "core.requirement" [label="抽取"];
+    "ops.source" -> "ops.evidence";
+    "ops.snapshot" -> "ops.evidence" [label="定位"];
+    "core.requirement" -> "core.evaluation" [label="评估"];
+    "core.requirement" -> "ops.source_gap";
+}
