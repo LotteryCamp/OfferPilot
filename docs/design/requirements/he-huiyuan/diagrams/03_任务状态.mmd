@@ -1,22 +1,18 @@
 stateDiagram-v2
-    state 就绪 as Ready
-    state 阻塞 as Blocked
-    state 进行中 as Running
-    state 已完成 as Done
-    state 已取消 as Cancelled
-    [*] --> Ready: 已确认计划且依赖满足
-    [*] --> Blocked: 已确认计划但前置未满足
-    Ready --> Running: 学生开始或授权执行
-    Ready --> Blocked: 前置失效或依据待核实
+    state "就绪" as Ready
+    state "阻塞" as Blocked
+    state "进行中" as Running
+    state "已完成" as Done
+    state "已取消" as Cancelled
+    [*] --> Ready: 计划已确认且依赖满足
+    [*] --> Blocked: 计划已确认但前置不足
+    Ready --> Running: 用户开始或授权执行
+    Ready --> Blocked: 前置失效或关键来源不明
     Running --> Blocked: 新冲突或前置失效
-    Blocked --> Ready: 补齐并核验前置条件
-    Running --> Done: 记录完成动作及证据
-    Ready --> Cancelled: 学生取消
-    Blocked --> Cancelled: 学生取消
-    Running --> Cancelled: 学生取消并停止后续动作
+    Blocked --> Ready: 补齐并完成相应检查
+    Running --> Done: 保存实际结果与完成依据
+    Ready --> Cancelled: 用户取消
+    Blocked --> Cancelled: 用户取消
+    Running --> Cancelled: 停止后续动作并记录
     Done --> [*]
     Cancelled --> [*]
-    note right of Done
-        新规则影响已完成任务时保留历史
-        另建复核或补交任务
-    end note
