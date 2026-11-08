@@ -43,16 +43,16 @@ sequenceDiagram
     participant T as 受控工具
     participant M as 外部模型
     U->>B: 请求修改材料
-    B-->>U: 说明本次发送内容
-    U->>B: 同意本次处理
-    B->>T: 提交授权与材料版本
-    break 发送前授权无效
+    B-->>U: 说明外发范围与模型服务
+    U->>B: 单独同意本次传输
+    B->>T: 传入同意记录及材料版本
+    break 发送前未同意或已撤回
         B-->>U: 停止发送
     end
     T->>M: 发送必要内容
     M-->>T: 返回候选改稿
-    break 保存前授权已撤回
-        B-->>U: 丢弃结果
+    break 发送后、保存前撤回
+        B-->>U: 停止后续传输，丢弃结果
     end
     T->>B: 保存候选稿与差异
     B-->>U: 展示差异，保留原稿
@@ -61,6 +61,6 @@ sequenceDiagram
         B-->>U: 导出定稿 DOCX
     else 字段待确认
         B-->>U: 导出未定稿副本
-    else 权限无效
+    else 导出权限无效
         B-->>U: 停止导出
     end
