@@ -166,7 +166,11 @@ def scan_file(md_path: Path, root: Path, result: Result) -> None:
                 fence_char = marker[0]
                 fence_length = len(marker)
                 continue
-            if marker[0] == fence_char and len(marker) >= fence_length:
+            if (
+                marker[0] == fence_char
+                and len(marker) >= fence_length
+                and not line[fence.end():].strip()
+            ):
                 in_fence = False
                 continue
         if in_fence:
