@@ -5,6 +5,6 @@
 - `agent/`： Agent 相关文档
 - `backend/`: 后端相关文档
 - `frontend/`: 前端相关文档
-- `misc/`: 杂项文档。存放课程要求的合规格式文档（PDF 等）。
+- `design/`: 总体设计文档
 
 Develop For Fun!
