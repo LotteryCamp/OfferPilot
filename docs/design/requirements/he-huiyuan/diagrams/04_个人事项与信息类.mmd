@@ -9,6 +9,7 @@ classDiagram
     class Matter {
       matterId
       workspaceId
+      parentMatterId
       scope
     }
     class MatterInfoItem {
@@ -60,6 +61,7 @@ classDiagram
     }
     User "1" *-- "1" Workspace
     Workspace "1" *-- "0..*" Matter
+    Matter "0..1" *-- "0..*" Matter : 子事项
     Matter "1" *-- "0..*" MatterInfoItem
     Workspace "1" *-- "0..*" Fact
     Workspace "1" *-- "0..*" PersonalDocument

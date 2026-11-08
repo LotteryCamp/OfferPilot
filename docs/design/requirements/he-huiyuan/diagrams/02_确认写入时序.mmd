@@ -19,7 +19,10 @@ sequenceDiagram
     DB-->>WS: 锁内当前来源及本人版本
     WS->>CK: 在锁内复查授权及候选版本
     Note over WS,DB: 刷新及本人资料变更共用对应守卫
-    alt 授权或版本不符
+    alt 已提交的opId
+        CK-->>WS: 返回原任务与确认记录
+        WS-->>UI: 原结果 不重复写入
+    else 授权或版本不符
         CK-->>WS: 拒绝旧确认
         WS->>DB: 整体回滚
         WS-->>UI: 待核对对象和恢复入口

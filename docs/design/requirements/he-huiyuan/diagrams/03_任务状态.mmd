@@ -14,5 +14,9 @@ stateDiagram-v2
     Ready --> Cancelled: 用户取消
     Blocked --> Cancelled: 用户取消
     Running --> Cancelled: 停止后续动作并记录
+    note right of Done
+        来源或事实变化时保留已完成历史
+        另建关联的复核或补交任务
+    end note
     Done --> [*]
     Cancelled --> [*]
