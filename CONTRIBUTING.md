@@ -61,10 +61,10 @@ cd OfferPilot
 PR 由其他维护者进行审查。当项目测试体系建立后，一个 PR 可能经过：
 
 - 自动化测试
-- GitHub Copilot 等 Agent 审查
+- Sourcery 等 Agent 审查
 - 其他维护者人工审查
 
-PR 需要解决测试和审查过程中抛出的问题，在对应的分支上修复代码，并推送新的提交。
+PR 提交者需要解决测试和审查过程中抛出的问题（包括 Request changes、Conversation、Comment），在对应的分支上修复代码，并推送新的提交。
 
 审查者需要及时给予 Comments 和 Review，提出疑问和改进建议。当然，如果你没什么可以说的，LGTM (Look Good To Me) 即可。
 
