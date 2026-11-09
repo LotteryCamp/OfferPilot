@@ -1,0 +1,115 @@
+{
+  "date": "2026-11-09",
+  "sourceZip": "prototyping.zip",
+  "zipSha256": "03291577092F5FA41D7F140CDD7C1F9FEAB391DDA15D89555694259254BBBAA8",
+  "zipBytes": 1915296,
+  "descriptionSha256": "B831576DF444D8088A9704268E7846E5DD8FE1EA34D765A723AC79ED72EF0E16",
+  "descriptionLines": 162,
+  "images": [
+    {
+      "file": "Agent任务.png",
+      "width": 1422,
+      "height": 1299,
+      "sha256": "65B33C5E898295979D7DBB1439862B6DFD85B460C4DA29E8E974426DC22EC787",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图状态、步骤和耗时列表一致；有详情／异常入口，但没有本地详情状态截图。"
+    },
+    {
+      "file": "Agent待处理.png",
+      "width": 1440,
+      "height": 960,
+      "sha256": "EAB8064E3CF9CF437A2DCB9CD200E6B9DC58BE04648C70BBB7C99C0F2353F5F4",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "确认与异常分组清楚；旧图超时仅显示可重试文字；Page2独立重试按钮属于作者描述。"
+    },
+    {
+      "file": "Agent生成草稿.png",
+      "width": 1440,
+      "height": 999,
+      "sha256": "763E0D201D60443B5F6E818608E5D829D4ACA869BAE8DFBE3B8676222A8B4CAE",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图草稿与事实依据分区、职责缺口保留；未见自行填造职责，但按钮动作不可验证。"
+    },
+    {
+      "file": "与Agent对话.png",
+      "width": 1440,
+      "height": 960,
+      "sha256": "57D1F0F8E1A795324ED6A4A0B038F91761D6F1FAEC048E15A6370896420382A8",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "统一Pilot入口、当前事项与预设材料入口可见；不能验证任意输入或发送行为。"
+    },
+    {
+      "file": "事项工作台.png",
+      "width": 1440,
+      "height": 960,
+      "sha256": "1BEC0810781E8B363747A88BC6E094F87DD0200EF12395C8CBED3E44BD9997D7",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧版紫色主按钮、事项卡片与侧栏层次清楚；有三个事项入口，不能证明Page2“仅展示”标记或创建动作。"
+    },
+    {
+      "file": "事项概览.png",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "8ADCCAEEE5E57D0EEC3355B80D3EEFD375F1D98A0F10CA1D8D84FC21FD0EDBEE",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图通知提示09.10，主指标仍为4天／09.12；这是旧版日期表达问题，不能认定Page2仍有。"
+    },
+    {
+      "file": "审阅候选计划.png",
+      "width": 1440,
+      "height": 964,
+      "sha256": "B928C2A8A766AC3881E2A50CEFFA9EE363F12E2705F26C465E367BAA8475CE7C",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图只有返回，没有明确确认采纳；正文声称Page2已补，不能用此图确认新版本缺陷。"
+    },
+    {
+      "file": "材料写作台.png",
+      "width": 1440,
+      "height": 999,
+      "sha256": "D0D04B044C823E53B478B26577EDA587D808BCACBFDFB93314EC2CBCA9B755D2",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图明确原件只读、F02／S02引用；仍写TXT演示副本；右区原稿与建议上下排列，不等于左右同步逐行差异。"
+    },
+    {
+      "file": "来源与条件.png",
+      "width": 1440,
+      "height": 960,
+      "sha256": "73966F020427FC1F5B25873315196F81D5D76D928A7802EAEAF95AE9A13C9B52",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图左右来源／条件结构清楚，用“待复核／待补充／待核实”等旧标签；不能据此否定正文描述的Page2四态修订。"
+    },
+    {
+      "file": "知识与规则.png",
+      "width": 1422,
+      "height": 1163,
+      "sha256": "A31CECC2DB188B20B9F86932140B0E302BD9F64281367BC8201F731939DCA731",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图仍有人工审核→发布生效及审核发布；来源名称列碎片换行。不能据此重判Page2后台仍越界。"
+    },
+    {
+      "file": "运行概览.png",
+      "width": 1422,
+      "height": 1352,
+      "sha256": "19E012E345722ED07F0264D489AE488A6AA89061E52135082C09A7B5F7EB6997",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "统计和异常层次清楚；旧图仍写知识库规则已发布、日期冲突需管理员复核；仅用于历史对照。"
+    },
+    {
+      "file": "通知更新.png",
+      "width": 1440,
+      "height": 960,
+      "sha256": "6546112920F0876BEE0B9894CA9B836977D9F6B9120374DAE1F9E3DD218FBC49",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图新旧条款与影响分区；仅返回入口，不证明Page2确认更新按钮是否存在或有效。"
+    },
+    {
+      "file": "阶段与任务.png",
+      "width": 1440,
+      "height": 960,
+      "sha256": "CAEE9FD14E231B001BCD8875D49B610E20CFB7F637E56A3112AC5B1399D6D366",
+      "version": "Page 1, explicitly stated by prototype.md line 13",
+      "observation": "旧图有三类筛选、五项官方必需任务及前置受阻；未提供筛选动作证据。"
+    }
+  ],
+  "evidenceLimit": "Images are Page1 per line13; Page2 references and test claims are supplied by author. No local Page2 screenshots, reaction export, executable prototype, or actual runtime trace included."
+}
