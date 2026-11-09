@@ -37,23 +37,22 @@ config:
     messageMargin: 25
     boxMargin: 12
 ---
-sequenceDiagram
-    actor U as 学生
-    participant B as 业务服务
-    participant A as Agent
-    participant T as 受控工具
-    U->>B: 导入通知
-    B->>A: 传入事项与必要信息
-    A->>T: 查官方原文与附件，逐项检查
-    T-->>A: 四态结果与原文依据
-    A-->>B: 提交候选计划
-    B-->>U: 展示自查与计划
-    U->>B: 确认具体版本
-    alt 确认有效且首次受理
-        B->>A: 授权执行
-        A->>T: 写入个人任务
-        T->>B: 复查版本并写入
-        B-->>U: 展示写入结果
-    else 版本已变或重复确认
-        B-->>U: 提示重新审阅或返回已有结果
-    end
+flowchart TB
+    S([开始]) --> R["查官方通知，读正文和附件"]
+    R --> C["提取要求，程序自动检查"]
+    C --> Q{"规则与数据可用？"}
+    Q -->|"缺个人数据"| P["待补充信息"]
+    Q -->|"规则存疑"| H["补检后仍存疑：<br/>待用户核对"]
+    Q -->|"可判断"| V["按现有信息符合<br/>或按现有信息不符合"]
+    P --> E["暂停该条判断<br/>补充或核对后复查"]
+    H --> E
+    E -. 其余条目可继续 .-> N
+    V --> N["展示依据与候选计划"]
+    N --> J{"用户确认？"}
+    J -->|"确认且版本有效"| W["写入个人任务"]
+    J -->|"暂不确认"| D["保留候选计划"]
+    W --> X([展示实际结果])
+    classDef core fill:#E7F0FF,stroke:#7196C3
+    classDef wait fill:#FFF3E2,stroke:#C09B68
+    class R,C,N,W core
+    class P,H,E,D wait
