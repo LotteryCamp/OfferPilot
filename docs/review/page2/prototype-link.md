@@ -30,4 +30,4 @@
 3. 配置级审查需另行只读获取原生reaction、滚动和Auto Layout信息；本轮不虚填已读取。
 4. 请勿在提交包放cookies、密码、登录设置URL或个人账户资料。本包没有这些内容。
 
-历史访问阻碍与TinyFish辅助观察保留在[历史v3](evidence/history/v3/prototype-link.md)与[原日志审计](evidence/tinyfish/runtime-audit.md)，其等待登录状态已被本轮复测取代。
+早期浏览器初检的等待登录状态已被本轮真实浏览器复测取代。
