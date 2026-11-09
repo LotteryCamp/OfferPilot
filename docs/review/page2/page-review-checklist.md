@@ -1,0 +1,35 @@
+# Page 2 页面审查清单（v4）
+
+> 2026-11-09（Asia/Shanghai）／v4 真实浏览器复测
+> 本轮只读访问原始 Page 2，未修改 Figma、未发送消息、未提交 Git。浏览器中的合成演示不等于真实数据处理、真实 DOCX 导出或上线功能验收。
+> 本文最新结论以本轮真实PNG、坐标动作及URL记录为准。旧版“等待登录／55条未执行／确认缺陷0”等是历史状态，不再作为当前结论。
+
+
+## 按页面检查
+
+|编号|页面／模块|Page2定位|实际观察与可操作性|问题／未验证|证据|
+|---|---|---|---|---|---|
+|PG-01|事项列表|001、007、048|创建入口可用，成功新增卡片，新版通知工作台09.10可见。其他事项明确仅展示。|LIVE-03；非推免主线待补证|[003 new-workspace](evidence/live-browser/003-new-workspace.png)、[007 create-filled](evidence/live-browser/007-create-filled.png)、[048 updated-workbench](evidence/live-browser/048-updated-workbench.png)|
+|PG-02|新建工作区|314:181、332:28338、332:28425、332:28515|空表单报两个字段错误；填示例后创建成功。输入为预设状态，不是任意表单输入实现。|取消、失败、重试、无来源未测；LIVE-03|[003 new-workspace](evidence/live-browser/003-new-workspace.png)、[004 create-empty-validation](evidence/live-browser/004-create-empty-validation.png)、[006 fill-example-correct](evidence/live-browser/006-fill-example-correct.png)、[007 create-filled](evidence/live-browser/007-create-filled.png)、[008 enter-new-item](evidence/live-browser/008-enter-new-item.png)|
+|PG-03|工作区首页|332:28627、314:453、332:30544|新建概览、旧通知待确认、新通知确认后概览均已进入；更新日剩2天。|新建身份丢失、排名待办倒退；LIVE-03/04|[008 enter-new-item](evidence/live-browser/008-enter-new-item.png)、[031 overview-before-notice](evidence/live-browser/031-overview-before-notice.png)、[033 notice-later](evidence/live-browser/033-notice-later.png)、[035 notice-confirm-update](evidence/live-browser/035-notice-confirm-update.png)、[049 reenter-updated-item](evidence/live-browser/049-reenter-updated-item.png)|
+|PG-04|来源与要求／来源与条件|314:613、332:28756、332:28873|来源范围、S02 §2、本人确认18/120=15%、四态图例和非正式认定文字可见。|未点击官方原文、未测不符合实际分支及过时来源；LIVE-04|[009 new-item-source](evidence/live-browser/009-new-item-source.png)、[010 rank-ask](evidence/live-browser/010-rank-ask.png)、[011 rank-confirm](evidence/live-browser/011-rank-confirm.png)|
+|PG-05|Agent交互与候选计划|314:1395、314:713、332:29006|计划拒绝5项／确认7项；材料预设对话可达、职责确认后更新草稿。|撤销、重复确认、自由输入未测；LIVE-04/07|[012 agent-pending](evidence/live-browser/012-agent-pending.png)、[013 review-candidate-plan](evidence/live-browser/013-review-candidate-plan.png)、[014 plan-decline](evidence/live-browser/014-plan-decline.png)、[016 plan-confirm](evidence/live-browser/016-plan-confirm.png)、[018 agent-conversation](evidence/live-browser/018-agent-conversation.png)、[021 send-request-correct](evidence/live-browser/021-send-request-correct.png)、[022 supplement-role](evidence/live-browser/022-supplement-role.png)、[023 confirm-role-update-draft](evidence/live-browser/023-confirm-role-update-draft.png)|
+|PG-06|任务管理|314:810、332:29006、332:30692|新候选只在确认后加入；通知分支原5+T08=6并保留执行状态，筛选1项/5项可达。|一般完成／撤销任务未测；枚举与排名问题见LIVE-04/07|[014 plan-decline](evidence/live-browser/014-plan-decline.png)、[016 plan-confirm](evidence/live-browser/016-plan-confirm.png)、[036 notice-affected-tasks](evidence/live-browser/036-notice-affected-tasks.png)、[037 updated-task-filter-completed](evidence/live-browser/037-updated-task-filter-completed.png)、[038 updated-task-filter-uncompleted](evidence/live-browser/038-updated-task-filter-uncompleted.png)|
+|PG-07|资料查看／材料清单|314:1098、351:679|已见原件只读、材料列表和已确认版回写作台；未进入完整原文件预览。|完整预览、历史恢复仍待测；通知材料缺口LIVE-02|[017 materials-workbench](evidence/live-browser/017-materials-workbench.png)、[030 return-confirmed-materials](evidence/live-browser/030-return-confirmed-materials.png)、[040 notice-affected-materials](evidence/live-browser/040-notice-affected-materials.png)|
+|PG-08|材料修改对照|332:29464、332:29717、332:29594|左右原段落／建议段落，拒绝保留事实确认、重审、接受分支实际可达。|仅单项示例，多项独立决定及历史恢复未测；LIVE-01|[024 add-draft-to-review](evidence/live-browser/024-add-draft-to-review.png)、[025 reject-material-suggestion](evidence/live-browser/025-reject-material-suggestion.png)、[026 material-review-again](evidence/live-browser/026-material-review-again.png)、[027 accept-material-suggestion](evidence/live-browser/027-accept-material-suggestion.png)、[075 resume-diff-responsive](evidence/live-browser/075-resume-diff-responsive.png)|
+|PG-09|事项归档|332:29941、332:30844|材料归档记录F02/来源/接受/模拟导出；通知归档记录v1.1/旧版替代及任务范围。|本人外部办理结果、跨事项复用未测；LIVE-02|[028 export-copy](evidence/live-browser/028-export-copy.png)、[029 material-archive](evidence/live-browser/029-material-archive.png)、[039 notice-update-archive](evidence/live-browser/039-notice-update-archive.png)|
+|PG-10|官方资料与知识库管理|314:2100|自动检索→提取→检查→保留元数据已核实，无人工审核发布前置。|首行查看记录无可见反馈LIVE-06；不能断言其他详情均不存在|[051 admin-official-sources](evidence/live-browser/051-admin-official-sources.png)、[052 admin-source-record](evidence/live-browser/052-admin-source-record.png)、[053 admin-source-record-arrow](evidence/live-browser/053-admin-source-record-arrow.png)|
+|PG-11|领域规则与事项模板|未取得独立模板节点|知识页有来源类型与条目计数；这些不是模板列表或模板版本证据。|待验证／交付入口缺口DOC-06，不确认全文件缺失|[051 admin-official-sources](evidence/live-browser/051-admin-official-sources.png)|
+|PG-12|Agent执行与异常管理|314:2452、332:30438|从运行概览经Agent任务进入AG-1048异常详情；显示超时、1/4检查点、脱敏边界。|实际停止／重试／权限未测；窄桌面LIVE-05|[050 admin-entry](evidence/live-browser/050-admin-entry.png)、[054 admin-agent-runs](evidence/live-browser/054-admin-agent-runs.png)、[055 admin-exception-detail](evidence/live-browser/055-admin-exception-detail.png)、[067 responsive-admin-return-list](evidence/live-browser/067-responsive-admin-return-list.png)、[072 admin-table-responsive-1440](evidence/live-browser/072-admin-table-responsive-1440.png)、[073 admin-table-responsive-1920](evidence/live-browser/073-admin-table-responsive-1920.png)|
+|PG-13|全局导航、时间总览与桌面|332:30969、351:1078；Responsive模式|新版日历、工作台、重入事项保持09.10；后台详情/表格检查三宽度。|材料仅1440 Responsive；200%和键盘未测；LIVE-03/04/05|[047 notice-calendar-verified-click](evidence/live-browser/047-notice-calendar-verified-click.png)、[048 updated-workbench](evidence/live-browser/048-updated-workbench.png)、[049 reenter-updated-item](evidence/live-browser/049-reenter-updated-item.png)、[062 open-options-fast](evidence/live-browser/062-open-options-fast.png)、[063 enable-responsive-mode](evidence/live-browser/063-enable-responsive-mode.png)、[064 admin-responsive-1440](evidence/live-browser/064-admin-responsive-1440.png)、[065 admin-responsive-1920](evidence/live-browser/065-admin-responsive-1920.png)、[066 admin-responsive-1280](evidence/live-browser/066-admin-responsive-1280.png)、[067 responsive-admin-return-list](evidence/live-browser/067-responsive-admin-return-list.png)、[072 admin-table-responsive-1440](evidence/live-browser/072-admin-table-responsive-1440.png)、[073 admin-table-responsive-1920](evidence/live-browser/073-admin-table-responsive-1920.png)、[075 resume-diff-responsive](evidence/live-browser/075-resume-diff-responsive.png)|
+
+## UI/UX与桌面布局建议
+
+1. 主色、浅底卡片、深紫主按钮与文字状态标签在所测页基本一致；顶部标签在原有页面与修订页间出现不同图标／编号、行高与页头大小，建议统一。此为一致性建议，不冒充任务阻断。
+2. 先修状态连贯性：本人确认后仍显示待补比细小间距更容易误导用户；新建与已有事项必须保持身份，或明确切换演示。
+3. 差异页有左右对照，但所测文本没有逐句增删高亮；建议对改动职责用文字标记或高亮并解释原因。不要只依赖颜色，也无需重做全部布局。
+4. 后台1280表格必须保留可到达的操作列，优先固定操作或局部滚动。1920时表格列保持原宽、容器右侧大面积留白可后续优化，非本轮必须重画项。
+5. 长画面底部内容可通过查看器滚动看到；不把首屏之外自动当缺失。Actual size下裁切不等于响应式失败；062–073的Responsive记录才用于相应定性。
+6. 本轮没有测量颜色对比度、200%缩放或键盘焦点，也没有完成材料页1280/1920测试；这些仍是明确待验证事项。
+
+三条主线与55条结果见[交互用例](interaction-test-cases.md)；具体可复现缺陷见[问题清单](issue-log.md)。

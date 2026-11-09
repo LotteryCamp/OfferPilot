@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-09",
+  "revision": "v4_live_browser_retest",
+  "scope": "Artifact and evidence integrity; no claim all business tests passed",
+  "requiredMarkdown": 5,
+  "moduleChecklists": 13,
+  "testCases": 55,
+  "statusCounts": {
+    "已测不通过": 7,
+    "部分执行": 26,
+    "未执行": 20,
+    "原型分支通过": 2
+  },
+  "endToEndAcceptancePassed": 0,
+  "confirmedPrototypeIssues": 7,
+  "p1Issues": 4,
+  "p2Issues": 3,
+  "newLivePngs": 75,
+  "pngDimensionsChecked": 75,
+  "sourceExportPngs": 13,
+  "sourceImageVersion": "Page1",
+  "sourceAssetHashes": "passed",
+  "relativeLinksValidated": 478,
+  "historicalSnapshotsLinkScope": "Raw v3 snapshots retained in their original text; excluded from current-link validation",
+  "nativePrototypeConfigRead": false,
+  "studentExceptionRecovery": "not executed",
+  "materialResponsive1280And1920": "not executed",
+  "trueDocxFileTest": "not executed",
+  "figmaMutations": 0,
+  "gitActions": 0
+}

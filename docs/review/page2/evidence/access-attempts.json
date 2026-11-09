@@ -1,0 +1,61 @@
+{
+  "revision": "v4_live_browser_retest",
+  "date": "2026-11-09",
+  "historicalRecord": "history/v3/access-attempts.json",
+  "target": {
+    "fileKey": "VY1sWwkYE55AESpwZwter6",
+    "pageId": "314:90",
+    "pageTitleObserved": "OfferPilot - Page 2",
+    "nativePageRead": false,
+    "presentRead": true
+  },
+  "figmaMcp": {
+    "recoveryVerified": false,
+    "lastKnownError": "Figma MCP tool call limit on the Starter plan"
+  },
+  "tinyfish": {
+    "savedProfileUsed": true,
+    "reauthenticationRequested": false,
+    "authRuns": 5,
+    "limitation": "Cannot reliably target canvas business hotspots"
+  },
+  "localBrowser": {
+    "browser": "Chrome",
+    "isolatedContext": true,
+    "copiedUserCookies": false,
+    "screenshots": 75,
+    "actionLog": "live-browser/actions.jsonl",
+    "viewports": [
+      {
+        "width": 1280,
+        "height": 900
+      },
+      {
+        "width": 1440,
+        "height": 1000
+      },
+      {
+        "width": 1920,
+        "height": 1080
+      }
+    ],
+    "responsiveModeConfirmedAt": 63
+  },
+  "conclusions": {
+    "businessScenariosAttempted": 3,
+    "endToEndAcceptancePassed": 0,
+    "confirmedPrototypeIssues": 7,
+    "screenshotsAcquired": 75,
+    "nativeReactionsRead": false,
+    "designMutated": false,
+    "gitActions": 0
+  },
+  "remainingBlock": {
+    "type": "automatic_approval_service_usage_limit",
+    "unexecutedActions": [
+      "material responsive 1280/1920/1440 next batch",
+      "student exceptions recovery"
+    ],
+    "loginIsCurrentBlock": false
+  }
+}

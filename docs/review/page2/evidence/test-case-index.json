@@ -1,0 +1,1938 @@
+{
+  "date": "2026-11-09",
+  "revision": "v4_live_browser_retest",
+  "targetPageName": "Page 2 (browser title independently observed)",
+  "targetPageIdSupplied": "314:90",
+  "execution": "real_clicks_and_partial_responsive_review",
+  "documentWalkthroughs": 3,
+  "total": 55,
+  "tests": [
+    {
+      "id": "C01",
+      "group": "① 首次创建推免申请工作区",
+      "title": "创建主线",
+      "pre": "新用户／无事项；使用合成资料",
+      "steps": "事项列表→新建→填名称、范围、年度→来源解析→追问→本人确认→候选计划→确认→任务列表",
+      "expected": "当前本人事项正确；成功反馈明确；确认前不创建执行任务；全程可返回。",
+      "status": "已测不通过",
+      "actual": "已点新建、空表校验、填入预设、创建并进入“新建示例”。从该页点来源后进入既有事项标题与基线任务，未明确切换场景，新建事项上下文未连续保持。",
+      "evidence": "原始导出说明 L25、156；332:28515；evidence/tinyfish/creation-run.json；审计见evidence/tinyfish/runtime-audit.md；evidence/live-browser/002-dismiss-cookie.png；evidence/live-browser/003-new-workspace.png；evidence/live-browser/004-create-empty-validation.png；evidence/live-browser/006-fill-example-correct.png；evidence/live-browser/007-create-filled.png；evidence/live-browser/008-enter-new-item.png；evidence/live-browser/009-new-item-source.png；evidence/live-browser/010-rank-ask.png；evidence/live-browser/011-rank-confirm.png；evidence/live-browser/012-agent-pending.png；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/014-plan-decline.png；evidence/live-browser/016-plan-confirm.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L25、156；332:28515",
+        "observation": "描述必填、示例、成功和新事项入口；整个主线原生连接未核验。"
+      },
+      "runtimeAttempt": {
+        "provider": "TinyFish",
+        "run_id": "7cb44f39-1d14-4fff-810c-0ff8c954cb16",
+        "run_url": "https://agent.tinyfish.ai/runs/7cb44f39-1d14-4fff-810c-0ff8c954cb16",
+        "observation": "TinyFish报告在学生工作台尝试新建、进入工作区后未见变化。未取得可靠截图或动作配置，不确认产品缺陷；后续创建步骤未到达。",
+        "verdict": "not_verified",
+        "screenshot_artifact": null
+      },
+      "previousRevision": {
+        "status": "局部尝试／受阻",
+        "actual": "浏览器初检：TinyFish报告在学生工作台尝试新建、进入工作区后未见变化。未取得可靠截图或动作配置，不确认产品缺陷；后续创建步骤未到达。；原离线观察：描述必填、示例、成功和新事项入口；整个主线原生连接未核验。",
+        "evidence": "原始导出说明 L25、156；332:28515；evidence/tinyfish/creation-run.json；审计见evidence/tinyfish/runtime-audit.md"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          2,
+          3,
+          4,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          16
+        ],
+        "limitations": [
+          "判定限于本次原型路由与可见上下文；不推断真实跨事项数据泄露。",
+          "预设填入不等于任意输入、真实创建或来源解析能力通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C02",
+      "group": "① 首次创建推免申请工作区",
+      "title": "必填与错误纠正",
+      "pre": "创建表单为空",
+      "steps": "尝试创建→查看字段错误→补齐→重试",
+      "expected": "字段级提示；保留其他输入；不生成半成品／重复事项。",
+      "status": "部分执行",
+      "actual": "空表点击创建出现名称、事项类型两项字段级必填提示；点击正确的“填入示例”后进入已填页并成功创建。",
+      "evidence": "原始导出说明 L25、156；Page1图片仅作旧版参考；evidence/live-browser/003-new-workspace.png；evidence/live-browser/004-create-empty-validation.png；evidence/live-browser/006-fill-example-correct.png；evidence/live-browser/007-create-filled.png",
+      "documentReview": {
+        "status": "文档有描述",
+        "source": "L25、156",
+        "observation": "空表单创建报必填、填示例后成功；真实错误定位和输入保留待测。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：空表单创建报必填、填示例后成功；真实错误定位和输入保留待测。",
+        "evidence": "原始导出说明 L25、156；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          3,
+          4,
+          6,
+          7
+        ],
+        "limitations": [
+          "未验证任意输入、保留已填字段或重复创建防重；不将子路径扩展为完整用例通过。",
+          "第5次坐标未命中正确按钮，第6次纠正后成功，不作为按钮故障。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C03",
+      "group": "① 首次创建推免申请工作区",
+      "title": "取消创建",
+      "pre": "填入部分资料但尚未确认",
+      "steps": "取消／返回→回到事项列表",
+      "expected": "不创建新事项；有未保存内容时给出合理提示；不误写入。",
+      "status": "未执行",
+      "actual": "尚未操作创建表单的取消／返回分支。",
+      "evidence": "原始导出说明 L25、156仅列四态；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L25、156仅列四态",
+        "observation": "未交代取消、创建失败重试和无来源路径；不能认定设计没有。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未交代取消、创建失败重试和无来源路径；不能认定设计没有。",
+        "evidence": "原始导出说明 L25、156仅列四态；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "按钮可见不等于取消不写入已验证。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C04",
+      "group": "① 首次创建推免申请工作区",
+      "title": "创建超时与重试",
+      "pre": "可触发模拟失败或测试失败状态",
+      "steps": "创建→失败→重试→成功→再次点击确认",
+      "expected": "有失败原因与恢复入口；幂等，不重复生成事项。",
+      "status": "未执行",
+      "actual": "未触发创建超时、失败、重试或重复确认。",
+      "evidence": "原始导出说明 L25、156仅列四态；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L25、156仅列四态",
+        "observation": "未交代取消、创建失败重试和无来源路径；不能认定设计没有。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未交代取消、创建失败重试和无来源路径；不能认定设计没有。",
+        "evidence": "原始导出说明 L25、156仅列四态；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "成功创建不能替代失败恢复或幂等测试。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C05",
+      "group": "① 首次创建推免申请工作区",
+      "title": "无官方来源创建",
+      "pre": "没有链接，仅提出个人目标",
+      "steps": "创建空事项→查看首页与条件区",
+      "expected": "可建立本人容器；规则和官方日期待核实；无确定资格结论。",
+      "status": "未执行",
+      "actual": "本次使用含S01/S02预设来源的示例，未执行无来源创建。",
+      "evidence": "原始导出说明 L25、156仅列四态；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L25、156仅列四态",
+        "observation": "未交代取消、创建失败重试和无来源路径；不能认定设计没有。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未交代取消、创建失败重试和无来源路径；不能认定设计没有。",
+        "evidence": "原始导出说明 L25、156仅列四态；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "表单说明允许稍后补来源，不等于无来源路径已测。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C06",
+      "group": "① 首次创建推免申请工作区",
+      "title": "来源解析与范围",
+      "pre": "提供合成校级／学院来源",
+      "steps": "解析→查看学校、学院、专业、年级／年度与批次→原文",
+      "expected": "有范围、版本、获取时间和原文定位；模板默认值不冒充政策。",
+      "status": "部分执行",
+      "actual": "进入来源与条件页，看到S01/S02/S04、日期、年度、学院及S02§2排名依据；本轮未执行真实解析或打开完整原文。",
+      "evidence": "原始导出说明 L40–42、128；Page1图片仅作旧版参考；evidence/live-browser/009-new-item-source.png；evidence/live-browser/010-rank-ask.png；evidence/live-browser/011-rank-confirm.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L40–42、128",
+        "observation": "提及来源版本、范围和原文追溯；无Page2来源详情画面或配置。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：提及来源版本、范围和原文追溯；无Page2来源详情画面或配置。",
+        "evidence": "原始导出说明 L40–42、128；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          9,
+          10,
+          11
+        ],
+        "limitations": [
+          "原文链接、获取时间、范围匹配过程与解析异常未完整验证。",
+          "合成规则不是实际学校政策。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C07",
+      "group": "① 首次创建推免申请工作区",
+      "title": "缺少排名",
+      "pre": "规则明确，但未提供个人排名或证明",
+      "steps": "生成自查→暂不补充→返回条件区",
+      "expected": "显示待补充信息；不能因返回进入已符合状态。",
+      "status": "部分执行",
+      "actual": "来源页及补录页均在本人确认前明确显示排名待补充，计算预览不等于已确认。",
+      "evidence": "原始导出说明 L42；332:28873；Page1图片仅作旧版参考；evidence/live-browser/009-new-item-source.png；evidence/live-browser/010-rank-ask.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L42；332:28873",
+        "observation": "录入前待补充、确认后对应结果；暂不补充返回分支未描述。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：录入前待补充、确认后对应结果；暂不补充返回分支未描述。",
+        "evidence": "原始导出说明 L42；332:28873；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          9,
+          10
+        ],
+        "limitations": [
+          "尚未执行“暂不补充／取消并返回”分支，不能判完整用例通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C08",
+      "group": "① 首次创建推免申请工作区",
+      "title": "本人确认事实",
+      "pre": "准备合成排名及证明",
+      "steps": "补充→核对事实和来源→确认／取消两分支",
+      "expected": "确认后才能用于当前分析；取消不写入；个人确认不等于官方核实。",
+      "status": "部分执行",
+      "actual": "预设18/120排名及合成证明在确认前标为未确认；点击本人确认后出现15%及“按现有信息符合”，其他待核对项保留。",
+      "evidence": "原始导出说明 L31、42、157；Page1图片仅作旧版参考；evidence/live-browser/010-rank-ask.png；evidence/live-browser/011-rank-confirm.png",
+      "documentReview": {
+        "status": "文档有描述＋算例已核对",
+        "source": "L31、42、157",
+        "observation": "作者描述确认后返回保持；18÷120=15%本地算术核对正确，不等于UI通过。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：作者描述确认后返回保持；18÷120=15%本地算术核对正确，不等于UI通过。",
+        "evidence": "原始导出说明 L31、42、157；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          10,
+          11
+        ],
+        "limitations": [
+          "取消分支未测；进入Agent页后的排名待办出现不一致，见U05。",
+          "个人确认不是学校正式认定，未检验证明真实性。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C09",
+      "group": "① 首次创建推免申请工作区",
+      "title": "候选计划确认与不采纳",
+      "pre": "候选任务已生成，尚未加入",
+      "steps": "查看性质、来源、依赖与日期→返回／不采纳／确认",
+      "expected": "返回和不采纳不创建执行清单；确认才加入；有成功反馈和撤销。",
+      "status": "部分执行",
+      "actual": "候选计划列明已有五项与新增T06/T07。暂不采用返回五项；重新审阅后确认进入七项并显示确认记录。",
+      "evidence": "原始导出说明 L52、158；332:29006；Page1图片仅作旧版参考；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/014-plan-decline.png；evidence/live-browser/015-plan-reopen.png；evidence/live-browser/016-plan-confirm.png",
+      "documentReview": {
+        "status": "文档有描述",
+        "source": "L52、158；332:29006",
+        "observation": "确认才加T06/T07；不采用保留原五项。原五项是否先有确认依据待核验。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：确认才加T06/T07；不采用保留原五项。原五项是否先有确认依据待核验。",
+        "evidence": "原始导出说明 L52、158；332:29006；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          13,
+          14,
+          15,
+          16
+        ],
+        "limitations": [
+          "未执行计划撤销、其他返回路线或重复确认；不把确认／不采纳子步骤扩展为完整用例通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "C10",
+      "group": "① 首次创建推免申请工作区",
+      "title": "计划重复确认与撤销",
+      "pre": "已确认过同一候选计划",
+      "steps": "再次确认→查看任务数量→撤销→再次查看",
+      "expected": "不重复生成；撤销范围明确并保留记录；不自动更改官方规则。",
+      "status": "未执行",
+      "actual": "未在已经确认的同一计划上再次确认，也未执行撤销计划。",
+      "evidence": "原始导出说明 L52、158；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L52、158",
+        "observation": "未交代重复确认、防重和撤销；不能据此关闭。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未交代重复确认、防重和撤销；不能据此关闭。",
+        "evidence": "原始导出说明 L52、158；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "拒绝后重新审阅再确认不是重复确认同一已加入计划的测试。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M01",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "原件预览",
+      "pre": "合成简历DOCX和要求文件",
+      "steps": "资料列表→预览原件→查看版本和只读标识",
+      "expected": "可读原稿；原件独立保留；不能直接覆盖。",
+      "status": "部分执行",
+      "actual": "材料与草稿页面可读原始段落，明确v1只读、v2副本，接受后仍显示原始段落保留。",
+      "evidence": "原始导出说明 L64–66、94–95；Page1图片仅作旧版参考；evidence/live-browser/017-materials-workbench.png；evidence/live-browser/021-send-request-correct.png；evidence/live-browser/022-supplement-role.png；evidence/live-browser/023-confirm-role-update-draft.png；evidence/live-browser/024-add-draft-to-review.png；evidence/live-browser/025-reject-material-suggestion.png；evidence/live-browser/027-accept-material-suggestion.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L64–66、94–95",
+        "observation": "提及清单、诊断、原件只读；完整预览和范围选择未具体交代。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：提及清单、诊断、原件只读；完整预览和范围选择未具体交代。",
+        "evidence": "原始导出说明 L64–66、94–95；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          17,
+          21,
+          22,
+          23,
+          24,
+          25,
+          27
+        ],
+        "limitations": [
+          "未从文件列表打开完整DOCX预览，未验证真实文件不能覆盖。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M02",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "诊断与修改范围",
+      "pre": "原稿缺个人贡献说明",
+      "steps": "诊断→查看要求到段落／附件映射→选择局部修改",
+      "expected": "缺信息／表达／格式问题分开；本人决定范围，不擅自整篇改写。",
+      "status": "部分执行",
+      "actual": "材料页显示职责缺口及F02/S02§3映射；通过预设个人陈述进入职责补充。",
+      "evidence": "原始导出说明 L64–66、94–95；Page1图片仅作旧版参考；evidence/live-browser/017-materials-workbench.png；evidence/live-browser/018-agent-conversation.png；evidence/live-browser/019-choose-personal-statement.png；evidence/live-browser/021-send-request-correct.png；evidence/live-browser/022-supplement-role.png；evidence/live-browser/023-confirm-role-update-draft.png；evidence/live-browser/024-add-draft-to-review.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L64–66、94–95",
+        "observation": "提及清单、诊断、原件只读；完整预览和范围选择未具体交代。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：提及清单、诊断、原件只读；完整预览和范围选择未具体交代。",
+        "evidence": "原始导出说明 L64–66、94–95；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          17,
+          18,
+          19,
+          21,
+          22,
+          23,
+          24
+        ],
+        "limitations": [
+          "没有完成缺信息／表达／格式三类诊断与局部范围选择的完整路径。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M03",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "Agent追问事实",
+      "pre": "未提供具体职责、排名或成果",
+      "steps": "提出改稿→追问→暂不提供",
+      "expected": "未提供字段留待确认；不补造职责、成绩、论文、获奖。",
+      "status": "部分执行",
+      "actual": "发送预设个人陈述请求后，草稿保留职责待补；进入本人确认页面前，建议职责明确为未确认、不自动写入。",
+      "evidence": "原始导出说明 L64–66、94–97；Page1图片仅作旧版参考；evidence/live-browser/018-agent-conversation.png；evidence/live-browser/019-choose-personal-statement.png；evidence/live-browser/021-send-request-correct.png；evidence/live-browser/022-supplement-role.png",
+      "documentReview": {
+        "status": "文档有描述",
+        "source": "L64–66、94–97",
+        "observation": "职责待确认并追问；预设个人陈述流程，任意输入未验证。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：职责待确认并追问；预设个人陈述流程，任意输入未验证。",
+        "evidence": "原始导出说明 L64–66、94–97；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          18,
+          19,
+          21,
+          22
+        ],
+        "limitations": [
+          "尚未点击“暂不确认，保留待补充”分支；任意输入与真实模型响应未测。",
+          "第20次坐标未命中发送按钮，第21次纠正成功，不计为发送故障。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M04",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "事实冲突与无依据增强",
+      "pre": "输入职责或日期矛盾；要求参与者改负责人",
+      "steps": "请求增强→检查回应→纠正→本人确认",
+      "expected": "标出冲突，拒绝无依据增强；不能把计划写成已完成成果。",
+      "status": "未执行",
+      "actual": "未输入冲突日期、矛盾职责或请求把参与者增强为负责人。",
+      "evidence": "原始导出说明 L66、104；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L66、104",
+        "observation": "强调缺依据不填事实；未给冲突或无依据增强的操作分支。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：强调缺依据不填事实；未给冲突或无依据增强的操作分支。",
+        "evidence": "原始导出说明 L66、104；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "页面声明不增加奖项、性能或成果，仅为可见边界，不能替代攻击／冲突样例测试。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M05",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "生成停止与重试",
+      "pre": "本人已确认修改所需事实",
+      "steps": "生成→停止／超时→重试→建议稿",
+      "expected": "原件不变；状态可理解；不重复生成版本或未授权继续。",
+      "status": "未执行",
+      "actual": "未触发材料生成中的停止、超时或重试。",
+      "evidence": "原始导出说明 L75、160是解析恢复；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L75、160是解析恢复",
+        "observation": "未交代材料生成的停止／失败重试；不能用解析重试替代材料生成分支。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未交代材料生成的停止／失败重试；不能用解析重试替代材料生成分支。",
+        "evidence": "原始导出说明 L75、160是解析恢复；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "点击本人确认进入更新稿不等于生成失败恢复已测；后台解析异常不替代材料生成分支。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M06",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "逐项接受／拒绝",
+      "pre": "至少两项修改独立待决定",
+      "steps": "接受第1项→拒绝第2项→撤销第1项→再次查看",
+      "expected": "每项选择独立；接受表达不自动确认事实；状态与文本一致。",
+      "status": "部分执行",
+      "actual": "同一建议先拒绝后重新审阅再接受，拒绝页保留原稿与事实确认，接受页单独记录副本文本确认。",
+      "evidence": "原始导出说明 L98–99、159；332:29594；Page1图片仅作旧版参考；evidence/live-browser/024-add-draft-to-review.png；evidence/live-browser/025-reject-material-suggestion.png；evidence/live-browser/026-material-review-again.png；evidence/live-browser/027-accept-material-suggestion.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L98–99、159；332:29594",
+        "observation": "接受／拒绝有描述；未证明至少两项独立决定、撤销及事实确认分离。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：接受／拒绝有描述；未证明至少两项独立决定、撤销及事实确认分离。",
+        "evidence": "原始导出说明 L98–99、159；332:29594；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          24,
+          25,
+          26,
+          27
+        ],
+        "limitations": [
+          "仅一项段落建议；没有至少两项独立选择及撤销第1项，不能判完整逐项控制通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M07",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "差异与来源",
+      "pre": "已确认事实和官方要求版本",
+      "steps": "打开左右对照→查看高亮及理由→点引用",
+      "expected": "原稿／建议清楚；有事实版本与要求定位；窄屏操作仍可达。",
+      "status": "部分执行",
+      "actual": "1440视口下原始段落与建议段落左右可读，显示F02与S02§3，事实确认和文字接受分开。",
+      "evidence": "原始导出说明 L64–66；Page1材料图；Page1图片仅作旧版参考；evidence/live-browser/024-add-draft-to-review.png；evidence/live-browser/025-reject-material-suggestion.png；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/075-resume-diff-responsive.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L64–66；Page1材料图",
+        "observation": "描述段落对照；旧图实际为审阅区内上下稿，不证明Page2左右差异或窄屏形式。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：描述段落对照；旧图实际为审阅区内上下稿，不证明Page2左右差异或窄屏形式。",
+        "evidence": "原始导出说明 L64–66；Page1材料图；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          24,
+          25,
+          27,
+          75
+        ],
+        "limitations": [
+          "没有点击引用打开原文；未验证至少两项高亮或窄屏差异阅读。",
+          "075为直接进入已知审阅节点，不能充当新的业务导航通过。",
+          "后续材料1280/1920操作被自动审批用量上限拒绝，未执行，不纳入证据。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M08",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "版本保存与恢复",
+      "pre": "已形成v2，原件v1仍在",
+      "steps": "保存v2→历史→查看v1→确认恢复→查看新版本",
+      "expected": "恢复为新版本；历史保留；取消恢复不改变当前版；返回后不丢恢复状态。",
+      "status": "部分执行",
+      "actual": "接受后形成已确认v2，模拟导出与归档仍标明v1只读保留；返回材料台保留已确认v2。",
+      "evidence": "原始导出说明 L66、99、159；Page1图片仅作旧版参考；evidence/live-browser/023-confirm-role-update-draft.png；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png；evidence/live-browser/029-material-archive.png；evidence/live-browser/030-return-confirmed-materials.png",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L66、99、159",
+        "observation": "有确认版归档描述，未交代历史恢复或导出前关键字段逐项二次确认。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：有确认版归档描述，未交代历史恢复或导出前关键字段逐项二次确认。",
+        "evidence": "原始导出说明 L66、99、159；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          23,
+          27,
+          28,
+          29,
+          30
+        ],
+        "limitations": [
+          "没有打开版本历史、恢复旧版或取消恢复；不能证明v3恢复能力。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M09",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "导出前关键事实核对",
+      "pre": "已选定审阅版本",
+      "steps": "逐项核对姓名、学号、成绩、排名、日期、论文状态、奖项级别、贡献→确认／返回",
+      "expected": "关键字段逐项有依据和确认状态；待确认不静默进入定稿。",
+      "status": "已测不通过",
+      "actual": "已测路径从接受建议页点击“导出副本”直接进入“模拟完成”，未体现对本次采用高风险事实（至少个人贡献）的导出前逐项二次核对。接受页明确仅确认副本文本版本。",
+      "evidence": "原始导出说明 L66、99、159；Page1图片仅作旧版参考；evidence/live-browser/022-supplement-role.png；evidence/live-browser/023-confirm-role-update-draft.png；evidence/live-browser/024-add-draft-to-review.png；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L66、99、159",
+        "observation": "有确认版归档描述，未交代历史恢复或导出前关键字段逐项二次确认。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：有确认版归档描述，未交代历史恢复或导出前关键字段逐项二次确认。",
+        "evidence": "原始导出说明 L66、99、159；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          22,
+          23,
+          24,
+          27,
+          28
+        ],
+        "limitations": [
+          "依据正式方案第246行；不要求一定新增独立页面，但需体现逐项二次确认及返回核对。",
+          "不要求确认材料未采用的全部字段；本项判定为原型控制路径缺口，不是真实导出错误。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M10",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "DOCX副本与归档",
+      "pre": "导出前已确认",
+      "steps": "导出新DOCX→成功／失败→重试→归档→查看办理状态",
+      "expected": "新文件含名称和版本；原件不变；已导出≠已提交；归档保留规则、材料及确认版本。真实文件检查与原型状态分记。",
+      "status": "部分执行",
+      "actual": "导出副本进入明确标注的模拟完成页，显示个人陈述_v2_演示副本.docx；随后进入归档，保留v1/v2、F02/S02及本人确认／接受记录，说明正式提交由本人完成。",
+      "evidence": "原始导出说明 L66、99、159；Page1图片仅作旧版参考；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png；evidence/live-browser/029-material-archive.png；evidence/live-browser/030-return-confirmed-materials.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L66、99、159",
+        "observation": "明确模拟导出、已确认版归档与返回保持；未说明导出失败分支；不证明真实DOCX。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：明确模拟导出、已确认版归档与返回保持；未说明导出失败分支；不证明真实DOCX。",
+        "evidence": "原始导出说明 L66、99、159；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          27,
+          28,
+          29,
+          30
+        ],
+        "limitations": [
+          "未测试导出失败、重试或完整本人办理记录；没有生成真实DOCX。",
+          "导出前二次核对缺口另记M09，不能将本子链路称为材料整体验收通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M11",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "复杂格式失败",
+      "pre": "扫描件、复杂表格、公式或特殊字体",
+      "steps": "导入→识别限制→查看原稿／改用文本",
+      "expected": "先说明限制；不静默损坏版面；不承诺任意文件可正确编辑。",
+      "status": "未执行",
+      "actual": "未导入复杂表格、公式、扫描件或特殊字体材料。",
+      "evidence": "原始导出说明 L75仅扫描件替换；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L75仅扫描件替换",
+        "observation": "未描述复杂DOCX/PDF材料的版式限制或可审阅文本替代。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未描述复杂DOCX/PDF材料的版式限制或可审阅文本替代。",
+        "evidence": "原始导出说明 L75仅扫描件替换；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "无实际格式失败／文本替代操作证据。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "M12",
+      "group": "② 个人材料检查、改稿与版本",
+      "title": "真实导出文件检查",
+      "pre": "仅在已有可下载真实文件时执行",
+      "steps": "另存副本→打开DOCX→对比文本、版式、引用→对原件做前后校验",
+      "expected": "真实文件可打开且原件未变；只有原型画面时本用例保持未执行或能力未覆盖。",
+      "status": "未执行",
+      "actual": "页面明确本次未生成或下载真实文件；未执行真实DOCX打开、版式与原件前后校验。",
+      "evidence": "原始导出说明 L66明确模拟导出；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "本轮材料不支持真实文件验收",
+        "source": "L66明确模拟导出",
+        "observation": "未提供可打开的真实DOCX；保持未执行，不把原型模拟记为真实导出失败。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未提供可打开的真实DOCX；保持未执行，不把原型模拟记为真实导出失败。",
+        "evidence": "原始导出说明 L66明确模拟导出；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "原型导出模拟不是文件检查失败，也不能算真实DOCX通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N01",
+      "group": "③ 官方通知更新与影响",
+      "title": "更新来源身份和适用性",
+      "pre": "已有当前事项与旧版规则；新通知为合成资料",
+      "steps": "触发更新→查看发布单位、范围、年度、批次与版本",
+      "expected": "不是只看标题或搜索摘要；不能将其他年度当现行规则。",
+      "status": "部分执行",
+      "actual": "从事项概览真实点击查看变更，通知页列发布单位、当前学院/2027届/批次、S04 v1.1及§1截止/§2承诺书，标为合成通知。",
+      "evidence": "原始导出说明 L108–110；332:30544；Page1图片仅作旧版参考；evidence/live-browser/031-overview-before-notice.png；evidence/live-browser/032-view-notice-change.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L108–110；332:30544",
+        "observation": "描述合成补充通知、v1.0/v1.1与影响；实际身份、范围和原文定位待核验。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：描述合成补充通知、v1.0/v1.1与影响；实际身份、范围和原文定位待核验。",
+        "evidence": "原始导出说明 L108–110；332:30544；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          31,
+          32
+        ],
+        "limitations": [
+          "仅判该合成来源的界面身份／范围呈现分支；不证明真实网站身份核验或规则适用判断。",
+          "通知身份、范围和原文条款标识已见；获取时间及完整身份核验步骤尚未确认，不能把整个N01标通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N02",
+      "group": "③ 官方通知更新与影响",
+      "title": "新旧条款对照",
+      "pre": "旧版与补充版均可定位",
+      "steps": "通知提醒→原文对照→影响清单",
+      "expected": "保留两版原文位置、获取时间；条件／任务／日期／材料影响可解释。",
+      "status": "部分执行",
+      "actual": "通知页并列v1.0/v1.1、09.12/09.10、承诺书及影响；确认后归档保留原文§1/§2和旧版已替代说明。",
+      "evidence": "原始导出说明 L108–110；332:30544；Page1图片仅作旧版参考；evidence/live-browser/032-view-notice-change.png；evidence/live-browser/034-notice-reopen.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/039-notice-update-archive.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L108–110；332:30544",
+        "observation": "描述合成补充通知、v1.0/v1.1与影响；实际身份、范围和原文定位待核验。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：描述合成补充通知、v1.0/v1.1与影响；实际身份、范围和原文定位待核验。",
+        "evidence": "原始导出说明 L108–110；332:30544；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          32,
+          34,
+          35,
+          39
+        ],
+        "limitations": [
+          "未打开完整原文、查看取得时间或验证所有受影响条件／材料映射，不能判完整用例通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N03",
+      "group": "③ 官方通知更新与影响",
+      "title": "调整前的日期提示",
+      "pre": "变更尚未核对应用",
+      "steps": "回概览／任务／日历，查看旧截止与新通知日期",
+      "expected": "不只突出旧倒计时；官方来源变化与个人计划是否调整分开。",
+      "status": "部分执行",
+      "actual": "稍后核对回原概览时，旧09.12/4天与新通知09.10待确认同时醒目可见，旧日期不是唯一指引。",
+      "evidence": "原始导出说明 L110、161；Page1图片仅作旧版参考；evidence/live-browser/032-view-notice-change.png；evidence/live-browser/033-notice-later.png",
+      "documentReview": {
+        "status": "待验证风险",
+        "source": "L110、161",
+        "observation": "旧分支显示9/12与4天；需看是否仍醒目标9/10新通知及待核对，不能直接判错。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：旧分支显示9/12与4天；需看是否仍醒目标9/10新通知及待核对，不能直接判错。",
+        "evidence": "原始导出说明 L110、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          32,
+          33
+        ],
+        "limitations": [
+          "尚未对未调整时的任务、日历全部逐页检查；本次只确认旧概览分支的提醒呈现。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N04",
+      "group": "③ 官方通知更新与影响",
+      "title": "确认调整与同步",
+      "pre": "确认新通知适用，尚未改个人计划",
+      "steps": "查看影响→确认→依次到概览、任务、日历、材料与记录",
+      "expected": "各处日期和版本一致；个人日期独立；新增材料缺项；不覆盖已确认文件。",
+      "status": "已测不通过",
+      "actual": "确认更新后概览、任务、归档、日历及工作台/重入事项均可显示v1.1和09.10，日历区分个人建议09.09；但从新版归档正常点材料标签进入旧三项清单，无新增承诺书或通知影响标识。",
+      "evidence": "原始导出说明 L110、161；Page1图片仅作旧版参考；evidence/live-browser/034-notice-reopen.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/036-notice-affected-tasks.png；evidence/live-browser/037-updated-task-filter-completed.png；evidence/live-browser/038-updated-task-filter-uncompleted.png；evidence/live-browser/039-notice-update-archive.png；evidence/live-browser/040-notice-affected-materials.png；evidence/live-browser/046-resumed-updated-overview-ready.png；evidence/live-browser/047-notice-calendar-verified-click.png；evidence/live-browser/048-updated-workbench.png；evidence/live-browser/049-reenter-updated-item.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L110、161",
+        "observation": "说明概览、任务、归档、日历、工作台用新版；材料清单复查与操作记录未具体说明。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：说明概览、任务、归档、日历、工作台用新版；材料清单复查与操作记录未具体说明。",
+        "evidence": "原始导出说明 L110、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          46,
+          47,
+          48,
+          49
+        ],
+        "limitations": [
+          "失败限定于本次已测通知→材料路由，不推断整个文件没有新版材料画板。",
+          "041浏览器回退实际回旧计划，042点击未生效，043是旧场景日历，均不能用作更新后日历缺陷证据。",
+          "044/045仍加载中；046等待完成后047真实CTA导航才是新版日历证据。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N05",
+      "group": "③ 官方通知更新与影响",
+      "title": "暂不调整／取消",
+      "pre": "变更待核对",
+      "steps": "暂不调整／取消→返回原事项",
+      "expected": "个人计划不静默更改；提醒保留；旧日期不能标成已确认有效。",
+      "status": "原型分支通过",
+      "actual": "通知页点击“稍后核对”真实返回v1.0概览，保留旧09.12及新09.10待核对提醒；个人计划未以该动作变成已采用新版。",
+      "evidence": "原始导出说明 L110、161；Page1图片仅作旧版参考；evidence/live-browser/032-view-notice-change.png；evidence/live-browser/033-notice-later.png；evidence/live-browser/034-notice-reopen.png",
+      "documentReview": {
+        "status": "文档有描述／提醒待核验",
+        "source": "L110、161",
+        "observation": "稍后核对返回v1.0；提醒是否保留、旧日期标签是否误导待验证。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：稍后核对返回v1.0；提醒是否保留、旧日期标签是否误导待验证。",
+        "evidence": "原始导出说明 L110、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          32,
+          33,
+          34
+        ],
+        "limitations": [
+          "仅通过“稍后核对”预设分支；不证明真实数据持久化或所有取消控件行为。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N06",
+      "group": "③ 官方通知更新与影响",
+      "title": "重复通知幂等",
+      "pre": "同一版本已经处理",
+      "steps": "再次接收同版本→确认→检查数量与记录",
+      "expected": "不重复建任务、材料或变更记录；可定位原处理记录。",
+      "status": "未执行",
+      "actual": "未重新接收并确认已处理过的同版本通知。",
+      "evidence": "原始导出说明 L108–110、161；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L108–110、161",
+        "observation": "没有重复通知或撤销个人安排的具体分支。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：没有重复通知或撤销个人安排的具体分支。",
+        "evidence": "原始导出说明 L108–110、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "一次确认及工作台重入不等于通知幂等测试。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N07",
+      "group": "③ 官方通知更新与影响",
+      "title": "来源冲突与不可访问",
+      "pre": "两份适用性不明／矛盾来源；或获取失败",
+      "steps": "触发→补检索→仍不明→查看结论与其他任务",
+      "expected": "并列保留；待用户核对；最后成功时间可见；只阻塞受影响项。",
+      "status": "未执行",
+      "actual": "看见待处理中的来源冲突、扫描件和超时卡片，但未打开冲突、补检索或不可访问分支。",
+      "evidence": "原始导出说明 L73、75；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L73、75",
+        "observation": "描述来源冲突对照；获取失败、旧年度和时效提示未具体说明。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：描述来源冲突对照；获取失败、旧年度和时效提示未具体说明。",
+        "evidence": "原始导出说明 L73、75；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "不能仅凭卡片文案判异常处理通过；学生异常补测被自动审批用量上限拒绝，未执行。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "N08",
+      "group": "③ 官方通知更新与影响",
+      "title": "撤销个人安排",
+      "pre": "更新已影响个人计划",
+      "steps": "查看撤销范围→确认／取消→再查看来源和日期",
+      "expected": "只恢复个人安排；不改变官方效力，不把旧政策恢复为现行；历史完整。",
+      "status": "未执行",
+      "actual": "未执行撤销已调整个人安排及其取消分支。",
+      "evidence": "原始导出说明 L108–110、161；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L108–110、161",
+        "observation": "没有重复通知或撤销个人安排的具体分支。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：没有重复通知或撤销个人安排的具体分支。",
+        "evidence": "原始导出说明 L108–110、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "不能把“稍后核对”当作对已应用更新的撤销。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X01",
+      "group": "信息边界、规则及异常",
+      "title": "个人事项边界与非推免",
+      "pre": "本人推免和竞赛两个事项",
+      "steps": "切换事项→查看任务与材料→尝试个人准备流程",
+      "expected": "无共享、邀请、他人任务分派；非推免不误引推免私有线索。",
+      "status": "部分执行",
+      "actual": "工作台可见本人与多个事项入口，外校和竞赛卡片明确“仅展示”；本次实际走的是校内推免链路。",
+      "evidence": "原始导出说明 L21、25；Page1图片仅作旧版参考；evidence/live-browser/002-dismiss-cookie.png；evidence/live-browser/007-create-filled.png；evidence/live-browser/008-enter-new-item.png；evidence/live-browser/048-updated-workbench.png",
+      "documentReview": {
+        "status": "作者明确的演示范围限制",
+        "source": "L21、25",
+        "observation": "个人边界明确；除校内推免外其他卡片仅展示，非推免完整链路无证据。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：个人边界明确；除校内推免外其他卡片仅展示，非推免完整链路无证据。",
+        "evidence": "原始导出说明 L21、25；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          2,
+          7,
+          8,
+          48
+        ],
+        "limitations": [
+          "没有切换并完成非推免个人流程；不推断全局不存在团队功能或实际跨事项权限已实现。",
+          "新建事项上下文问题另记C01。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X02",
+      "group": "信息边界、规则及异常",
+      "title": "上传截图与官方原文分层",
+      "pre": "个人上传通知截图",
+      "steps": "上传→查看属性→检索找到原文→生成引用",
+      "expected": "截图保持仅本人当前事项；原文单独建立引用，可信度不因改写升级。",
+      "status": "未执行",
+      "actual": "未上传通知截图，也未从私有线索检索并建立独立官方引用。",
+      "evidence": "原始导出说明 L21、95、128；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖关键机制",
+        "source": "L21、95、128",
+        "observation": "有私有范围与获准事实表述，但三层分类、截图不升级和复用选择未交代。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：有私有范围与获准事实表述，但三层分类、截图不升级和复用选择未交代。",
+        "evidence": "原始导出说明 L21、95、128；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "不以后台隐私说明替代三层上传分流测试。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X03",
+      "group": "信息边界、规则及异常",
+      "title": "个人档案跨本人事项复用",
+      "pre": "档案已有字段、版本及确认状态",
+      "steps": "选择复用→核对范围→确认／取消→目标事项",
+      "expected": "只使用本人选择字段；不自动引入其他事项线索；改稿不覆盖档案。",
+      "status": "未执行",
+      "actual": "未打开个人档案复用选择、范围确认或目标事项。",
+      "evidence": "原始导出说明 L21、95、128；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖关键机制",
+        "source": "L21、95、128",
+        "observation": "有私有范围与获准事实表述，但三层分类、截图不升级和复用选择未交代。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：有私有范围与获准事实表述，但三层分类、截图不升级和复用选择未交代。",
+        "evidence": "原始导出说明 L21、95、128；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "未验证跨本人事项复用、取消不写入或改稿不覆盖长期档案。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X04",
+      "group": "信息边界、规则及异常",
+      "title": "自查四态覆盖",
+      "pre": "分别准备完整符合、不符合、缺数据和来源冲突样例",
+      "steps": "逐项生成／展示自查→查看理由与原文",
+      "expected": "严格四态；任务完成、用户确认或机器一致不等于正式资格认定。",
+      "status": "部分执行",
+      "actual": "排名确认页列出资格四态示例，实际从缺排名到本人确认后显示18/120=15%及符合；仍保留其他待核对项和非正式认定说明。",
+      "evidence": "原始导出说明 L42；332:28873；Page1图片仅作旧版参考；evidence/live-browser/009-new-item-source.png；evidence/live-browser/010-rank-ask.png；evidence/live-browser/011-rank-confirm.png",
+      "documentReview": {
+        "status": "文档四态准确／画面待验证",
+        "source": "L42；332:28873",
+        "observation": "四种统一状态列全，合成排名计算正确；不等于四态运行分支均验收。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：四种统一状态列全，合成排名计算正确；不等于四态运行分支均验收。",
+        "evidence": "原始导出说明 L42；332:28873；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          9,
+          10,
+          11
+        ],
+        "limitations": [
+          "只走一个符合样例，没有分别执行不符合、缺数据返回和来源冲突的完整四态分支。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X05",
+      "group": "信息边界、规则及异常",
+      "title": "来源状态独立",
+      "pre": "官方原文有机器提取状态",
+      "steps": "查看来源、资格结果、任务状态及义务标签",
+      "expected": "状态分别命名；机器处理不写官方核实。",
+      "status": "部分执行",
+      "actual": "已查看来源标签、资格结果、任务执行状态与义务文案；排名结果没有写成学校正式认定，后台流程使用自动检查措辞。",
+      "evidence": "原始导出说明 L60、128；Page1图片仅作旧版参考；evidence/live-browser/009-new-item-source.png；evidence/live-browser/011-rank-confirm.png；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/016-plan-confirm.png；evidence/live-browser/051-admin-official-sources.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L60、128",
+        "observation": "明确任务性质与执行状态分开，来源自动检查；实际标签独立呈现待测。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：明确任务性质与执行状态分开，来源自动检查；实际标签独立呈现待测。",
+        "evidence": "原始导出说明 L60、128；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          9,
+          11,
+          13,
+          16,
+          51
+        ],
+        "limitations": [
+          "尚未完整检查所有标签与异常分支；“已核对”来源标签的具体确认者未另行验证。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X06",
+      "group": "信息边界、规则及异常",
+      "title": "官方与个人日期",
+      "pre": "官方截止有引用，个人有准备日期",
+      "steps": "改个人日期→查看官方日期→检查相关任务",
+      "expected": "不会改官方规则；无依据日期待核实；时点与适用范围清楚。",
+      "status": "部分执行",
+      "actual": "候选/已确认任务及更新后日历分别显示建议完成09.09与官方09.10/09.12，官方日期绑定演示通知版本。",
+      "evidence": "原始导出说明 L52、108–110；Page1图片仅作旧版参考；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/016-plan-confirm.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/036-notice-affected-tasks.png；evidence/live-browser/047-notice-calendar-verified-click.png",
+      "documentReview": {
+        "status": "文档有描述",
+        "source": "L52、108–110",
+        "observation": "个人建议完成与官方截止分开；真实字段修改行为待验证。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：个人建议完成与官方截止分开；真实字段修改行为待验证。",
+        "evidence": "原始导出说明 L52、108–110；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          13,
+          16,
+          35,
+          36,
+          47
+        ],
+        "limitations": [
+          "未实际修改个人日期并复查官方日期不变；不把静态区分呈现当作修改行为通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X07",
+      "group": "信息边界、规则及异常",
+      "title": "停止、失败与重试",
+      "pre": "Agent有运行中步骤",
+      "steps": "停止→查看已完成与未执行→重试",
+      "expected": "范围明确、进度可见；未授权动作不继续，不重复写入。",
+      "status": "未执行",
+      "actual": "本次没有执行学生端停止与检查点重试。",
+      "evidence": "原始导出说明 L75、160；351:964；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L75、160；351:964",
+        "observation": "解析从检查点重试至AG-1048恢复有描述；停止与防重没有执行证据。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：解析从检查点重试至AG-1048恢复有描述；停止与防重没有执行证据。",
+        "evidence": "原始导出说明 L75、160；351:964；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "后台异常详情说明重试范围不是已执行重试；后续学生异常补测被自动审批用量上限拒绝，未执行。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X08",
+      "group": "信息边界、规则及异常",
+      "title": "高影响确认",
+      "pre": "批量状态变更、覆盖已确认档案或删除",
+      "steps": "打开操作→审阅数量、范围、恢复方式→取消／确认",
+      "expected": "默认不自动执行；取消不写入；不承诺未实现恢复能力。",
+      "status": "未执行",
+      "actual": "未执行删除、覆盖已确认档案或批量状态变更的影响确认。",
+      "evidence": "原始导出说明 未见对应高影响状态说明；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "未见对应高影响状态说明",
+        "observation": "删除／覆盖／批量操作的影响确认与恢复限制未交代。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：删除／覆盖／批量操作的影响确认与恢复限制未交代。",
+        "evidence": "原始导出说明 未见对应高影响状态说明；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "未提供恢复能力的实现证据，不作承诺。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X09",
+      "group": "信息边界、规则及异常",
+      "title": "无对外执行",
+      "pre": "需要导师联系或正式提交",
+      "steps": "查看草稿、入口、状态记录与按钮行为",
+      "expected": "仅供本人审阅、自行办理；无代发／代报名／代提交的授权开关。",
+      "status": "部分执行",
+      "actual": "材料接受、模拟导出及归档都明确仅内部副本/本人自行办理，未在已测操作中发生对外发送。",
+      "evidence": "原始导出说明 L21、99、104、148；Page1图片仅作旧版参考；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png；evidence/live-browser/029-material-archive.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/039-notice-update-archive.png",
+      "documentReview": {
+        "status": "文档边界表述一致",
+        "source": "L21、99、104、148",
+        "observation": "本人办理、邮件仅草稿和不代提交符合方向；实际按钮行为未验证。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：本人办理、邮件仅草稿和不代提交符合方向；实际按钮行为未验证。",
+        "evidence": "原始导出说明 L21、99、104、148；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          27,
+          28,
+          29,
+          35,
+          39
+        ],
+        "limitations": [
+          "没有完整检查导师联系草稿、外部渠道入口及所有授权开关；不能据此证明全局无外部执行功能或权限控制。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X10",
+      "group": "信息边界、规则及异常",
+      "title": "模型传输同意与最少信息",
+      "pre": "若真实实现会调用外部模型",
+      "steps": "检查服务商、字段、处理说明→拒绝同意→替代流程",
+      "expected": "未同意不上传；外部检索不带私有资料；配置未确定不虚构已实现能力。原型只能验证设计。",
+      "status": "未执行",
+      "actual": "未执行真实模型传输告知、拒绝同意或替代处理路径。",
+      "evidence": "原始导出说明 未见外部模型传输机制说明；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "未见外部模型传输机制说明",
+        "observation": "本原型不必接真实模型；若真实实现会外传，需补告知同意与替代方案。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：本原型不必接真实模型；若真实实现会外传，需补告知同意与替代方案。",
+        "evidence": "原始导出说明 未见外部模型传输机制说明；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "本次为静态合成原型，不验证真实请求字段及模型数据处理。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X11",
+      "group": "信息边界、规则及异常",
+      "title": "任务义务四类",
+      "pre": "准备四类样例",
+      "steps": "查看标签、依据→尝试完成与跳过",
+      "expected": "官方必需／官方建议／自主可选／待核实独立于执行状态；建议不伪装硬性要求。",
+      "status": "已测不通过",
+      "actual": "已确认计划把T07的义务文案写为“Agent建议，非官方义务”，任务汇总也使用“Agent建议”，偏离方案的官方必需/官方建议/自主可选/待核实四类统一枚举。",
+      "evidence": "原始导出说明 L60；Page1图片仅作旧版参考；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/016-plan-confirm.png",
+      "documentReview": {
+        "status": "作者明确承认演示待补",
+        "source": "L60",
+        "observation": "官方建议／自主可选／待核实及采纳暂缓跳过需补演示。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：官方建议／自主可选／待核实及采纳暂缓跳过需补演示。",
+        "evidence": "原始导出说明 L60；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          13,
+          16
+        ],
+        "limitations": [
+          "该文案并未伪装成官方必需；问题为分类一致性。建议用“自主可选（Agent建议）”，不能无依据改成官方建议。",
+          "未完整检查全文件四类覆盖或完成/跳过分支，不推断其余类型全局不存在。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X12",
+      "group": "信息边界、规则及异常",
+      "title": "可选事项决策",
+      "pre": "自主可选任务待决定",
+      "steps": "查看成本、理由、跳过影响→采纳／稍后／跳过→返回",
+      "expected": "决定和列表状态一致，不暗中变为官方必需；不承诺录取概率提升。",
+      "status": "未执行",
+      "actual": "未对自主可选事项执行采纳、稍后决定或跳过。",
+      "evidence": "原始导出说明 L60；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "作者明确承认演示待补",
+        "source": "L60",
+        "observation": "官方建议／自主可选／待核实及采纳暂缓跳过需补演示。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：官方建议／自主可选／待核实及采纳暂缓跳过需补演示。",
+        "evidence": "原始导出说明 L60；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "接受整个候选计划不等于可选任务三种取舍行为已覆盖。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X13",
+      "group": "信息边界、规则及异常",
+      "title": "本人办理与完成证据",
+      "pre": "本人尚未办理",
+      "steps": "标任务完成／记录自行办理→查看材料和结果",
+      "expected": "来源为本人记录；完成材料不等于已提交，不等于学校接受或资格认定。",
+      "status": "未执行",
+      "actual": "未标记任务完成或填写本人已办理记录。",
+      "evidence": "原始导出说明 L99、159、161；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L99、159、161",
+        "observation": "本人自行办理记录、确认版归档有描述；证据字段、版本复用与结果区分待核验。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：本人自行办理记录、确认版归档有描述；证据字段、版本复用与结果区分待核验。",
+        "evidence": "原始导出说明 L99、159、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "已见本人自行提交边界与任务状态，但不代替实际办理记录行为测试。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "X14",
+      "group": "信息边界、规则及异常",
+      "title": "归档与复用",
+      "pre": "事项已归档合成版本",
+      "steps": "查看快照→选目标事项复用→取消／确认",
+      "expected": "材料、规则、事实和确认版本可追溯；仅本人，不公开不送审。",
+      "status": "部分执行",
+      "actual": "进入材料归档和通知归档，看到材料v2、原稿v1、F02/S02及确认/接受/模拟导出记录；明确不等于外部提交。",
+      "evidence": "原始导出说明 L99、159、161；Page1图片仅作旧版参考；evidence/live-browser/029-material-archive.png；evidence/live-browser/030-return-confirmed-materials.png；evidence/live-browser/039-notice-update-archive.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L99、159、161",
+        "observation": "本人自行办理记录、确认版归档有描述；证据字段、版本复用与结果区分待核验。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：本人自行办理记录、确认版归档有描述；证据字段、版本复用与结果区分待核验。",
+        "evidence": "原始导出说明 L99、159、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          29,
+          30,
+          39
+        ],
+        "limitations": [
+          "未选择目标事项复用、执行取消/确认或验证跨事项范围，因此不能判完整用例通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "B01",
+      "group": "后台必要模块",
+      "title": "官方来源处理流程",
+      "pre": "后台来源模块可访问",
+      "steps": "查看获取、提取、自动检查、缓存与异常状态",
+      "expected": "无人工审核发布官方政策流程；状态不标官方核实。",
+      "status": "原型分支通过",
+      "actual": "从后台运行概览真实点击知识与规则，当前Page2可见按事项检索官方来源→提取条款→自动检查→保留来源及异常记录，说明不以前置人工审核发布；列表状态为已检查/有异常等。",
+      "evidence": "原始导出说明 L128；314:2100；evidence/tinyfish/admin-run.json；审计见evidence/tinyfish/runtime-audit.md；evidence/live-browser/050-admin-entry.png；evidence/live-browser/051-admin-official-sources.png",
+      "documentReview": {
+        "status": "文档方向符合／画面待验证",
+        "source": "L128；314:2100",
+        "observation": "正文自动检索提取检查；旧图人工审核不能当Page2缺陷。"
+      },
+      "runtimeAttempt": {
+        "provider": "TinyFish",
+        "run_id": "22b8978f-8afc-45f2-a8fa-74dff9239382",
+        "run_url": "https://agent.tinyfish.ai/runs/22b8978f-8afc-45f2-a8fa-74dff9239382",
+        "observation": "返回“自动检查不以人工审核为前置”等文案线索；同报告对Next/侧栏导航自相矛盾，无截图，不计来源流程通过。",
+        "verdict": "not_verified",
+        "screenshot_artifact": null
+      },
+      "previousRevision": {
+        "status": "局部观察／待核验",
+        "actual": "浏览器初检：返回“自动检查不以人工审核为前置”等文案线索；同报告对Next/侧栏导航自相矛盾，无截图，不计来源流程通过。；原离线观察：正文自动检索提取检查；旧图人工审核不能当Page2缺陷。",
+        "evidence": "原始导出说明 L128；314:2100；evidence/tinyfish/admin-run.json；审计见evidence/tinyfish/runtime-audit.md"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          50,
+          51
+        ],
+        "limitations": [
+          "仅判已观察来源治理页面分支的设计表达，不证明实际自动获取、缓存、检查算法或所有隐藏配置。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "B02",
+      "group": "后台必要模块",
+      "title": "来源与私有资料隔离",
+      "pre": "有公共来源和个人上传线索",
+      "steps": "查看后台详情／导入／搜索范围",
+      "expected": "不把私有截图转公开，不展示真实用户材料正文。权限真实实现另测。",
+      "status": "部分执行",
+      "actual": "已查看来源列表和脱敏异常详情，详情明确个人截图/材料留在本人工作区，后台不展示正文；已测画面未显示私人正文。",
+      "evidence": "原始导出说明 L128；Page1图片仅作旧版参考；evidence/live-browser/051-admin-official-sources.png；evidence/live-browser/054-admin-agent-runs.png；evidence/live-browser/055-admin-exception-detail.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L128",
+        "observation": "明确个人材料留在本人工作区；截图升级、日志详情和实际隔离未验证。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：明确个人材料留在本人工作区；截图升级、日志详情和实际隔离未验证。",
+        "evidence": "原始导出说明 L128；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          51,
+          54,
+          55
+        ],
+        "limitations": [
+          "未执行导入、搜索或私有截图处理，无法证明权限隔离、数据泄露防护或全局资料范围。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "B03",
+      "group": "后台必要模块",
+      "title": "模板详情及版本",
+      "pre": "至少推免与一个非推免模板",
+      "steps": "模板→阶段／字段／范围／引用→版本比较",
+      "expected": "模板配置与官方证据分开，默认阶段不冒充适用政策。",
+      "status": "部分执行",
+      "actual": "已进入知识与规则页查看可见来源列表，未在已达界面发现明确模板入口。",
+      "evidence": "原始导出说明 L115–133、162；evidence/tinyfish/admin-run.json；审计见evidence/tinyfish/runtime-audit.md；evidence/live-browser/050-admin-entry.png；evidence/live-browser/051-admin-official-sources.png",
+      "documentReview": {
+        "status": "导出说明未覆盖",
+        "source": "L115–133、162",
+        "observation": "未提供事项模板列表／详情、版本、阶段字段与启停影响；不能断言Page2没有。"
+      },
+      "runtimeAttempt": {
+        "provider": "TinyFish",
+        "run_id": "22b8978f-8afc-45f2-a8fa-74dff9239382",
+        "run_url": "https://agent.tinyfish.ai/runs/22b8978f-8afc-45f2-a8fa-74dff9239382",
+        "observation": "工具报告已观察屏未见模板；未检查全页／全部入口，不能认定模块不存在；详情与版本未测试。",
+        "verdict": "not_verified",
+        "screenshot_artifact": null
+      },
+      "previousRevision": {
+        "status": "局部观察／待核验",
+        "actual": "浏览器初检：工具报告已观察屏未见模板；未检查全页／全部入口，不能认定模块不存在；详情与版本未测试。；原离线观察：未提供事项模板列表／详情、版本、阶段字段与启停影响；不能断言Page2没有。",
+        "evidence": "原始导出说明 L115–133、162；evidence/tinyfish/admin-run.json；审计见evidence/tinyfish/runtime-audit.md"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          50,
+          51
+        ],
+        "limitations": [
+          "未完整遍历文件/全部入口，不能确认模板模块不存在；模板阶段/字段/版本比较未执行。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "B04",
+      "group": "后台必要模块",
+      "title": "模板更新／启停影响",
+      "pre": "模板已有工作区使用",
+      "steps": "查看影响→确认／取消→已有事项",
+      "expected": "不改变政策效力；不静默批量改个人计划；迁移建议需本人确认。",
+      "status": "未执行",
+      "actual": "未进入模板启停/更新影响预览，也未确认或取消配置变更。",
+      "evidence": "原始导出说明 L115–133、162；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "导出说明未覆盖",
+        "source": "L115–133、162",
+        "observation": "未提供事项模板列表／详情、版本、阶段字段与启停影响；不能断言Page2没有。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：未提供事项模板列表／详情、版本、阶段字段与启停影响；不能断言Page2没有。",
+        "evidence": "原始导出说明 L115–133、162；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "没有证据判定已有事项迁移或模板启停能力。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "B05",
+      "group": "后台必要模块",
+      "title": "执行详情与技术重试",
+      "pre": "Agent有失败执行记录",
+      "steps": "查看授权、步骤、版本、原因→重试／停止",
+      "expected": "技术重试幂等；政策疑点提示当前用户，不由管理员裁决。",
+      "status": "部分执行",
+      "actual": "从Agent任务列表真实打开AG-1048异常详情，可见第2/4步超时、1/4检查点、错误原因、脱敏元数据及重试范围；通过返回按钮回到列表。",
+      "evidence": "原始导出说明 L75、133、160；332:30438；Page1图片仅作旧版参考；evidence/live-browser/054-admin-agent-runs.png；evidence/live-browser/055-admin-exception-detail.png；evidence/live-browser/067-responsive-admin-return-list.png",
+      "documentReview": {
+        "status": "文档部分覆盖",
+        "source": "L75、133、160；332:30438",
+        "observation": "有异常步骤、原因、处理方向和返回；后台授权、停止与幂等重试待测。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：有异常步骤、原因、处理方向和返回；后台授权、停止与幂等重试待测。",
+        "evidence": "原始导出说明 L75、133、160；332:30438；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          54,
+          55,
+          67
+        ],
+        "limitations": [
+          "未实际点击技术重试或停止；不能将详情文字等同幂等重试已通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "B06",
+      "group": "后台必要模块",
+      "title": "日志与管理权限",
+      "pre": "后台日志可查看／导出",
+      "steps": "查看最少字段→详情／导出→用户端入口",
+      "expected": "无私有正文、完整对话和敏感资料；不冒用用户，不替用户确认资格或接受改稿。",
+      "status": "部分执行",
+      "actual": "已查看AG-1048脱敏详情，画面限定任务编号、状态、失败步骤和错误元数据，明确不访问私人正文。",
+      "evidence": "原始导出说明 L133只描述列表与异常详情；Page1图片仅作旧版参考；evidence/live-browser/054-admin-agent-runs.png；evidence/live-browser/055-admin-exception-detail.png",
+      "documentReview": {
+        "status": "资料未覆盖",
+        "source": "L133只描述列表与异常详情",
+        "observation": "最少日志、导出范围和管理权限未具体交代；真实安全需后续系统测。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：最少日志、导出范围和管理权限未具体交代；真实安全需后续系统测。",
+        "evidence": "原始导出说明 L133只描述列表与异常详情；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          54,
+          55
+        ],
+        "limitations": [
+          "没有执行日志导出/打开用户端或验证管理权限；静态脱敏样例不证明真实安全隔离。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "U01",
+      "group": "UI、导航与桌面体验",
+      "title": "所有关键热点与返回",
+      "pre": "取得Page2原型起点",
+      "steps": "依次操作菜单、按钮、父级热点、组件、覆盖层与返回",
+      "expected": "目标位于当前版本、事项正确；无死路或遮挡；不能只检查文字节点reaction。",
+      "status": "已测不通过",
+      "actual": "多条真实业务热点成功导航，否定此前TinyFish“全局静态无热点”推断；但当前知识与规则首行“查看记录”文字及箭头分别精确点击后URL与截图均未变化，缺少可见反馈。",
+      "evidence": "原始导出说明 L9–11、152–162；evidence/tinyfish/creation-run.json；审计见evidence/tinyfish/runtime-audit.md；evidence/live-browser/002-dismiss-cookie.png；evidence/live-browser/003-new-workspace.png；evidence/live-browser/007-create-filled.png；evidence/live-browser/008-enter-new-item.png；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/014-plan-decline.png；evidence/live-browser/016-plan-confirm.png；evidence/live-browser/018-agent-conversation.png；evidence/live-browser/021-send-request-correct.png；evidence/live-browser/024-add-draft-to-review.png；evidence/live-browser/025-reject-material-suggestion.png；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png；evidence/live-browser/032-view-notice-change.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/050-admin-entry.png；evidence/live-browser/051-admin-official-sources.png；evidence/live-browser/052-admin-source-record.png；evidence/live-browser/053-admin-source-record-arrow.png；evidence/live-browser/054-admin-agent-runs.png；evidence/live-browser/055-admin-exception-detail.png",
+      "documentReview": {
+        "status": "文档提供路线和索引",
+        "source": "L9–11、152–162",
+        "observation": "已提取入口与节点；未提供reaction数据，不证明热点可用或无旧页误跳。"
+      },
+      "runtimeAttempt": {
+        "provider": "TinyFish",
+        "run_id": "7cb44f39-1d14-4fff-810c-0ff8c954cb16",
+        "run_url": "https://agent.tinyfish.ai/runs/7cb44f39-1d14-4fff-810c-0ff8c954cb16",
+        "observation": "已尝试部分入口导航，未完成全局热点检查。pilot的Next/flows不算业务导航，materials定位矛盾，不据此判全局断线。",
+        "verdict": "not_verified",
+        "screenshot_artifact": null
+      },
+      "previousRevision": {
+        "status": "局部尝试／受阻",
+        "actual": "浏览器初检：已尝试部分入口导航，未完成全局热点检查。pilot的Next/flows不算业务导航，materials定位矛盾，不据此判全局断线。；原离线观察：已提取入口与节点；未提供reaction数据，不证明热点可用或无旧页误跳。",
+        "evidence": "原始导出说明 L9–11、152–162；evidence/tinyfish/creation-run.json；审计见evidence/tinyfish/runtime-audit.md"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          2,
+          3,
+          7,
+          8,
+          13,
+          14,
+          16,
+          18,
+          21,
+          24,
+          25,
+          27,
+          28,
+          32,
+          35,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55
+        ],
+        "limitations": [
+          "故障仅限定已点击的首行查看记录入口；不据此断言没有reaction或所有后台详情失效。",
+          "051/052/053截图SHA-256相同；未完成全局全部热点、组件、覆盖层与变量审查。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "U02",
+      "group": "UI、导航与桌面体验",
+      "title": "布局组件与信息层次",
+      "pre": "有实际画面",
+      "steps": "比较标题、主次按钮、表单、弹窗、卡片、标签、错误和空状态",
+      "expected": "含义一致、主操作明确、文字可理解；基于截图记录具体问题而非笼统说不美观。",
+      "status": "部分执行",
+      "actual": "已在真实截图比较紫色品牌、导航、主次按钮、必填错误、确认/拒绝/成功和文字状态，主要页面可读，发现的具体交互问题另行记录。",
+      "evidence": "原始导出说明 L13、138–148；13张旧PNG；Page1图片仅作旧版参考；evidence/live-browser/003-new-workspace.png；evidence/live-browser/004-create-empty-validation.png；evidence/live-browser/008-enter-new-item.png；evidence/live-browser/011-rank-confirm.png；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/016-plan-confirm.png；evidence/live-browser/022-supplement-role.png；evidence/live-browser/024-add-draft-to-review.png；evidence/live-browser/025-reject-material-suggestion.png；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png；evidence/live-browser/032-view-notice-change.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/039-notice-update-archive.png；evidence/live-browser/051-admin-official-sources.png；evidence/live-browser/055-admin-exception-detail.png",
+      "documentReview": {
+        "status": "旧版图像已检查／新版本待核验",
+        "source": "L13、138–148；13张旧PNG",
+        "observation": "基础品牌、卡片及文字状态一致；Page2图像缺失，不作新版本美观判定。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：基础品牌、卡片及文字状态一致；Page2图像缺失，不作新版本美观判定。",
+        "evidence": "原始导出说明 L13、138–148；13张旧PNG；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          3,
+          4,
+          8,
+          11,
+          13,
+          16,
+          22,
+          24,
+          25,
+          27,
+          28,
+          32,
+          35,
+          39,
+          51,
+          55
+        ],
+        "limitations": [
+          "未做完整组件一致性/对比度测量/键盘或弹窗矩阵，不笼统宣称UI全部通过。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "U03",
+      "group": "UI、导航与桌面体验",
+      "title": "桌面视口与长内容",
+      "pre": "可调整预览视口或真实前端窗口",
+      "steps": "在1280／1440／1920宽度检查概览、任务、差异、后台表格",
+      "expected": "侧栏与卡片合理重排；按钮可达；表格局部滚动；整页缩小不计响应式通过。",
+      "status": "已测不通过",
+      "actual": "在查看器实际选择Responsive并确认URL content-scaling=responsive后，对后台异常详情和列表执行1280/1440/1920真实视口检查。1280列表操作列不可见，经本次横纵滚动仍未恢复；同节点1440/1920可见查看异常/详情。",
+      "evidence": "原始导出说明 固定尺寸Page1图片；L138–148；Page1图片仅作旧版参考；evidence/live-browser/060-admin-1280-initial-mode.png；evidence/live-browser/062-open-options-fast.png；evidence/live-browser/063-enable-responsive-mode.png；evidence/live-browser/064-admin-responsive-1440.png；evidence/live-browser/065-admin-responsive-1920.png；evidence/live-browser/066-admin-responsive-1280.png；evidence/live-browser/067-responsive-admin-return-list.png；evidence/live-browser/068-focus-admin-table.png；evidence/live-browser/069-admin-table-horizontal-scroll.png；evidence/live-browser/070-admin-table-bottom.png；evidence/live-browser/071-reset-admin-table-scroll.png；evidence/live-browser/072-admin-table-responsive-1440.png；evidence/live-browser/073-admin-table-responsive-1920.png；evidence/live-browser/074-prepare-diff-1440.png；evidence/live-browser/075-resume-diff-responsive.png",
+      "documentReview": {
+        "status": "资料未覆盖新版本宽度／运行",
+        "source": "固定尺寸Page1图片；L138–148",
+        "observation": "无Page2多视口、200%缩放、键盘和长内容运行证据。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：无Page2多视口、200%缩放、键盘和长内容运行证据。",
+        "evidence": "原始导出说明 固定尺寸Page1图片；L138–148；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          60,
+          62,
+          63,
+          64,
+          65,
+          66,
+          67,
+          68,
+          69,
+          70,
+          71,
+          72,
+          73,
+          74,
+          75
+        ],
+        "limitations": [
+          "判定限定已测后台列表1280操作可达性；不推断所有页面没有响应式。",
+          "材料差异页仅补到1440直达截图075；下一批1280/1920操作被自动审批用量上限拒绝，未执行。",
+          "Actual size截图与Responsive截图分开；062菜单/063选择及URL为模式证据。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "U04",
+      "group": "UI、导航与桌面体验",
+      "title": "缩放、焦点和非颜色提示",
+      "pre": "支持对应实际预览或实现环境",
+      "steps": "200%缩放→键盘焦点与Tab→检查标签和错误",
+      "expected": "不遮挡关键动作；状态有文字，不只靠颜色；原型不支持的行为记待验证。",
+      "status": "未执行",
+      "actual": "未执行200%浏览器缩放、Tab焦点遍历或完整非颜色提示用例。",
+      "evidence": "原始导出说明 固定尺寸Page1图片；L138–148；Page1图片仅作旧版参考",
+      "documentReview": {
+        "status": "资料未覆盖新版本宽度／运行",
+        "source": "固定尺寸Page1图片；L138–148",
+        "observation": "无Page2多视口、200%缩放、键盘和长内容运行证据。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：无Page2多视口、200%缩放、键盘和长内容运行证据。",
+        "evidence": "原始导出说明 固定尺寸Page1图片；L138–148；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [],
+        "limitations": [
+          "Responsive视口变化不是200%缩放；已见文字状态不能替代键盘与缩放验证。"
+        ],
+        "nativeReactionsRead": false
+      }
+    },
+    {
+      "id": "U05",
+      "group": "UI、导航与桌面体验",
+      "title": "场景状态与重置",
+      "pre": "三条场景已配置",
+      "steps": "从确认后返回、跨页→查看状态→显式重置",
+      "expected": "不暗中丢失确认／更新状态；预设跳转与重置明确，不冒充持久化。",
+      "status": "已测不通过",
+      "actual": "排名页确认18/120后正常切换Agent待处理又显示排名/证明待补，计划确认后T02仍待补，未解释数据已确认但证明仍待补的区别；新建示例也进入既有上下文。材料分支归档后返回保持v2、通知分支日历/工作台重入保持v1.1的子路径则正常。",
+      "evidence": "原始导出说明 L31、110、152、159、161；Page1图片仅作旧版参考；evidence/live-browser/008-enter-new-item.png；evidence/live-browser/009-new-item-source.png；evidence/live-browser/010-rank-ask.png；evidence/live-browser/011-rank-confirm.png；evidence/live-browser/012-agent-pending.png；evidence/live-browser/013-review-candidate-plan.png；evidence/live-browser/014-plan-decline.png；evidence/live-browser/016-plan-confirm.png；evidence/live-browser/027-accept-material-suggestion.png；evidence/live-browser/028-export-copy.png；evidence/live-browser/029-material-archive.png；evidence/live-browser/030-return-confirmed-materials.png；evidence/live-browser/035-notice-confirm-update.png；evidence/live-browser/036-notice-affected-tasks.png；evidence/live-browser/039-notice-update-archive.png；evidence/live-browser/040-notice-affected-materials.png；evidence/live-browser/047-notice-calendar-verified-click.png；evidence/live-browser/048-updated-workbench.png；evidence/live-browser/049-reenter-updated-item.png",
+      "documentReview": {
+        "status": "文档有预设分支说明",
+        "source": "L31、110、152、159、161",
+        "observation": "作者声称返回保持排名、确认材料与新版日期；需要逐分支点击验证，不能视为持久化。"
+      },
+      "previousRevision": {
+        "status": "未执行",
+        "actual": "运行未执行；离线复核：作者声称返回保持排名、确认材料与新版日期；需要逐分支点击验证，不能视为持久化。",
+        "evidence": "原始导出说明 L31、110、152、159、161；Page1图片仅作旧版参考"
+      },
+      "liveReview": {
+        "provider": "Local Chrome / Playwright",
+        "evidenceSerials": [
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          16,
+          27,
+          28,
+          29,
+          30,
+          35,
+          36,
+          39,
+          40,
+          47,
+          48,
+          49
+        ],
+        "limitations": [
+          "失败为原型跨页状态表达/上下文不一致，不推断真实后端保存失败。",
+          "通知5+T08与计划5+T06/T07在画面中明确标为独立预设分支，不能据6/7数量差再报合并缺陷。",
+          "041-043浏览器回退路线、044-045加载中点击不作为本项业务失败证据；显式重置未全面检查。"
+        ],
+        "nativeReactionsRead": false
+      }
+    }
+  ],
+  "runtimeSummary": {
+    "revision": "v4",
+    "provider": "Local Chrome / Playwright",
+    "screenshots": 75,
+    "businessScenariosAttempted": 3,
+    "endToEndAcceptancePassed": 0,
+    "prototypeBranchesPassed": 2,
+    "failedCases": 7,
+    "partialCases": 26,
+    "notRunCases": 20,
+    "awaitingUserProfileSave": false,
+    "nativeReactionsRead": false,
+    "realDocxVerified": false,
+    "figmaMutations": 0
+  },
+  "liveBrowserScreenshots": 75,
+  "threeScenariosAttempted": 3,
+  "endToEndAcceptancePassed": 0,
+  "statusCounts": {
+    "已测不通过": 7,
+    "部分执行": 26,
+    "未执行": 20,
+    "原型分支通过": 2
+  },
+  "previousRuntimeSummary_v3": {
+    "total": 55,
+    "partial_business_attempts_blocked": 2,
+    "partial_screen_observations_unverified": 2,
+    "not_run": 51,
+    "fully_validated": 0,
+    "confirmed_failures": 0,
+    "browser_runs_finished": 5,
+    "complete_scenarios": 0,
+    "screenshot_artifacts": 0,
+    "awaiting_user_profile_save": true
+  },
+  "exportedReferenceImages": {
+    "count": 13,
+    "version": "Page1",
+    "role": "Old export reference, not the current Page2 live evidence"
+  },
+  "liveBrowserEvidence": {
+    "pngFiles": 75,
+    "dimensionsVerified": 75,
+    "role": "Process screenshots, including loading and corrected coordinates; not 75 passed cases"
+  }
+}

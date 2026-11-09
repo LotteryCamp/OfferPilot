@@ -1,0 +1,121 @@
+{
+  "recordDate": "2026-11-09",
+  "timezone": "Asia/Shanghai",
+  "target": {
+    "fileKey": "VY1sWwkYE55AESpwZwter6",
+    "expectedPageName": "Page 2 (from author export)",
+    "actualPageId": null,
+    "pageRead": false,
+    "authorSuppliedPageId": "314:90"
+  },
+  "privacy": "Account identifiers, email and billing team links omitted. Results below are actual tool outcomes, not Page2 observations.",
+  "attempts": [
+    {
+      "order": "A01",
+      "tool": "Figma.create_session",
+      "purpose": "Read-only second frontend review of latest Page2",
+      "status": "success",
+      "supports": "Session created only; no design read."
+    },
+    {
+      "order": "A02",
+      "tool": "Figma.use_figma",
+      "purpose": "Read page directory",
+      "code": "return figma.root.children.map(p=>({id:p.id,name:p.name}));",
+      "status": "error",
+      "error_code": "INVALID_ARGUMENT",
+      "message": "You've reached the Figma MCP tool call limit on the Starter plan.",
+      "pageDataReturned": false
+    },
+    {
+      "order": "A03",
+      "tool": "Figma.whoami",
+      "status": "success",
+      "summary": {
+        "tier": "student",
+        "seat": "Full"
+      },
+      "supports": "Account plan diagnostic only; file owner/billing quota reason not determined."
+    },
+    {
+      "order": "A04",
+      "tool": "web.open",
+      "purpose": "Fallback read of supplied design URL",
+      "status": "unavailable",
+      "message": "URL https://www.figma.com/design/VY1sWwkYE55AESpwZwter6/OfferPilot?node-id=0-1 is not accessible via this tool.",
+      "pageDataReturned": false
+    },
+    {
+      "order": "A05",
+      "tool": "Figma.get_metadata",
+      "purpose": "Read top-level page directory; no guessed Page2 node",
+      "status": "error",
+      "error_code": "INVALID_ARGUMENT",
+      "message": "You've reached the Figma MCP tool call limit on the Starter plan.",
+      "pageDataReturned": false
+    },
+    {
+      "order": "A06",
+      "tool": "Figma.get_metadata",
+      "purpose": "Read exact Page2 node 314:90 supplied in export",
+      "nodeId": "314:90",
+      "status": "error",
+      "error_code": "INVALID_ARGUMENT",
+      "message": "You've reached the Figma MCP tool call limit on the Starter plan.",
+      "pageDataReturned": false
+    },
+    {
+      "order": "A07",
+      "recordedAt": "2026-11-09T15:59:40+08:00",
+      "tool": "Figma.get_metadata",
+      "purpose": "User-requested check whether Page2 reading has recovered",
+      "nodeId": "314:90",
+      "status": "error",
+      "error_code": "INVALID_ARGUMENT",
+      "message": "You've reached the Figma MCP tool call limit on the Starter plan.",
+      "pageDataReturned": false
+    },
+    {
+      "order": "A08",
+      "recordedAt": "2026-11-09T15:59:40+08:00",
+      "tool": "Figma.whoami",
+      "status": "success",
+      "summary": {
+        "tier": "student",
+        "seat": "Full"
+      },
+      "supports": "Diagnostic only. File ownership and billing-limit cause remain unverified."
+    }
+  ],
+  "conclusions": {
+    "page2Located": false,
+    "screenshotsAcquired": 0,
+    "presentScenariosExecuted": 0,
+    "designMutated": false,
+    "confirmedPage2Defects": 0,
+    "confirmedMissingElements": 0,
+    "reason": "v3: original Present can render via TinyFish; business attempts and partial screen observations are unverified and blocked. Native MCP reading remains rate-limited. Raw browser report limitations documented.",
+    "planDiagnosticMismatch": "Limit message says Starter while whoami says student/Full; billing scope and resolution are unverified.",
+    "sourceExportImages": 13,
+    "sourceExportImageVersion": "Page1",
+    "localDocumentWalkthroughs": 3,
+    "authorSuppliedPage2References": 12,
+    "confirmedDeliveryGaps": 10,
+    "presentScenariosAttempted": 3,
+    "presentScenariosCompleted": 0
+  },
+  "rawErrorReference": "https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/",
+  "lastRecoveryCheckRecordedAt": "2026-11-09T15:59:40+08:00",
+  "lastRecoveryCheckResult": "Not recovered; Page2 read still rate-limited. No screenshot, action configuration, Present click, or viewport test executed.",
+  "browserRecovery": {
+    "provider": "TinyFish",
+    "presentAccessible": true,
+    "runsCompleted": 5,
+    "fullBusinessScenariosCompleted": 0,
+    "rawRunRecords": "evidence/tinyfish/",
+    "evidenceAudit": "evidence/tinyfish/runtime-audit.md",
+    "newScreenshotArtifacts": 0,
+    "nativeMcpReadRecovered": false,
+    "profileSavePending": true
+  }
+}

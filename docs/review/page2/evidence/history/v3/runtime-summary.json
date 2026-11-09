@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-09",
+  "runs": {
+    "pilot": "77786295-7378-4494-8f6b-787e47c31ee5",
+    "creation": "7cb44f39-1d14-4fff-810c-0ff8c954cb16",
+    "materials": "e71c32bc-977c-4907-b562-2cd9f29b2b9e",
+    "notice": "797beb18-2187-4fa6-94f0-6445ee159214",
+    "admin": "22b8978f-8afc-45f2-a8fa-74dff9239382"
+  },
+  "business_cases": {
+    "total": 55,
+    "partial_business_attempts_blocked": 2,
+    "partial_screen_observations_unverified": 2,
+    "not_run": 51,
+    "fully_validated": 0,
+    "confirmed_failures": 0,
+    "browser_runs_finished": 5,
+    "complete_scenarios": 0,
+    "screenshot_artifacts": 0,
+    "awaiting_user_profile_save": true
+  },
+  "interpretation": "Original Present browser access succeeded. No fully validated business test. Raw browser reports have reliability limitations, audited separately.",
+  "profile_save_pending": true
+}
