@@ -15,7 +15,7 @@ cd OfferPilot
 
 为了开发 OfferPilot，你需要准备以下开发工具：
 
-- [Python](https://www.python.org/) (>= 3.14)
+- [Python](https://www.python.org/) (>= 3.13)
 - [UV](https://docs.astral.sh/uv/) (latest)
 
 ## Commit Rules
