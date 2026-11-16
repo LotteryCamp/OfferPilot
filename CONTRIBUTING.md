@@ -25,6 +25,7 @@ cd OfferPilot
 ### 后端
 
 ```bash
+cd backend/
 uv sync
 ```
 
