@@ -4,19 +4,30 @@
 
 鉴于项目的课程性质，当前不接收外部 PR，敬请谅解。
 
-## Setup
+## Environment
+
+为了开发 OfferPilot，你需要准备以下开发工具。
+
+### 前端
+
+### 后端
+
+- [Python](https://www.python.org/) (=3.13)
+- [UV](https://docs.astral.sh/uv/) (latest)
+
+## Workflow
 
 ```bash
 git clone https://github.com/LotteryCamp/OfferPilot.git
 cd OfferPilot
 ```
 
-## Environment
+### 后端
 
-为了开发 OfferPilot，你需要准备以下开发工具：
-
-- [Python](https://www.python.org/) (>= 3.14)
-- [UV](https://docs.astral.sh/uv/) (latest)
+```bash
+cd backend/
+uv sync
+```
 
 ## Commit Rules
 
