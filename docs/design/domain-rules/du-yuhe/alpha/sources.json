@@ -1,0 +1,185 @@
+{
+  "fixture_version": "1.0.0",
+  "verified_on": "2026-11-18",
+  "timezone": "Asia/Shanghai",
+  "sources": [
+    {
+      "source_id": "S4",
+      "title": "福州大学数学与统计学院2027年推荐优秀应届本科毕业生免试攻读研究生的工作方案",
+      "scope": {
+        "matter_type": "推免",
+        "institution": "福州大学",
+        "college": "数学与统计学院",
+        "intake_year": 2027,
+        "purpose": "校内推荐",
+        "cohort": "2027届"
+      },
+      "audience": "本院2027届本科生，本人自愿向学院申请推荐；专业名额见正文第（2）项。",
+      "url": "https://math.fzu.edu.cn/info/1171/10393.htm",
+      "published_on": "2026-09-08",
+      "fetched_at": "2026-11-18T08:19:04+08:00",
+      "media_type": "text/html",
+      "format": "html",
+      "sha256": "1f66ecfcae3d4a25ba99c3695aa672cea161b1b05e8cd5fcddd42aef96dccc6d",
+      "size_bytes": 89481,
+      "coverage": "采用第（3）、（5）项。校级推荐条件、专业名额与综合测评未纳入完整判定。",
+      "publisher": "福州大学数学与统计学院",
+      "source_version_id": "S4-1f66ecfcae3d",
+      "http_status": 200,
+      "use_as_of_check": "历史批次"
+    },
+    {
+      "source_id": "S4-A",
+      "parent_source_id": "S4",
+      "title": "福州大学数学与统计学院2027年推荐优秀应届本科毕业生推免工作方案（公示版）",
+      "scope": {
+        "matter_type": "推免",
+        "institution": "福州大学",
+        "college": "数学与统计学院",
+        "intake_year": 2027,
+        "purpose": "校内推荐",
+        "cohort": "2027届"
+      },
+      "audience": "同一通知随附的公示版，作为第（5）项截止时间和成绩单清单的备选出处。",
+      "url": "https://math.fzu.edu.cn/system/_content/download.jsp?urltype=news.DownloadAttachUrl&owner=1767064491&wbfileid=18295349",
+      "published_on": "2026-09-08",
+      "fetched_at": "2026-11-18T08:21:02+08:00",
+      "media_type": "application/octet-stream",
+      "format": "docx",
+      "sha256": "4df7c36b3b32779c67c15b816ea08f79c6529fe79b876e8b9e2bf0d9c884c997",
+      "size_bytes": 31088,
+      "coverage": "发布日期取所属通知。已从文档正文比对第（5）项材料期限及清单第3目。",
+      "publisher": "福州大学数学与统计学院",
+      "source_version_id": "S4-A-4df7c36b3b32",
+      "http_status": 200,
+      "use_as_of_check": "历史批次"
+    },
+    {
+      "source_id": "S5",
+      "title": "福州大学经济与管理学院2027年关于接收优秀应届本科毕业生免试攻读研究生（含硕士生和直博生）工作实施方案",
+      "scope": {
+        "matter_type": "推免",
+        "institution": "福州大学",
+        "college": "经济与管理学院",
+        "intake_year": 2027,
+        "purpose": "目标院校接收"
+      },
+      "audience": "本方案涵盖的普通推免申请人。复试通知24小时条款另限学校预报名且经复试拟录取者。",
+      "url": "https://jgxy.fzu.edu.cn/info/1070/25159.htm",
+      "published_on": "2026-09-16",
+      "fetched_at": "2026-11-18T08:19:04+08:00",
+      "media_type": "text/html",
+      "format": "html",
+      "sha256": "7d3370f848723d413191ec9e6cb82d535f03d8a64180bbfa07e93a8fadf073fe",
+      "size_bytes": 96841,
+      "coverage": "采用第一部分（一）、（四）、第三部分（一）及附件1的入口。专项计划、其他批次和个人通知内容各有范围。",
+      "publisher": "福州大学经济与管理学院",
+      "source_version_id": "S5-7d3370f84872",
+      "http_status": 200,
+      "use_as_of_check": "历史批次"
+    },
+    {
+      "source_id": "S5-A1",
+      "parent_source_id": "S5",
+      "title": "福州大学经济与管理学院2027年推荐免试研究生（含硕士生和直博生）招生专业目录（含复试参考书目）",
+      "scope": {
+        "matter_type": "推免",
+        "institution": "福州大学",
+        "college": "经济与管理学院",
+        "intake_year": 2027,
+        "purpose": "目标院校接收"
+      },
+      "audience": "用于核对附件内的学位类型、专业代码与专业名称。样例只取学术型硕士020100这一行。",
+      "url": "https://jgxy.fzu.edu.cn/fujian1fuzhoudaxuejingjiyuguanlixueyuan2027niantuijianmianshiyanjiushenghanshuoshishenghezhiboshengzhaoshengzhuanyemuluhanfushicankaoshumu.doc",
+      "published_on": "2026-09-16",
+      "fetched_at": "2026-11-18T08:20:49+08:00",
+      "media_type": "application/msword",
+      "format": "doc",
+      "sha256": "ae3b0e07e67d455fd5e0d58abb00c028d037d664960a02231b5c85195f854e95",
+      "size_bytes": 73216,
+      "coverage": "发布日期取所属通知。核对表中连续的类型、代码与专业名称单元格，专业名额及报考资格另行核对。",
+      "publisher": "福州大学经济与管理学院",
+      "source_version_id": "S5-A1-ae3b0e07e67d",
+      "http_status": 200,
+      "use_as_of_check": "历史批次"
+    },
+    {
+      "source_id": "S6",
+      "title": "东南大学信息科学与工程学院2027年接收推荐免试研究生报名通知",
+      "scope": {
+        "matter_type": "推免",
+        "institution": "东南大学",
+        "college": "信息科学与工程学院",
+        "intake_year": 2027,
+        "purpose": "目标院校接收"
+      },
+      "audience": "本院本轮硕士、直博申请者（含本校和外校）。材料表第9、10项专属本科直博。",
+      "url": "https://radio.seu.edu.cn/2026/0704/c19195a575536/pagem.htm",
+      "published_on": "2026-07-07",
+      "fetched_at": "2026-11-18T08:19:04+08:00",
+      "media_type": "text/html",
+      "format": "html",
+      "sha256": "f69773299ea2dc522cfb99bcdafe888e852282e2235924c38a99e4e77072caeb",
+      "size_bytes": 52853,
+      "coverage": "采用第二部分申请条件第5项、第三部分第2小节材料表第9、10项。7月报名窗口已结束。",
+      "publisher": "东南大学信息科学与工程学院",
+      "source_version_id": "S6-f69773299ea2",
+      "http_status": 200,
+      "use_as_of_check": "历史批次"
+    }
+  ],
+  "read_results": [
+    {
+      "kind": "实测",
+      "source_id": "S4",
+      "read_status": "成功",
+      "fetched_at": "2026-11-18T08:19:04+08:00",
+      "source_version_id": "S4-1f66ecfcae3d",
+      "unread_ranges": [],
+      "verified_range": "第（3）、（5）项，覆盖范围以条款索引为准。"
+    },
+    {
+      "kind": "实测",
+      "source_id": "S4",
+      "read_status": "读取失败",
+      "run_started_at": "2026-11-18T08:30:38+08:00",
+      "fetched_at": null,
+      "source_version_id": null,
+      "error_code": "SOURCE_UNAVAILABLE",
+      "message": "接收来源响应前发生连接握手超时。",
+      "last_successful_version_id": "S4-1f66ecfcae3d",
+      "last_successful_at": "2026-11-18T08:19:04+08:00",
+      "unread_ranges": [
+        "此次请求未取得正文"
+      ],
+      "recheck": {
+        "run_started_at": "2026-11-18T08:32:16+08:00",
+        "http_status": 200,
+        "source_version_id": "S4-1f66ecfcae3d"
+      }
+    },
+    {
+      "kind": "验收输入",
+      "source_id": "S5",
+      "read_status": "正文可读，关键附件缺失",
+      "source_version_id": "S5-7d3370f84872",
+      "missing_attachments": [
+        "S5-A1"
+      ],
+      "unread_ranges": [
+        "招生专业目录中的020100行"
+      ],
+      "affected_requirement_ids": [
+        "GR-10"
+      ],
+      "independent_requirement_ids": [
+        "GR-04"
+      ],
+      "case_ids": [
+        "A28",
+        "A11"
+      ],
+      "note": "输入有意省去专业目录。本次官网实测已取到该附件。"
+    }
+  ]
+}

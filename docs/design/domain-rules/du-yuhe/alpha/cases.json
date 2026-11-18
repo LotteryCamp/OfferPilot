@@ -1,0 +1,851 @@
+{
+  "fixture_version": "1.0.0",
+  "default_mode": "历史回放",
+  "input_note": "所有个人事实、事件、代号、决定及历史回放时钟均为验收输入。source_state 描述本用例可用证据，官网下载实测见 sources.json。",
+  "contexts": {
+    "FZU-REC": {
+      "matter_type": "推免",
+      "institution": "福州大学",
+      "college": "数学与统计学院",
+      "intake_year": 2027,
+      "purpose": "校内推荐",
+      "stage": "推荐申请",
+      "cohort": "2027届",
+      "major": "信息与计算科学",
+      "as_of": "2026-09-09T09:00:00+08:00",
+      "application_choice": "本人申请推荐"
+    },
+    "FZU-REG": {
+      "matter_type": "推免",
+      "institution": "福州大学",
+      "college": "经济与管理学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "program_group": "普通推免",
+      "degree": "硕士",
+      "stage": "正式报名",
+      "as_of": "2026-09-21T16:00:00+08:00"
+    },
+    "FZU-RETEST": {
+      "matter_type": "推免",
+      "institution": "福州大学",
+      "college": "经济与管理学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "program_group": "普通推免",
+      "degree": "硕士",
+      "selection_route": "校内预报名并经复试拟录取",
+      "stage": "复试通知确认",
+      "as_of": "2026-09-24T11:00:00+08:00"
+    },
+    "FZU-OFFER": {
+      "matter_type": "推免",
+      "institution": "福州大学",
+      "college": "经济与管理学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "program_group": "普通推免",
+      "degree": "硕士",
+      "stage": "待录取确认",
+      "as_of": "2026-09-24T15:00:00+08:00"
+    },
+    "FZU-CATALOG": {
+      "matter_type": "推免",
+      "institution": "福州大学",
+      "college": "经济与管理学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "program_group": "普通推免",
+      "degree": "硕士",
+      "degree_type": "学术型",
+      "program_code": "020100",
+      "stage": "专业选择",
+      "as_of": "2026-09-17T09:00:00+08:00"
+    },
+    "FZU-DOC": {
+      "matter_type": "推免",
+      "institution": "福州大学",
+      "college": "经济与管理学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "program_group": "普通推免",
+      "degree": "本科直博",
+      "stage": "资格审查",
+      "as_of": "2026-09-17T09:00:00+08:00"
+    },
+    "SEU-MS": {
+      "matter_type": "推免",
+      "institution": "东南大学",
+      "college": "信息科学与工程学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "degree": "硕士",
+      "stage": "接收报名",
+      "as_of": "2026-07-15T09:00:00+08:00"
+    },
+    "SEU-DOC": {
+      "matter_type": "推免",
+      "institution": "东南大学",
+      "college": "信息科学与工程学院",
+      "intake_year": 2027,
+      "purpose": "目标院校接收",
+      "degree": "本科直博",
+      "stage": "接收报名",
+      "as_of": "2026-07-15T09:00:00+08:00"
+    }
+  },
+  "cases": [
+    {
+      "case_id": "A01",
+      "requirement_id": "GR-01",
+      "context_id": "FZU-REC",
+      "title": "只读到学院推荐方案",
+      "confirmed_facts": {
+        "paper_transcript": true,
+        "named_pdf": true
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待用户核对",
+        "gaps": [
+          "校招考〔2026〕2号",
+          "福大招考〔2022〕5号"
+        ],
+        "official_deadline": null
+      },
+      "reason": "展示学院引用的校级文件。材料齐全仍不足以回答整套资格问题。"
+    },
+    {
+      "case_id": "A02",
+      "requirement_id": "GR-02",
+      "context_id": "FZU-REC",
+      "title": "截止前一分钟提交",
+      "confirmed_facts": {
+        "submitted_at": "2026-09-10T14:59:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": "2026-09-10T15:00:00+08:00"
+      },
+      "reason": "本人记录早于15:00，只说明该次记录满足本条时限。",
+      "scope_overrides": {
+        "as_of": "2026-09-10T15:05:00+08:00"
+      }
+    },
+    {
+      "case_id": "A03",
+      "requirement_id": "GR-02",
+      "context_id": "FZU-REC",
+      "title": "恰在15:00提交",
+      "confirmed_facts": {
+        "submitted_at": "2026-09-10T15:00:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息不符合",
+        "gaps": [],
+        "official_deadline": "2026-09-10T15:00:00+08:00"
+      },
+      "reason": "按原文“前”处理，到点不满足严格早于。",
+      "scope_overrides": {
+        "as_of": "2026-09-10T15:05:00+08:00"
+      }
+    },
+    {
+      "case_id": "A04",
+      "requirement_id": "GR-03",
+      "context_id": "FZU-REC",
+      "title": "只有纸质成绩单",
+      "confirmed_facts": {
+        "paper_transcript": true
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "named_pdf"
+        ],
+        "official_deadline": null
+      },
+      "reason": "提示补充按要求命名的电子版，不索取证件号。"
+    },
+    {
+      "case_id": "A05",
+      "requirement_id": "GR-03",
+      "context_id": "FZU-REC",
+      "title": "纸质与电子件均已备齐",
+      "confirmed_facts": {
+        "paper_transcript": true,
+        "named_pdf": true
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "只核对成绩单项，读者仍可查看同段其他申请材料。"
+    },
+    {
+      "case_id": "A06",
+      "requirement_id": "GR-03",
+      "context_id": "FZU-REC",
+      "title": "网页读取失败，公示版可读",
+      "confirmed_facts": {
+        "paper_transcript": true,
+        "named_pdf": true
+      },
+      "source_state": {
+        "S4": "读取失败"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null,
+        "used_sources": [
+          "S4-A"
+        ]
+      },
+      "reason": "引用转为已核对同一条款的学院公示版，并展示实际使用的版本。"
+    },
+    {
+      "case_id": "A07",
+      "requirement_id": "GR-03",
+      "context_id": "FZU-REC",
+      "title": "正文和同条款备选均未取得",
+      "confirmed_facts": {
+        "paper_transcript": true,
+        "named_pdf": true
+      },
+      "source_state": {
+        "S4": "读取失败",
+        "S4-A": "读取失败"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待用户核对",
+        "gaps": [
+          "S4",
+          "S4-A"
+        ],
+        "official_deadline": null,
+        "used_sources": []
+      },
+      "reason": "保留最后成功获取时间，标出当前读取缺口。不能仅凭个人材料给出肯定结论。"
+    },
+    {
+      "case_id": "A08",
+      "requirement_id": "GR-02",
+      "context_id": "FZU-REC",
+      "title": "校内推荐条款用于目标院校接收",
+      "confirmed_facts": {},
+      "scope_overrides": {
+        "purpose": "目标院校接收"
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "用途不同，跳过该条件与其任务。"
+    },
+    {
+      "case_id": "A09",
+      "requirement_id": "GR-02",
+      "context_id": "FZU-REC",
+      "title": "11月重开历史推荐事项",
+      "confirmed_facts": {},
+      "mode": "当前办理",
+      "scope_overrides": {
+        "as_of": "2026-11-18T08:00:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待用户核对",
+        "gaps": [
+          "历史批次"
+        ],
+        "official_deadline": null
+      },
+      "reason": "保留历史条款及其出处，请查当前适用通知，停止生成当期办理期限。"
+    },
+    {
+      "case_id": "A10",
+      "requirement_id": "GR-04",
+      "context_id": "FZU-REG",
+      "title": "只记录了校内预报名",
+      "confirmed_facts": {
+        "university_preregistration_record": true
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "ministry_registration_record"
+        ],
+        "official_deadline": null
+      },
+      "reason": "两个系统独立，正式报名需本人另行记录。"
+    },
+    {
+      "case_id": "A11",
+      "requirement_id": "GR-04",
+      "context_id": "FZU-REG",
+      "title": "目录附件缺失，独立的报名条款仍可核对",
+      "confirmed_facts": {
+        "ministry_registration_record": true
+      },
+      "source_state": {
+        "S5-A1": "附件不可读"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null,
+        "used_sources": [
+          "S5"
+        ]
+      },
+      "reason": "正文足以证明两个阶段。附件缺口只影响依赖目录的专业判断，与A28配对。"
+    },
+    {
+      "case_id": "A12",
+      "requirement_id": "GR-05",
+      "context_id": "FZU-RETEST",
+      "title": "收到复试通知后跨日确认",
+      "confirmed_facts": {
+        "retest_received_at": "2026-09-23T10:30:00+08:00",
+        "retest_accepted_at": "2026-09-24T10:29:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": "2026-09-24T10:30:00+08:00"
+      },
+      "reason": "收到时刻加24小时。本人确认时刻在期限内。"
+    },
+    {
+      "case_id": "A13",
+      "requirement_id": "GR-05",
+      "context_id": "FZU-RETEST",
+      "title": "只知道待录取通知收到时刻",
+      "confirmed_facts": {
+        "offer_received_at": "2026-09-23T10:30:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "retest_received_at"
+        ],
+        "official_deadline": null
+      },
+      "reason": "先问教育部系统中复试通知的实际收到时刻，不能从另一类通知起算。"
+    },
+    {
+      "case_id": "A14",
+      "requirement_id": "GR-05",
+      "context_id": "FZU-RETEST",
+      "title": "复试通知超过24小时才确认",
+      "confirmed_facts": {
+        "retest_received_at": "2026-09-23T10:30:00+08:00",
+        "retest_accepted_at": "2026-09-24T10:31:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息不符合",
+        "gaps": [],
+        "official_deadline": "2026-09-24T10:30:00+08:00"
+      },
+      "reason": "本人确认晚于计算出的时限，只说明此条的时间比较结果。"
+    },
+    {
+      "case_id": "A15",
+      "requirement_id": "GR-06",
+      "context_id": "FZU-OFFER",
+      "title": "待录取通知未提供截止时刻",
+      "confirmed_facts": {
+        "offer_received_at": "2026-09-24T09:00:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "offer_notice_deadline"
+        ],
+        "official_deadline": null
+      },
+      "reason": "保持绝对期限为空，由本人核对通知载明的期限。"
+    },
+    {
+      "case_id": "A16",
+      "requirement_id": "GR-06",
+      "context_id": "FZU-OFFER",
+      "title": "待录取通知载明同日14:00前确认",
+      "confirmed_facts": {
+        "offer_notice_deadline": "2026-09-24T14:00:00+08:00",
+        "offer_accepted_at": "2026-09-24T13:50:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": "2026-09-24T14:00:00+08:00"
+      },
+      "reason": "采用合成个人通知给出的期限；该14:00仅在此用例有效。"
+    },
+    {
+      "case_id": "A17",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "四级500，其余三项未知",
+      "confirmed_facts": {
+        "cet4": 500
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "任一替代路径达到下限即可。输出保留“原则上”，仅表示英语数值分支。"
+    },
+    {
+      "case_id": "A18",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "六级425，其余三项未知",
+      "confirmed_facts": {
+        "cet6": 425
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "任一替代路径达到下限即可。输出保留“原则上”，仅表示英语数值分支。"
+    },
+    {
+      "case_id": "A19",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "托福80，其余三项未知",
+      "confirmed_facts": {
+        "toefl": 80
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "任一替代路径达到下限即可。输出保留“原则上”，仅表示英语数值分支。"
+    },
+    {
+      "case_id": "A20",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "雅思6.0，其余三项未知",
+      "confirmed_facts": {
+        "ielts": 6
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "任一替代路径达到下限即可。输出保留“原则上”，仅表示英语数值分支。"
+    },
+    {
+      "case_id": "A21",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "四项均已确认且都低于下限",
+      "confirmed_facts": {
+        "cet4": 499,
+        "cet6": 424,
+        "toefl": 79,
+        "ielts": 5.5
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息不符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "四条数值路径均未达标。保留例外余地，学校决定正式资格。"
+    },
+    {
+      "case_id": "A22",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "仅四级499，其余未知",
+      "confirmed_facts": {
+        "cet4": 499
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "cet6",
+          "toefl",
+          "ielts"
+        ],
+        "official_deadline": null
+      },
+      "reason": "可再提供任一替代成绩，不将未提供的三项记零。"
+    },
+    {
+      "case_id": "A23",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "把2027年条件套用于2028年",
+      "confirmed_facts": {
+        "cet6": 430
+      },
+      "scope_overrides": {
+        "intake_year": 2028
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "入学年度不符。本条仅可作为历史参考。"
+    },
+    {
+      "case_id": "A24",
+      "requirement_id": "GR-09",
+      "context_id": "SEU-MS",
+      "title": "学位路径尚未填明",
+      "confirmed_facts": {},
+      "scope_overrides": {
+        "degree": null
+      },
+      "expected": {
+        "scope_match": "范围不明",
+        "status": "待用户核对",
+        "gaps": [
+          "degree"
+        ],
+        "official_deadline": null
+      },
+      "reason": "先确认硕士或本科直博，尚不能决定是否需要导师证明。"
+    },
+    {
+      "case_id": "A25",
+      "requirement_id": "GR-07",
+      "context_id": "SEU-MS",
+      "title": "竞赛事项引用推免英语条件",
+      "confirmed_facts": {
+        "cet6": 430
+      },
+      "scope_overrides": {
+        "matter_type": "竞赛"
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "竞赛须另有主办方、届次、赛道与章程。推免通知不能生成竞赛条件或任务。"
+    },
+    {
+      "case_id": "A26",
+      "requirement_id": "GR-08",
+      "context_id": "SEU-DOC",
+      "title": "两名不同的合格专家各有一份推荐信",
+      "confirmed_facts": {
+        "letters": [
+          {
+            "alias": "甲",
+            "rank": "副教授",
+            "discipline_related": true,
+            "proposed_supervisor": false,
+            "letter_present": true
+          },
+          {
+            "alias": "乙",
+            "rank": "教授",
+            "discipline_related": true,
+            "proposed_supervisor": false,
+            "letter_present": true
+          }
+        ]
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "两人均与申请学科相关，且均非拟报考导师。"
+    },
+    {
+      "case_id": "A27",
+      "requirement_id": "GR-08",
+      "context_id": "SEU-DOC",
+      "title": "两封中有一封来自拟报考导师",
+      "confirmed_facts": {
+        "letters": [
+          {
+            "alias": "甲",
+            "rank": "副教授",
+            "discipline_related": true,
+            "proposed_supervisor": false,
+            "letter_present": true
+          },
+          {
+            "alias": "乙",
+            "rank": "教授",
+            "discipline_related": true,
+            "proposed_supervisor": true,
+            "letter_present": true
+          }
+        ]
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "合规推荐信还缺1份"
+        ],
+        "official_deadline": null
+      },
+      "reason": "只计入另一位合格专家，需补充一封。"
+    },
+    {
+      "case_id": "A28",
+      "requirement_id": "GR-10",
+      "context_id": "FZU-CATALOG",
+      "title": "未取得附件1，目录行无法核对",
+      "confirmed_facts": {},
+      "source_state": {
+        "S5-A1": "附件不可读"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待用户核对",
+        "gaps": [
+          "S5-A1"
+        ],
+        "official_deadline": null
+      },
+      "reason": "正文只列出附件入口，无法据此判定专业。仍可处理不依赖它的A11。"
+    },
+    {
+      "case_id": "A29",
+      "requirement_id": "GR-10",
+      "context_id": "FZU-CATALOG",
+      "title": "附件1可读，020100列在学术型硕士栏",
+      "confirmed_facts": {},
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "定位到理论经济学一行；只确认目录收录情况。"
+    },
+    {
+      "case_id": "A30",
+      "requirement_id": "GR-09",
+      "context_id": "SEU-MS",
+      "title": "硕士路径未提交导师同意证明",
+      "confirmed_facts": {},
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "此材料只约束直博。不要从免交证明推断导师联系义务。"
+    },
+    {
+      "case_id": "A31",
+      "requirement_id": "GR-09",
+      "context_id": "SEU-DOC",
+      "title": "直博还缺导师同意证明",
+      "confirmed_facts": {},
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "supervisor_consent_proof"
+        ],
+        "official_deadline": null
+      },
+      "reason": "提示补充本人、导师、同意报名事项可辨的证明。"
+    },
+    {
+      "case_id": "A32",
+      "requirement_id": "GR-11",
+      "context_id": "FZU-DOC",
+      "title": "福大推荐书少一份专家单位公章",
+      "confirmed_facts": {
+        "letters": [
+          {
+            "alias": "甲",
+            "rank": "教授",
+            "discipline_related": true,
+            "letter_present": true,
+            "hand_signed": true,
+            "unit_seal": true
+          },
+          {
+            "alias": "乙",
+            "rank": "相当正高职称",
+            "discipline_related": true,
+            "letter_present": true,
+            "hand_signed": true,
+            "unit_seal": false
+          }
+        ]
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "合规推荐书还缺1份"
+        ],
+        "official_deadline": null
+      },
+      "reason": "须推荐人手签且加盖其单位公章；仅一份满足本通知格式。"
+    },
+    {
+      "case_id": "A33",
+      "requirement_id": "GR-11",
+      "context_id": "FZU-DOC",
+      "title": "两份福大推荐书均满足本院要求",
+      "confirmed_facts": {
+        "letters": [
+          {
+            "alias": "甲",
+            "rank": "教授",
+            "discipline_related": true,
+            "letter_present": true,
+            "hand_signed": true,
+            "unit_seal": true
+          },
+          {
+            "alias": "乙",
+            "rank": "相当正高职称",
+            "discipline_related": true,
+            "letter_present": true,
+            "hand_signed": true,
+            "unit_seal": true
+          }
+        ]
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "按现有信息符合",
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "只核对推荐书，个人科研计划及其他材料另行核对。"
+    },
+    {
+      "case_id": "A34",
+      "requirement_id": "GR-05",
+      "context_id": "FZU-RETEST",
+      "title": "非校内预报名拟录取路径",
+      "confirmed_facts": {},
+      "scope_overrides": {
+        "selection_route": "教育部系统第二批报名"
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "该段24小时条款只覆盖原文所述人群，其他批次应核对自己的通知。"
+    },
+    {
+      "case_id": "A35",
+      "requirement_id": "GR-03",
+      "context_id": "FZU-REC",
+      "title": "同校其他学院套用数统学院材料清单",
+      "confirmed_facts": {
+        "paper_transcript": true,
+        "named_pdf": true
+      },
+      "scope_overrides": {
+        "college": "计算机与大数据学院"
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "学院级方案不得跨学院套用。"
+    },
+    {
+      "case_id": "A36",
+      "requirement_id": "GR-05",
+      "context_id": "FZU-RETEST",
+      "title": "已知收到时刻，尚无本人确认记录",
+      "confirmed_facts": {
+        "retest_received_at": "2026-09-23T10:30:00+08:00"
+      },
+      "scope_overrides": {
+        "as_of": "2026-09-23T10:35:00+08:00"
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "retest_accepted_at"
+        ],
+        "official_deadline": "2026-09-24T10:30:00+08:00"
+      },
+      "reason": "可以计算期限，同时保留办理记录为空。"
+    },
+    {
+      "case_id": "A37",
+      "requirement_id": "GR-03",
+      "context_id": "FZU-REC",
+      "title": "本人选择放弃推荐",
+      "confirmed_facts": {},
+      "scope_overrides": {
+        "application_choice": "本人放弃推荐"
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "跳过自愿申请人的成绩单清单。第（5）项对符合条件后放弃者另有承诺书要求，应回看原文。"
+    },
+    {
+      "case_id": "A38",
+      "requirement_id": "GR-02",
+      "context_id": "FZU-REC",
+      "title": "校内推荐申请人的毕业届别不同",
+      "confirmed_facts": {},
+      "scope_overrides": {
+        "cohort": "2028届"
+      },
+      "expected": {
+        "scope_match": "不匹配",
+        "status": null,
+        "gaps": [],
+        "official_deadline": null
+      },
+      "reason": "本院方案用于2027届优秀应届本科毕业生。同校同院的其他届别须另查其方案。"
+    }
+  ]
+}
