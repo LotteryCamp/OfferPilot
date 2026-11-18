@@ -87,6 +87,10 @@ uv run pytest tests -q
 
 未设置上述变量时集成测试跳过。测试库须已应用 Alpha schema，并授予应用角色读写权限；测试夹具会写入演示用户、工作区与 `pre_recommend` 事项类型。
 
+## CI
+
+`.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时运行 Ruff、ty 与 `tests/test_basis.py`。数据库集成测试需要真实 PostgreSQL 与 Alpha schema，不在当前 CI 中执行。
+
 ## 检查
 
 ```bash

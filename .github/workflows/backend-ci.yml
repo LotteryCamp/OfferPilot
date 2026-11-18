@@ -1,0 +1,47 @@
+name: Backend CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Lint, types, and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10
+
+      - name: Install backend dependencies
+        run: uv sync --project backend --locked
+
+      - name: Lint
+        run: uv run --project backend ruff check backend
+
+      - name: Check formatting
+        run: uv run --project backend ruff format --check backend
+
+      - name: Type check
+        run: uv run --project backend ty check backend/src backend/tests
+
+      - name: Run unit tests
+        run: uv run --project backend pytest backend/tests/test_basis.py -q
