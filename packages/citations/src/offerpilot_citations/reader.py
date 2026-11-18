@@ -321,6 +321,7 @@ class _HtmlBlocks(HTMLParser):
         self._element_stack: list[str] = []
         self._block_stack: list[_HtmlBlock] = []
         self._next_order = 0
+        self._table_row_number = 0
         self._in_title = False
 
     @property
@@ -357,7 +358,10 @@ class _HtmlBlocks(HTMLParser):
             self._close_block()
         if self._block_stack:
             self._flush_block_segment(self._block_stack[-1])
-        block_tag = "td" if any(item in {"td", "th"} for item in self._element_stack) else tag
+        if any(item in {"td", "th"} for item in self._element_stack):
+            block_tag = f"td:{self._table_row_number}"
+        else:
+            block_tag = tag
         self._block_stack.append(_HtmlBlock(block_tag, current_depth))
 
     def _element_index(self, tag: str) -> int | None:
@@ -382,6 +386,8 @@ class _HtmlBlocks(HTMLParser):
         if tag in {"td", "th"}:
             self._element_stack.append(tag)
             return
+        if tag == "tr":
+            self._table_row_number += 1
         if tag == "title":
             self._in_title = True
         elif tag in _BLOCK_TAGS:
@@ -426,7 +432,7 @@ class _HtmlBlocks(HTMLParser):
         if self._block_stack:
             self._block_stack[-1].parts.append(data)
         elif any(item in {"td", "th"} for item in self._element_stack):
-            self._append_item(self._next_order, "td", text)
+            self._append_item(self._next_order, f"td:{self._table_row_number}", text)
             self._next_order += 1
         else:
             self._append_item(self._next_order, "body", text)
@@ -505,7 +511,14 @@ def _fragment_models(blocks: list[tuple[str, str]]) -> list[SourceFragment]:
     headings: dict[str, int] = {}
     list_item = 0
     table_row = 0
+    grouped_blocks: list[tuple[str, str]] = []
     for tag, quote in blocks:
+        if tag.startswith("td:") and grouped_blocks and grouped_blocks[-1][0] == tag:
+            previous_tag, previous_quote = grouped_blocks[-1]
+            grouped_blocks[-1] = (previous_tag, f"{previous_quote} {quote}")
+        else:
+            grouped_blocks.append((tag, quote))
+    for tag, quote in grouped_blocks:
         if tag.startswith("h"):
             section_base = quote[:280]
             headings[section_base] = headings.get(section_base, 0) + 1
@@ -515,9 +528,14 @@ def _fragment_models(blocks: list[tuple[str, str]]) -> list[SourceFragment]:
         elif tag == "li":
             list_item += 1
             locator = {"kind": "list_item", "list": "网页列表", "item": list_item}
-        elif tag in {"td", "th"}:
-            table_row += 1
-            locator = {"kind": "table_row", "table": "网页表格", "row": table_row}
+        elif tag.startswith("td:"):
+            row = int(tag.partition(":")[2])
+            if row <= 0:
+                table_row += 1
+                row = table_row
+            else:
+                table_row = max(table_row, row)
+            locator = {"kind": "table_row", "table": "网页表格", "row": row}
         else:
             paragraph += 1
             locator = {
