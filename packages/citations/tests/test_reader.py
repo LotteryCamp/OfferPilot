@@ -55,13 +55,12 @@ def test_reader_returns_traceable_result_from_real_notice():
     assert "secret_should_not_be_returned" not in result.normalized_text
 
 
-def test_same_notice_has_stable_snapshot_metadata():
+def test_same_notice_has_stable_snapshot_identity():
     first = parse_fixture()
     second = parse_fixture()
     assert first.source_id == second.source_id
     assert first.snapshot_id == second.snapshot_id
-    assert first.version_no == second.version_no
-    assert first.fetched_at == second.fetched_at
+    assert first.version_no == second.version_no == 1
     assert first.content_hash == second.content_hash
 
 
@@ -75,7 +74,7 @@ def test_changed_notice_gets_new_snapshot_version():
     )
     assert changed.source_id == first.source_id
     assert changed.snapshot_id != first.snapshot_id
-    assert changed.version_no == first.version_no + 1
+    assert changed.version_no == first.version_no == 1
 
 
 def test_result_can_be_sent_to_citation_validator():

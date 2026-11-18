@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from .reader import SourceReadError, read_public_html
+from .registry import SourceRegistrationError, SourceRegistry
 
 
 class _JsonArgumentParser(argparse.ArgumentParser):
@@ -27,6 +28,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--max-bytes", type=int, default=2 * 1024 * 1024)
     parser.add_argument("--max-fragments", type=int, default=4096)
+    parser.add_argument("--database", help="Register the result in this SQLite database")
     try:
         args = parser.parse_args()
         result = read_public_html(
@@ -41,6 +43,20 @@ def main() -> int:
                 "max_fragments": args.max_fragments,
             }
         )
+        if args.database:
+            registry = SourceRegistry(args.database)
+            try:
+                registered = registry.register(result)
+            finally:
+                registry.close()
+            print(json.dumps(registered, ensure_ascii=False, indent=2))
+            return 0
+    except SourceRegistrationError:
+        print(
+            json.dumps({"error": "source_registration_failed", "code": "registration_conflict"}),
+            file=sys.stderr,
+        )
+        return 1
     except (ValidationError, SourceReadError) as error:
         if isinstance(error, SourceReadError):
             payload = error.as_dict()

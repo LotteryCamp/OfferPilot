@@ -122,6 +122,8 @@ uv run --project packages/citations --locked offerpilot-source-reader \
   --matter-id 3e8d27b5-07d4-44ca-bae5-f2f4e57bf631
 ```
 
+需要在读取后登记时追加 `--database offerpilot.db`；该选项返回已登记的事项关联和引用片段。
+
 命令成功退出码为 `0`，标准输出返回 `status="success"` 的 JSON。结果中的 `source_id` 按最终 URL 稳定生成，`snapshot_id` 按最终 URL 与内容摘要生成；同一页面内容再次读取时可以识别为同一快照。`fragments` 保存标题、段落、列表和表格单元格等可读块，每一项包含 `quote`、`locator` 和 `locator_text`。`citation_batch()` 可以将读取结果转换为本模块的公开引用校验输入。`--max-bytes` 和 `--max-fragments` 用于限制单次读取的响应大小和可保留片段数量。
 
 读取失败时不返回成功对象，也不生成空白规则结论，而是向标准错误返回结构化错误并以非零退出码结束：
@@ -139,6 +141,23 @@ uv run --project packages/citations --locked offerpilot-source-reader \
 | `decode_error`、`parse_error` | 页面编码或 HTML 解析失败 |
 
 首版支持范围限定为公开 HTML；不承诺任意 PDF、扫描件、需要登录的页面、依赖浏览器执行 JavaScript 才能生成正文的复杂网页。PDF 或附件应由专门的附件读取流程提取定位后，再送入公开引用接口。读取器也不替业务层完成官方身份核实、政策资格判断或数据库写入；这些动作由后端和领域 Agent 的授权流程负责。
+
+### 2.5 来源登记与 Agent 引用
+
+读取器返回 `PublicSourceResult` 后，后端使用调用方拥有的 SQLite 数据库登记来源、快照、事项关联和证据片段：
+
+```python
+from offerpilot_citations import SourceRegistry, read_public_html
+
+result = read_public_html(request)
+registry = SourceRegistry("offerpilot.db")
+try:
+    registered = registry.register(result)
+finally:
+    registry.close()
+```
+
+登记器创建 `source`、`source_snapshot`、`source_matter` 和 `source_evidence` 表。相同 `snapshot_id` 重复登记时复用已登记的版本号和获取时间；同一来源出现内容变化时，按数据库中已有的最大版本号递增。返回的 `registered["citations"]` 只包含来源标识、快照标识、版本、获取时间、定位和原文摘录，可作为 Agent 的引用上下文；数据库连接、事项授权和事实内容不返回给模型。来源或快照发生冲突时返回 `source_registration_failed/registration_conflict`，调用方应停止生成结论并交由人工或后端处理。
 
 ## 3. 私有事实引用
 

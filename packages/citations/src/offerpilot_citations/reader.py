@@ -11,7 +11,6 @@ import urllib.request
 from datetime import UTC, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
-from threading import RLock
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -49,9 +48,6 @@ _BLOCK_TAGS = frozenset(
 _IGNORED_TAGS = frozenset({"script", "style", "noscript", "template", "svg"})
 _CHARSET_RE = re.compile(rb"charset\s*=\s*[\"']?([A-Za-z0-9._-]+)", re.I)
 _MAX_FRAGMENT_COUNT = 4096
-_SNAPSHOT_METADATA: dict[tuple[UUID, UUID], tuple[int, datetime]] = {}
-_SNAPSHOT_VERSIONS: dict[UUID, int] = {}
-_SNAPSHOT_LOCK = RLock()
 AnnotatedText = Text
 
 
@@ -384,18 +380,6 @@ def _request_model(request: PublicSourceRequest | dict[str, Any]) -> PublicSourc
         raise SourceReadError(code, "source request does not match the contract") from error
 
 
-def _snapshot_metadata(source_id: UUID, snapshot_id: UUID) -> tuple[int, datetime]:
-    with _SNAPSHOT_LOCK:
-        existing = _SNAPSHOT_METADATA.get((source_id, snapshot_id))
-        if existing is not None:
-            return existing
-        version_no = _SNAPSHOT_VERSIONS.get(source_id, 0) + 1
-        fetched_at = datetime.now(UTC)
-        _SNAPSHOT_VERSIONS[source_id] = version_no
-        _SNAPSHOT_METADATA[(source_id, snapshot_id)] = (version_no, fetched_at)
-        return version_no, fetched_at
-
-
 def parse_public_html(
     body: bytes,
     *,
@@ -435,7 +419,7 @@ def parse_public_html(
     content_hash = sha256(body).hexdigest()
     source_id = uuid5(NAMESPACE_URL, final_url)
     snapshot_id = uuid5(NAMESPACE_URL, f"{final_url}#{content_hash}")
-    version_no, fetched_at = _snapshot_metadata(source_id, snapshot_id)
+    fetched_at = datetime.now(UTC)
     title = request_model.title or _normalize_text(" ".join(parser.title_parts))
     if not title:
         title = next((quote for tag, quote in blocks if tag == "h1"), "未命名公开来源")
@@ -445,7 +429,7 @@ def parse_public_html(
         origin="official_retrieval",
         source_id=source_id,
         snapshot_id=snapshot_id,
-        version_no=version_no,
+        version_no=1,
         url=final_url,
         title=title,
         publisher=request_model.publisher,

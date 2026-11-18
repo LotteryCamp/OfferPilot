@@ -7,6 +7,7 @@ from .reader import (
     parse_public_html,
     read_public_html,
 )
+from .registry import SourceRegistrationError, SourceRegistry
 from .service import (
     CitationIssue,
     CitationValidationError,
@@ -24,4 +25,6 @@ __all__ = [
     "SourceReadError",
     "parse_public_html",
     "read_public_html",
+    "SourceRegistrationError",
+    "SourceRegistry",
 ]
