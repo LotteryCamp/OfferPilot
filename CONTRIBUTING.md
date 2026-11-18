@@ -29,6 +29,20 @@ cd backend/
 uv sync
 ```
 
+静态代码检查：
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run ty check src tests
+```
+
+测试：
+
+```bash
+pytest backend\tests -q
+```
+
 ## Commit Rules
 
 每条 Commit message 应当按照如下格式编写：
