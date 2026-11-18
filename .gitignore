@@ -79,6 +79,7 @@ cline.json
 .idea/**/shelf
 
 # Generated files
+.codex-alpha-build/
 .idea/**/contentModel.xml
 
 # Sensitive or high-churn files
