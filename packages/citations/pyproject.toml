@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "offerpilot-citations"
+version = "0.1.0"
+description = "Source metadata and versioned citations for OfferPilot"
+requires-python = ">=3.14"
+dependencies = ["pydantic>=2.12,<3"]
+
+[project.scripts]
+offerpilot-citations = "offerpilot_citations.__main__:main"
+offerpilot-source-reader = "offerpilot_citations.reader_cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10", "ruff>=0.14,<1"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/offerpilot_citations"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

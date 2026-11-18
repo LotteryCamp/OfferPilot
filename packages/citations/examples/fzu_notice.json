@@ -1,0 +1,29 @@
+{
+  "scope_year": 2027,
+  "snapshots": [
+    {
+      "origin": "official_retrieval",
+      "source_id": "0c78e522-ce1d-5508-a089-454d419a5671",
+      "snapshot_id": "108fd608-84bf-589e-8fe3-448398be6a41",
+      "version_no": 1,
+      "url": "https://math.fzu.edu.cn/info/1171/10393.htm",
+      "title": "福州大学数学与统计学院2027年推荐优秀应届本科毕业生免试攻读研究生的工作方案",
+      "publisher": "福州大学数学与统计学院",
+      "scope_year": 2027,
+      "fetched_at": "2026-11-15T13:36:26.229467+00:00"
+    }
+  ],
+  "citations": [
+    {
+      "kind": "official",
+      "source_id": "0c78e522-ce1d-5508-a089-454d419a5671",
+      "snapshot_id": "108fd608-84bf-589e-8fe3-448398be6a41",
+      "fetched_at": "2026-11-15T13:36:26.229467+00:00",
+      "locator": {
+        "kind": "section",
+        "section": "第（4）项"
+      },
+      "quote": "思想品德考核不合格者不予推荐和录取。"
+    }
+  ]
+}
