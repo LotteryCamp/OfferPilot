@@ -1,9 +1,18 @@
 """Source registration tests using the captured public notice."""
 
 import gzip
+import sqlite3
+from datetime import UTC, datetime
 from pathlib import Path
 
-from offerpilot_citations import PublicSourceRequest, SourceRegistry, parse_public_html
+import pytest
+
+from offerpilot_citations import (
+    PublicSourceRequest,
+    SourceRegistrationError,
+    SourceRegistry,
+    parse_public_html,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 HTML = ROOT / "examples" / "fzu_notice.html.gz"
@@ -28,6 +37,7 @@ def test_registry_persists_matter_link_and_agent_citations():
     registry = SourceRegistry(":memory:")
     try:
         registered = registry.register(source_result())
+        assert registered["status"] == "success"
         assert registered["matter_id"] == "3e8d27b5-07d4-44ca-bae5-f2f4e57bf631"
         assert registered["version_no"] == 1
         assert registered["citations"]
@@ -49,8 +59,56 @@ def test_registry_reuses_metadata_and_versions_changed_snapshots():
         assert same["fetched_at"] == first["fetched_at"]
         assert changed["snapshot_id"] != first["snapshot_id"]
         assert changed["version_no"] == 2
+        assert changed["citation_batch"]["snapshots"][0]["version_no"] == 2
         assert (
             registry.connection.execute("SELECT COUNT(*) FROM source_snapshot").fetchone()[0] == 2
         )
     finally:
         registry.close()
+
+
+def test_existing_snapshot_keeps_registered_metadata():
+    registry = SourceRegistry(":memory:")
+    try:
+        first = source_result()
+        registered = registry.register(first)
+        changed_metadata = first.model_copy(
+            update={"title": "错误标题", "publisher": "错误发布方", "scope_year": 2026}
+        )
+        same = registry.register(changed_metadata)
+        assert same["title"] == registered["title"]
+        assert same["publisher"] == registered["publisher"]
+        assert same["scope_year"] == registered["scope_year"]
+        assert same["citation_batch"]["snapshots"][0]["title"] == registered["title"]
+    finally:
+        registry.close()
+
+
+def test_older_snapshot_cannot_be_registered_as_latest():
+    registry = SourceRegistry(":memory:")
+    try:
+        newer = source_result("\n<p>新内容。</p>".encode()).model_copy(
+            update={"fetched_at": datetime(2026, 11, 18, tzinfo=UTC)}
+        )
+        older = source_result().model_copy(
+            update={"fetched_at": datetime(2026, 11, 17, tzinfo=UTC)}
+        )
+        registry.register(newer)
+        with pytest.raises(SourceRegistrationError):
+            registry.register(older)
+    finally:
+        registry.close()
+
+
+def test_external_connection_transaction_is_not_committed():
+    connection = sqlite3.connect(":memory:")
+    registry = SourceRegistry(connection)
+    connection.commit()
+    connection.execute("CREATE TABLE pending(value TEXT)")
+    connection.execute("INSERT INTO pending(value) VALUES ('caller-write')")
+    registry.register(source_result())
+    assert connection.execute("SELECT value FROM pending").fetchone()[0] == "caller-write"
+    assert connection.in_transaction
+    connection.rollback()
+    assert connection.execute("SELECT COUNT(*) FROM pending").fetchone()[0] == 0
+    registry.close()

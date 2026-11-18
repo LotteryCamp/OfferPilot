@@ -126,7 +126,7 @@ uv run --project packages/citations --locked offerpilot-source-reader \
 
 命令成功退出码为 `0`，标准输出返回 `status="success"` 的 JSON。结果中的 `source_id` 按最终 URL 稳定生成，`snapshot_id` 按最终 URL 与内容摘要生成；同一页面内容再次读取时可以识别为同一快照。`fragments` 保存标题、段落、列表和表格单元格等可读块，每一项包含 `quote`、`locator` 和 `locator_text`。`citation_batch()` 可以将读取结果转换为本模块的公开引用校验输入。`--max-bytes` 和 `--max-fragments` 用于限制单次读取的响应大小和可保留片段数量。
 
-读取失败时不返回成功对象，也不生成空白规则结论，而是向标准错误返回结构化错误并以非零退出码结束：
+读取失败时向标准错误返回结构化错误并以非零退出码结束；系统不会生成空白规则结论：
 
 | 错误码 | 说明 |
 | :--- | :--- |

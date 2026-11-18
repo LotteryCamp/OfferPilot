@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import time
 from pathlib import Path
 from uuid import UUID
 
@@ -47,7 +48,10 @@ def test_reader_returns_traceable_result_from_real_notice():
     assert result.status == "success"
     assert result.matter_id == OWNER_MATTER
     assert str(result.url) == SOURCE_URL
-    assert "2027" in result.title
+    assert result.title == (
+        "福州大学数学与统计学院2027年推荐优秀应届本科毕业生免试攻读研究生的工作方案"
+        "-福州大学数学统计学院"
+    )
     assert result.publisher == "福州大学数学与统计学院"
     assert result.scope_year == 2027
     assert result.content_type == "text/html"
@@ -108,7 +112,7 @@ def test_fragment_limit_returns_structured_failure():
 def test_non_html_content_is_rejected(content_type):
     with pytest.raises(SourceReadError) as error:
         parse_public_html(
-            HTML.read_bytes(),
+            gzip.decompress(HTML.read_bytes()),
             content_type=content_type,
             final_url=SOURCE_URL,
             request=request(),
@@ -152,6 +156,30 @@ def test_reader_rejects_oversized_publisher():
     with pytest.raises(SourceReadError) as error:
         read_public_html({"url": SOURCE_URL, "publisher": "x" * 161, "scope_year": 2027})
     assert error.value.code == "invalid_request"
+
+
+def test_html_output_preserves_nested_block_order_and_unclosed_tail():
+    from offerpilot_citations.reader import _HtmlBlocks
+
+    parser = _HtmlBlocks()
+    parser.feed("<p>第一段</p><section>中间 <p>第二段</p> 尾部")
+    parser.close()
+    parser.finish()
+    text = "\n\n".join(value for _, value in parser.blocks)
+    assert text.index("第一段") < text.index("中间") < text.index("第二段") < text.index("尾部")
+
+
+def test_dns_resolution_obeys_request_deadline(monkeypatch):
+    from offerpilot_citations.reader import _resolve_public_url
+
+    def slow_lookup(*args, **kwargs):
+        time.sleep(0.05)
+        return []
+
+    monkeypatch.setattr("socket.getaddrinfo", slow_lookup)
+    with pytest.raises(SourceReadError) as error:
+        _resolve_public_url(SOURCE_URL, deadline=time.monotonic() + 0.001)
+    assert error.value.code == "network_error"
 
 
 def test_cli_reports_missing_arguments_as_json(monkeypatch, capsys):

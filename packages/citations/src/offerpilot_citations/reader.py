@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import http.client
 import ipaddress
 import re
 import socket
+import ssl
 import time
-import urllib.error
-import urllib.request
+import urllib.parse
 from datetime import UTC, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
+from threading import Thread
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -105,25 +107,29 @@ class PublicSourceResult(Contract):
     normalized_text: Text
     fragments: list[SourceFragment] = Field(min_length=1)
 
-    def citation_batch(self) -> dict[str, Any]:
+    def citation_batch(
+        self, *, version_no: int | None = None, fetched_at: datetime | None = None
+    ) -> dict[str, Any]:
         """Adapt the result to the citation normalizer without copying page text."""
+        registered_version = version_no or self.version_no
+        registered_fetched_at = fetched_at or self.fetched_at
         snapshot = {
             "origin": self.origin,
             "source_id": str(self.source_id),
             "snapshot_id": str(self.snapshot_id),
-            "version_no": self.version_no,
+            "version_no": registered_version,
             "url": str(self.url),
             "title": self.title,
             "publisher": self.publisher,
             "scope_year": self.scope_year,
-            "fetched_at": self.fetched_at.isoformat(),
+            "fetched_at": registered_fetched_at.isoformat(),
         }
         citations = [
             {
                 "kind": "official",
                 "source_id": str(self.source_id),
                 "snapshot_id": str(self.snapshot_id),
-                "fetched_at": self.fetched_at.isoformat(),
+                "fetched_at": registered_fetched_at.isoformat(),
                 "locator": fragment.locator.model_dump(mode="json"),
                 "quote": fragment.quote,
             }
@@ -132,39 +138,130 @@ class PublicSourceResult(Contract):
         return {"scope_year": self.scope_year, "snapshots": [snapshot], "citations": citations}
 
 
-def _validate_url(value: str, *, resolve: bool = True) -> str:
+def _validated_url(value: str) -> Any:
     try:
-        url = TypeAdapter(WebUrl).validate_python(value)
+        return TypeAdapter(WebUrl).validate_python(value)
     except ValidationError as error:
         raise SourceReadError("unsafe_url", "only public HTTP/HTTPS URLs are allowed") from error
+
+
+def _resolve_public_url(
+    value: str, *, deadline: float | None = None
+) -> tuple[str, Any, list[tuple[int, int, int, str, tuple[Any, ...]]]]:
+    url = _validated_url(value)
     hostname = url.host
     if not hostname:
         raise SourceReadError("unsafe_url", "source URL must include a hostname")
-    if resolve:
+    if deadline is not None and time.monotonic() >= deadline:
+        raise SourceReadError("network_error", "source request timed out", retryable=True)
+    addresses: list[tuple[int, int, int, str, tuple[Any, ...]]] = []
+    errors: list[BaseException] = []
+
+    def resolve() -> None:
         try:
-            addresses = {
-                info[4][0]
-                for info in socket.getaddrinfo(
+            addresses.extend(
+                socket.getaddrinfo(
                     hostname,
                     url.port or (443 if url.scheme == "https" else 80),
                     type=socket.SOCK_STREAM,
                 )
-            }
-        except socket.gaierror as error:
+            )
+        except BaseException as error:  # noqa: BLE001
+            errors.append(error)
+
+    resolver = Thread(target=resolve, daemon=True)
+    resolver.start()
+    remaining = None if deadline is None else max(deadline - time.monotonic(), 0)
+    resolver.join(remaining)
+    if resolver.is_alive():
+        raise SourceReadError("network_error", "source request timed out", retryable=True)
+    if errors:
+        error = errors[0]
+        if not isinstance(error, socket.gaierror):
             raise SourceReadError(
                 "network_error", "source host could not be resolved", retryable=True
             ) from error
-        if not addresses or any(
-            not ipaddress.ip_address(address).is_global for address in addresses
-        ):
-            raise SourceReadError("unsafe_url", "source URL must resolve to a public address")
-    return str(url)
+        raise SourceReadError(
+            "network_error", "source host could not be resolved", retryable=True
+        ) from error
+    if deadline is not None and time.monotonic() >= deadline:
+        raise SourceReadError("network_error", "source request timed out", retryable=True)
+    if not addresses or any(not ipaddress.ip_address(info[4][0]).is_global for info in addresses):
+        raise SourceReadError("unsafe_url", "source URL must resolve to a public address")
+    return str(url), url, addresses
 
 
-class _PublicRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        _validate_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
+def _connect_public(
+    url: Any,
+    addresses: list[tuple[int, int, int, str, tuple[Any, ...]]],
+    deadline: float,
+) -> http.client.HTTPConnection:
+    port = url.port or (443 if url.scheme == "https" else 80)
+    last_error: OSError | None = None
+    for family, socktype, protocol, _, address in addresses:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise SourceReadError("network_error", "source request timed out", retryable=True)
+        raw_socket = socket.socket(family, socktype, protocol)
+        try:
+            raw_socket.settimeout(remaining)
+            raw_socket.connect(address)
+            if url.scheme == "https":
+                raw_socket = ssl.create_default_context().wrap_socket(
+                    raw_socket, server_hostname=url.host
+                )
+            connection = http.client.HTTPConnection(url.host, port, timeout=remaining)
+            connection.sock = raw_socket
+            return connection
+        except (OSError, ssl.SSLError) as error:
+            last_error = error
+            raw_socket.close()
+    if last_error is not None:
+        raise last_error
+    raise OSError("source host has no usable public address")
+
+
+def _open_public_response(
+    initial_url: str, deadline: float
+) -> tuple[http.client.HTTPConnection, http.client.HTTPResponse, str]:
+    current_url = initial_url
+    for redirect_count in range(6):
+        canonical_url, parsed_url, addresses = _resolve_public_url(current_url, deadline=deadline)
+        connection = _connect_public(parsed_url, addresses, deadline)
+        path = parsed_url.path or "/"
+        if parsed_url.query:
+            path = f"{path}?{parsed_url.query}"
+        host_header = parsed_url.host
+        if parsed_url.port not in {None, 80 if parsed_url.scheme == "http" else 443}:
+            host_header = f"{host_header}:{parsed_url.port}"
+        try:
+            connection.request(
+                "GET",
+                path,
+                headers={
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Host": host_header,
+                    "User-Agent": "OfferPilot/0.1",
+                },
+            )
+            response = connection.getresponse()
+        except (http.client.HTTPException, OSError, TimeoutError) as error:
+            connection.close()
+            raise SourceReadError(
+                "network_error", "source could not be reached", retryable=True
+            ) from error
+
+        if response.status not in {301, 302, 303, 307, 308}:
+            return connection, response, canonical_url
+        location = response.getheader("Location")
+        response.close()
+        connection.close()
+        if not location:
+            raise SourceReadError("http_error", "redirect response did not include a location")
+        if redirect_count == 5:
+            raise SourceReadError("http_error", "source exceeded the redirect limit")
+        current_url = urllib.parse.urljoin(canonical_url, location)
+    raise SourceReadError("http_error", "source exceeded the redirect limit")
 
 
 class _TooManyFragments(ValueError):
@@ -185,11 +282,10 @@ class _HtmlBlocks(HTMLParser):
         self._max_blocks = max_blocks
         self._completed: list[tuple[int, str, str]] = []
         self.title_parts: list[str] = []
-        self.all_parts: list[str] = []
         self._blocked_depth = 0
         self._element_stack: list[str] = []
         self._block_stack: list[_HtmlBlock] = []
-        self._block_order = 0
+        self._next_order = 0
         self._in_title = False
 
     @property
@@ -200,7 +296,16 @@ class _HtmlBlocks(HTMLParser):
         block = self._block_stack.pop()
         text = _normalize_text("".join(block.parts))
         if text:
-            self._completed.append((block.order, block.tag, text))
+            self._append_item(block.order, block.tag, text)
+
+    def _append_item(self, order: int, tag: str, text: str) -> None:
+        if tag == "body" and self._completed and self._completed[-1][1] == "body":
+            previous_order, _, previous_text = self._completed[-1]
+            self._completed[-1] = (previous_order, "body", f"{previous_text} {text}")
+            return
+        if len(self._completed) >= self._max_blocks:
+            raise _TooManyFragments("HTML document contains too many text blocks")
+        self._completed.append((order, tag, text))
 
     def _close_nested_blocks(self, depth: int) -> None:
         while self._block_stack and self._block_stack[-1].depth >= depth:
@@ -217,10 +322,8 @@ class _HtmlBlocks(HTMLParser):
             and self._block_stack[-1].depth == current_depth
         ):
             self._close_block()
-        if self._block_order >= self._max_blocks:
-            raise _TooManyFragments("HTML document contains too many text blocks")
-        self._block_stack.append(_HtmlBlock(tag, current_depth, self._block_order))
-        self._block_order += 1
+        self._block_stack.append(_HtmlBlock(tag, current_depth, self._next_order))
+        self._next_order += 1
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
@@ -279,7 +382,12 @@ class _HtmlBlocks(HTMLParser):
         if self._block_stack:
             self._block_stack[-1].parts.append(data)
         else:
-            self.all_parts.append(text)
+            self._append_item(self._next_order, "body", text)
+            self._next_order += 1
+
+    def finish(self) -> None:
+        while self._block_stack:
+            self._close_block()
 
 
 def _normalize_text(value: str) -> str:
@@ -325,9 +433,9 @@ def _read_body(response, max_bytes: int, deadline: float) -> bytes:  # noqa: ANN
         _set_response_timeout(response, remaining)
         try:
             chunk = response.read(min(64 * 1024, max_bytes - total + 1))
-        except TimeoutError as error:
+        except (http.client.HTTPException, OSError, TimeoutError) as error:
             raise SourceReadError(
-                "network_error", "source read timed out", retryable=True
+                "network_error", "source response could not be read", retryable=True
             ) from error
         if not chunk:
             break
@@ -389,7 +497,7 @@ def parse_public_html(
 ) -> PublicSourceResult:
     """Parse a verified public HTML response into a traceable source result."""
     request_model = _request_model(request)
-    final_url = _validate_url(final_url, resolve=False)
+    final_url = str(_validated_url(final_url))
     media_type = content_type.split(";", 1)[0].strip().lower()
     if media_type not in {"text/html", "application/xhtml+xml"}:
         raise SourceReadError("unsupported_content_type", "source is not an HTML document")
@@ -400,6 +508,7 @@ def parse_public_html(
     try:
         parser.feed(html)
         parser.close()
+        parser.finish()
     except _TooManyFragments as error:
         raise SourceReadError(
             "too_many_fragments", "HTML document contains too many text blocks"
@@ -408,9 +517,6 @@ def parse_public_html(
         raise SourceReadError("parse_error", "HTML document could not be parsed") from error
 
     blocks = parser.blocks
-    fallback = _normalize_text(" ".join(parser.all_parts))
-    if fallback:
-        blocks.append(("body", fallback))
     if not blocks:
         raise SourceReadError("empty_content", "HTML document contains no readable text")
 
@@ -445,38 +551,33 @@ def parse_public_html(
 def read_public_html(request: PublicSourceRequest | dict[str, Any]) -> PublicSourceResult:
     """Fetch one public HTML page and return normalized text plus traceable fragments."""
     request = _request_model(request)
-
-    opener = urllib.request.build_opener(_PublicRedirectHandler)
-    url = _validate_url(str(request.url))
     deadline = time.monotonic() + request.timeout_seconds
-    http_request = urllib.request.Request(
-        url,
-        headers={"Accept": "text/html,application/xhtml+xml", "User-Agent": "OfferPilot/0.1"},
-        method="GET",
-    )
+    connection = None
+    response = None
     try:
-        with opener.open(http_request, timeout=request.timeout_seconds) as response:
-            status = response.getcode()
-            if status is not None and status >= 400:
-                raise SourceReadError(
-                    "http_error", f"source returned HTTP {status}", retryable=status >= 500
-                )
-            content_type = response.headers.get_content_type()
-            if content_type not in {"text/html", "application/xhtml+xml"}:
-                raise SourceReadError("unsupported_content_type", "source is not an HTML document")
-            final_url = _validate_url(response.geturl())
-            body = _read_body(response, request.max_bytes, deadline)
-            header_type = response.headers.get("Content-Type")
+        connection, response, final_url = _open_public_response(str(request.url), deadline)
+        if response.status >= 400:
+            raise SourceReadError(
+                "http_error",
+                f"source returned HTTP {response.status}",
+                retryable=response.status >= 500,
+            )
+        content_type = response.headers.get_content_type()
+        if content_type not in {"text/html", "application/xhtml+xml"}:
+            raise SourceReadError("unsupported_content_type", "source is not an HTML document")
+        body = _read_body(response, request.max_bytes, deadline)
+        header_type = response.headers.get("Content-Type")
     except SourceReadError:
         raise
-    except urllib.error.HTTPError as error:
-        raise SourceReadError(
-            "http_error", f"source returned HTTP {error.code}", retryable=error.code >= 500
-        ) from error
-    except (urllib.error.URLError, TimeoutError, OSError) as error:
+    except (http.client.HTTPException, OSError, TimeoutError) as error:
         raise SourceReadError(
             "network_error", "source could not be reached", retryable=True
         ) from error
+    finally:
+        if response is not None:
+            response.close()
+        if connection is not None:
+            connection.close()
 
     return parse_public_html(
         body,
