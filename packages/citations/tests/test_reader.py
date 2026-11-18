@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 from pathlib import Path
 from uuid import UUID
@@ -18,7 +19,7 @@ from offerpilot_citations import (
 from offerpilot_citations.reader_cli import main as reader_main
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = ROOT / "examples" / "fzu_notice.html"
+HTML = ROOT / "examples" / "fzu_notice.html.gz"
 SOURCE_URL = "https://math.fzu.edu.cn/info/1171/10393.htm"
 OWNER_MATTER = UUID("3e8d27b5-07d4-44ca-bae5-f2f4e57bf631")
 
@@ -34,7 +35,7 @@ def request(**kwargs: object) -> PublicSourceRequest:
 
 def parse_fixture(**kwargs: object):
     return parse_public_html(
-        HTML.read_bytes(),
+        gzip.decompress(HTML.read_bytes()),
         content_type="text/html; charset=UTF-8",
         final_url=SOURCE_URL,
         request=request(**kwargs),
@@ -67,7 +68,7 @@ def test_same_notice_has_stable_snapshot_identity():
 def test_changed_notice_gets_new_snapshot_version():
     first = parse_fixture()
     changed = parse_public_html(
-        HTML.read_bytes() + "\n<p>新增材料说明。</p>".encode(),
+        gzip.decompress(HTML.read_bytes()) + "\n<p>新增材料说明。</p>".encode(),
         content_type="text/html; charset=UTF-8",
         final_url=SOURCE_URL,
         request=request(),
@@ -86,7 +87,7 @@ def test_result_can_be_sent_to_citation_validator():
 
 def test_repeated_headings_get_distinct_locators():
     result = parse_public_html(
-        HTML.read_bytes(),
+        gzip.decompress(HTML.read_bytes()),
         content_type="text/html",
         final_url=SOURCE_URL,
         request=request(),

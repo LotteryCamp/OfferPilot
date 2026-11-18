@@ -189,7 +189,7 @@ refs = build_fact_references(
 
 ## 5. 真实通知样例
 
-`packages/citations/examples/fzu_notice.html` 是[福州大学数学与统计学院2027年推免工作方案](https://math.fzu.edu.cn/info/1171/10393.htm)的公开 HTML 快照，`fzu_notice.json` 使用其中第（4）项的一句公开摘录，来源已列在团队领域资料索引 S4 中。实际获取时间、页面编码摘要及样例标识生成方法见同目录的 `fzu_notice_provenance.json`。
+`packages/citations/examples/fzu_notice.html.gz` 是[福州大学数学与统计学院2027年推免工作方案](https://math.fzu.edu.cn/info/1171/10393.htm)的公开 HTML 快照压缩包，测试解压后按原始响应解析；`fzu_notice.json` 使用其中第（4）项的一句公开摘录，来源已列在团队领域资料索引 S4 中。实际获取时间、页面编码摘要及样例标识生成方法见同目录的 `fzu_notice_provenance.json`。
 
 本样例的适用年度为 2027，发布日期和本次获取年份为 2026。该通知的申请期已经结束，用于验证引用处理。样例标识由实际 URL 与获取内容的摘要派生，仅用于本地演示；接入后使用后端登记的来源和快照标识。例中的版本 1 是本地样例版本。
 

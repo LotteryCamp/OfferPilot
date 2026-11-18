@@ -1,17 +1,18 @@
 """Source registration tests using the captured public notice."""
 
+import gzip
 from pathlib import Path
 
 from offerpilot_citations import PublicSourceRequest, SourceRegistry, parse_public_html
 
 ROOT = Path(__file__).resolve().parents[1]
-HTML = ROOT / "examples" / "fzu_notice.html"
+HTML = ROOT / "examples" / "fzu_notice.html.gz"
 SOURCE_URL = "https://math.fzu.edu.cn/info/1171/10393.htm"
 
 
 def source_result(extra: bytes = b""):
     return parse_public_html(
-        HTML.read_bytes() + extra,
+        gzip.decompress(HTML.read_bytes()) + extra,
         content_type="text/html; charset=UTF-8",
         final_url=SOURCE_URL,
         request=PublicSourceRequest(
