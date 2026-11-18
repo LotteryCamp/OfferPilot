@@ -19,7 +19,7 @@ HTML = ROOT / "examples" / "fzu_notice.html.gz"
 SOURCE_URL = "https://math.fzu.edu.cn/info/1171/10393.htm"
 
 
-def source_result(extra: bytes = b""):
+def source_result(extra: bytes = b"", *, scope_year: int = 2027):
     return parse_public_html(
         gzip.decompress(HTML.read_bytes()) + extra,
         content_type="text/html; charset=UTF-8",
@@ -27,7 +27,7 @@ def source_result(extra: bytes = b""):
         request=PublicSourceRequest(
             url=SOURCE_URL,
             publisher="福州大学数学与统计学院",
-            scope_year=2027,
+            scope_year=scope_year,
             matter_id="3e8d27b5-07d4-44ca-bae5-f2f4e57bf631",
         ),
     )
@@ -63,6 +63,21 @@ def test_registry_reuses_metadata_and_versions_changed_snapshots():
         assert (
             registry.connection.execute("SELECT COUNT(*) FROM source_snapshot").fetchone()[0] == 2
         )
+    finally:
+        registry.close()
+
+
+def test_scope_year_is_stored_per_snapshot():
+    registry = SourceRegistry(":memory:")
+    try:
+        first = registry.register(source_result())
+        second = registry.register(
+            source_result("\n<p>下一年度说明。</p>".encode(), scope_year=2028)
+        )
+        assert second["version_no"] == 2
+        assert second["scope_year"] == 2028
+        assert second["citation_batch"]["snapshots"][0]["scope_year"] == 2028
+        assert first["scope_year"] == 2027
     finally:
         registry.close()
 
@@ -112,3 +127,8 @@ def test_external_connection_transaction_is_not_committed():
     connection.rollback()
     assert connection.execute("SELECT COUNT(*) FROM pending").fetchone()[0] == 0
     registry.close()
+
+
+def test_invalid_database_path_returns_structured_error(tmp_path):
+    with pytest.raises(SourceRegistrationError):
+        SourceRegistry(tmp_path / "missing" / "registry.sqlite")

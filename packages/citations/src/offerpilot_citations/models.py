@@ -99,8 +99,14 @@ class TableRowLocator(Contract):
     row: PositiveInt
 
 
+class ListItemLocator(Contract):
+    kind: Literal["list_item"]
+    list: Annotated[Text, Field(max_length=250)]
+    item: PositiveInt
+
+
 Locator = Annotated[
-    SectionLocator | PageLocator | TextSpanLocator | TableRowLocator,
+    SectionLocator | PageLocator | TextSpanLocator | TableRowLocator | ListItemLocator,
     Field(discriminator="kind"),
 ]
 
@@ -165,4 +171,6 @@ def locator_text(locator: Locator) -> str:
             return f"第{paragraph}段，字符[{start}:{end}]"
         case TableRowLocator(table=table, row=row):
             return f"{table}，第{row}行"
+        case ListItemLocator(list=list_name, item=item):
+            return f"{list_name}，第{item}项"
     raise TypeError("Unsupported locator")

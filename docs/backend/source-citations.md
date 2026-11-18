@@ -38,7 +38,7 @@ except CitationValidationError as error:
 
 顶层字段为 `scope_year`、`snapshots`、`citations`。`scope_year` 是本次事项需要的适用年度，例如 2027，独立于发布日期与获取年份。所有输入对象拒绝未声明字段。
 
-`snapshots` 是检索服务或后端提供的来源与快照关联视图：
+`snapshots` 是检索服务或后端提供的来源与快照关联视图。`scope_year` 属于具体快照，允许同一公开地址在不同年度发布内容时分别登记：
 
 | 字段 | 类型 | 含义 |
 | :--- | :--- | :--- |
@@ -59,7 +59,7 @@ except CitationValidationError as error:
 | `kind` | 固定字符串 `official` | 公开规则引用类别 |
 | `source_id`、`snapshot_id` | UUID 字符串 | 指向 `snapshots` 中同一来源的具体版本 |
 | `fetched_at` | 带时区的时间 | 必须与对应快照的获取时刻一致 |
-| `locator` | 定位对象 | 明确指向章节、页码、段落字符区间或表格行 |
+| `locator` | 定位对象 | 明确指向章节、页码、段落字符区间、列表项或表格行 |
 | `quote` | 可选非空字符串 | 原文摘录；提供时去除两端空白，并计算 SHA-256 摘要 |
 
 定位格式：
@@ -68,10 +68,11 @@ except CitationValidationError as error:
 {"kind": "section", "section": "第（4）项"}
 {"kind": "page", "page": 3, "end_page": 5}
 {"kind": "text_span", "paragraph": 4, "start": 0, "end": 18}
+{"kind": "list_item", "list": "网页列表", "item": 2}
 {"kind": "table_row", "table": "材料清单", "row": 2}
 ```
 
-以上四行分别是独立的定位对象。页码、段落和数据行从 1 开始；字符区间采用 Python 的 `[start:end]`，从 0 开始，结束位置不包含在内。段落划分由对应快照的提取器固定；`table` 使用提取器提供的表标识或标题，`row` 是该表数据行号。引用附件页码时，`url` 应指向实际附件，页码由附件读取工具提供。
+以上五行分别是独立的定位对象。页码、段落、列表项和数据行从 1 开始；字符区间采用 Python 的 `[start:end]`，从 0 开始，结束位置不包含在内。段落划分由对应快照的提取器固定；公开 HTML 读取器使用页面列表和表格的稳定顺序生成 `list_item`、`table_row` 定位。引用附件页码时，`url` 应指向实际附件，页码由附件读取工具提供。
 
 ### 2.2 输出
 
@@ -133,6 +134,7 @@ uv run --project packages/citations --locked offerpilot-source-reader \
 | `invalid_request` | 必填参数或参数范围不符合接口契约 |
 | `unsafe_url` | 不是公开 HTTP/HTTPS 地址、包含账号密码，或解析到环回、私有、链路本地和保留地址 |
 | `network_error` | DNS、连接或超时失败，可重试 |
+| `incomplete_response` | HTTP 响应或正文在传输完成前中断，可重试 |
 | `http_error` | 页面返回 HTTP 错误状态 |
 | `unsupported_content_type` | 响应不是 `text/html` 或 `application/xhtml+xml` |
 | `response_too_large` | 响应超过读取上限 |
@@ -157,7 +159,9 @@ finally:
     registry.close()
 ```
 
-登记器创建 `source`、`source_snapshot`、`source_matter` 和 `source_evidence` 表。相同 `snapshot_id` 重复登记时复用已登记的版本号和获取时间；同一来源出现内容变化时，按数据库中已有的最大版本号递增。返回的 `registered["citations"]` 只包含来源标识、快照标识、版本、获取时间、定位和原文摘录，可作为 Agent 的引用上下文；数据库连接、事项授权和事实内容不返回给模型。来源或快照发生冲突时返回 `source_registration_failed/registration_conflict`，调用方应停止生成结论并交由人工或后端处理。
+登记器创建 `source`、`source_snapshot`、`source_matter` 和 `source_evidence` 表。相同 `snapshot_id` 重复登记时复用已登记的版本号、获取时间和适用年度；同一来源出现内容变化时，按数据库中已有的最大版本号递增。返回的 `registered["citations"]` 只包含来源标识、快照标识、版本、获取时间、定位和原文摘录，可作为 Agent 的引用上下文；数据库连接、事项授权和事实内容不返回给模型。来源或快照发生冲突时返回 `source_registration_failed/registration_conflict`，调用方应停止生成结论并交由人工或后端处理。
+
+`SourceRegistry` 是独立的 SQLite 适配器，用于本包的本地登记和示例流程。OfferPilot 生产环境的 PostgreSQL 应用库需要由后端实现对应的数据库适配器和字段映射，再复用本包的 `PublicSourceResult`、引用契约及一致性规则；本适配器不会直接连接 PostgreSQL。
 
 ## 3. 私有事实引用
 
@@ -180,8 +184,8 @@ refs = build_fact_references(
 
 | 模块字段 | 数据库字段 |
 | :--- | :--- |
-| `source_id`、`url`、`publisher`、`scope_year` | `ops.source.id/url/publisher/scope_year` |
-| `snapshot_id`、`version_no`、`fetched_at` | `ops.snapshot.id/version_no/fetched_at` |
+| `source_id`、`url`、`publisher` | `ops.source.id/url/publisher` |
+| `snapshot_id`、`version_no`、`scope_year`、`fetched_at` | `ops.snapshot.id/version_no/scope_year/fetched_at` |
 | `basis`、`locator.kind`、`locator_text`、`quote`、`quote_hash` | `ops.evidence` 的证据四元组、`locator_kind`、`locator`、摘录与摘要 |
 | `fact_id`、`fact_version`、`confirmed_at` | `core.fact.id/version_no/confirmed_at` |
 

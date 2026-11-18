@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS source_snapshot (
     source_id TEXT NOT NULL REFERENCES source(source_id),
     version_no INTEGER NOT NULL,
     title TEXT NOT NULL,
+    scope_year INTEGER NOT NULL,
     fetched_at TEXT NOT NULL,
     content_type TEXT NOT NULL,
     content_hash TEXT NOT NULL,
@@ -54,21 +55,37 @@ class SourceRegistry:
     """Register source snapshots in a caller-owned SQLite database."""
 
     def __init__(self, database: str | Path | sqlite3.Connection) -> None:
-        if isinstance(database, sqlite3.Connection):
-            self.connection = database
-            self._owns_connection = False
-        else:
-            self.connection = sqlite3.connect(str(database))
-            self._owns_connection = True
+        self._owns_connection = not isinstance(database, sqlite3.Connection)
         try:
+            self.connection = (
+                database
+                if isinstance(database, sqlite3.Connection)
+                else sqlite3.connect(str(database))
+            )
             self.connection.execute("PRAGMA foreign_keys = ON")
             for statement in _SCHEMA.split(";"):
                 if statement.strip():
                     self.connection.execute(statement)
+            columns = {
+                row[1]
+                for row in self.connection.execute("PRAGMA table_info(source_snapshot)").fetchall()
+            }
+            if "scope_year" not in columns:
+                self.connection.execute("ALTER TABLE source_snapshot ADD COLUMN scope_year INTEGER")
+                self.connection.execute(
+                    """
+                    UPDATE source_snapshot
+                    SET scope_year = (
+                        SELECT scope_year FROM source
+                        WHERE source.source_id = source_snapshot.source_id
+                    )
+                    WHERE scope_year IS NULL
+                    """
+                )
             if self._owns_connection:
                 self.connection.commit()
         except sqlite3.Error as error:
-            if self._owns_connection:
+            if self._owns_connection and hasattr(self, "connection"):
                 self.connection.close()
             raise SourceRegistrationError(
                 "source registry schema could not be initialized"
@@ -78,13 +95,13 @@ class SourceRegistry:
         if self._owns_connection:
             self.connection.close()
 
-    def _rollback(self, savepoint: str) -> None:
+    def _rollback(self) -> None:
         try:
-            self.connection.execute(f"ROLLBACK TO SAVEPOINT {savepoint}")
+            self.connection.execute("ROLLBACK TO SAVEPOINT offerpilot_source_registration")
         except sqlite3.Error:
             return
         try:
-            self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+            self.connection.execute("RELEASE SAVEPOINT offerpilot_source_registration")
         except sqlite3.Error:
             return
 
@@ -92,9 +109,12 @@ class SourceRegistry:
         """Persist one successful read and return an Agent citation record."""
         source_id = str(result.source_id)
         snapshot_id = str(result.snapshot_id)
-        savepoint = "offerpilot_source_registration"
+        transaction_started = False
         try:
-            self.connection.execute(f"SAVEPOINT {savepoint}")
+            if not self.connection.in_transaction:
+                self.connection.execute("BEGIN IMMEDIATE")
+                transaction_started = True
+            self.connection.execute("SAVEPOINT offerpilot_source_registration")
             source_row = self.connection.execute(
                 "SELECT url, publisher, scope_year FROM source WHERE source_id = ?",
                 (source_id,),
@@ -102,7 +122,7 @@ class SourceRegistry:
             snapshot_row = self.connection.execute(
                 """
                 SELECT source_id, version_no, title, fetched_at, content_type,
-                       content_hash, normalized_text
+                       content_hash, normalized_text, scope_year
                 FROM source_snapshot WHERE snapshot_id = ?
                 """,
                 (snapshot_id,),
@@ -116,12 +136,23 @@ class SourceRegistry:
                 if source_row is None:
                     raise SourceRegistrationError("registered snapshot has no source record")
                 url, publisher, scope_year = source_row
-                version_no, title, fetched_at, content_type, normalized_text = (
+                (
+                    version_no,
+                    title,
+                    fetched_at,
+                    content_type,
+                    normalized_text,
+                    snapshot_scope_year,
+                ) = (
                     snapshot_row[1],
                     snapshot_row[2],
                     snapshot_row[3],
                     snapshot_row[4],
                     snapshot_row[6],
+                    snapshot_row[7],
+                )
+                scope_year = (
+                    snapshot_scope_year if snapshot_scope_year is not None else source_row[2]
                 )
                 evidence = self._stored_evidence(snapshot_id)
             else:
@@ -138,15 +169,15 @@ class SourceRegistry:
                     )
                     previous = []
                 else:
-                    url, publisher, scope_year = source_row
-                    if (url, publisher, scope_year) != (
+                    url, publisher, _ = source_row
+                    if (url, publisher) != (
                         str(result.url),
                         result.publisher,
-                        result.scope_year,
                     ):
                         raise SourceRegistrationError(
                             "source metadata conflicts with the registered source"
                         )
+                    scope_year = result.scope_year
                     previous = self.connection.execute(
                         "SELECT fetched_at FROM source_snapshot WHERE source_id = ?",
                         (source_id,),
@@ -168,8 +199,8 @@ class SourceRegistry:
                     """
                     INSERT INTO source_snapshot(
                         snapshot_id, source_id, version_no, title, fetched_at,
-                        content_type, content_hash, normalized_text
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        scope_year, content_type, content_hash, normalized_text
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         snapshot_id,
@@ -177,6 +208,7 @@ class SourceRegistry:
                         version_no,
                         title,
                         fetched_at,
+                        result.scope_year,
                         content_type,
                         result.content_hash,
                         normalized_text,
@@ -212,14 +244,18 @@ class SourceRegistry:
                     "INSERT OR IGNORE INTO source_matter(matter_id, snapshot_id) VALUES (?, ?)",
                     (str(result.matter_id), snapshot_id),
                 )
-            self.connection.execute(f"RELEASE SAVEPOINT {savepoint}")
+            self.connection.execute("RELEASE SAVEPOINT offerpilot_source_registration")
             if self._owns_connection:
                 self.connection.commit()
         except SourceRegistrationError:
-            self._rollback(savepoint)
+            self._rollback()
+            if transaction_started and self._owns_connection:
+                self.connection.rollback()
             raise
         except sqlite3.Error as error:
-            self._rollback(savepoint)
+            self._rollback()
+            if transaction_started and self._owns_connection:
+                self.connection.rollback()
             raise SourceRegistrationError("source registry database operation failed") from error
 
         citations = [

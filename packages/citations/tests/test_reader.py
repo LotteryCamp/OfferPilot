@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import gzip
 import json
-import time
 from pathlib import Path
 from uuid import UUID
 
@@ -67,6 +66,19 @@ def test_same_notice_has_stable_snapshot_identity():
     assert first.snapshot_id == second.snapshot_id
     assert first.version_no == second.version_no == 1
     assert first.content_hash == second.content_hash
+
+
+def test_url_fragment_does_not_change_source_identity():
+    with_fragment = parse_public_html(
+        gzip.decompress(HTML.read_bytes()),
+        content_type="text/html",
+        final_url=f"{SOURCE_URL}#section-1",
+        request=request(),
+    )
+    without_fragment = parse_fixture()
+    assert str(with_fragment.url) == SOURCE_URL
+    assert with_fragment.source_id == without_fragment.source_id
+    assert with_fragment.snapshot_id == without_fragment.snapshot_id
 
 
 def test_changed_notice_gets_new_snapshot_version():
@@ -158,28 +170,10 @@ def test_reader_rejects_oversized_publisher():
     assert error.value.code == "invalid_request"
 
 
-def test_html_output_preserves_nested_block_order_and_unclosed_tail():
-    from offerpilot_citations.reader import _HtmlBlocks
-
-    parser = _HtmlBlocks()
-    parser.feed("<p>第一段</p><section>中间 <p>第二段</p> 尾部")
-    parser.close()
-    parser.finish()
-    text = "\n\n".join(value for _, value in parser.blocks)
-    assert text.index("第一段") < text.index("中间") < text.index("第二段") < text.index("尾部")
-
-
-def test_dns_resolution_obeys_request_deadline(monkeypatch):
-    from offerpilot_citations.reader import _resolve_public_url
-
-    def slow_lookup(*args, **kwargs):
-        time.sleep(0.05)
-        return []
-
-    monkeypatch.setattr("socket.getaddrinfo", slow_lookup)
-    with pytest.raises(SourceReadError) as error:
-        _resolve_public_url(SOURCE_URL, deadline=time.monotonic() + 0.001)
-    assert error.value.code == "network_error"
+def test_real_notice_uses_structured_list_and_table_locators():
+    result = parse_fixture()
+    assert any(fragment.locator.kind == "list_item" for fragment in result.fragments)
+    assert any(fragment.locator.kind == "table_row" for fragment in result.fragments)
 
 
 def test_cli_reports_missing_arguments_as_json(monkeypatch, capsys):

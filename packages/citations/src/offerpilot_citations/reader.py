@@ -9,10 +9,12 @@ import socket
 import ssl
 import time
 import urllib.parse
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
-from threading import Thread
+from threading import BoundedSemaphore
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -50,6 +52,8 @@ _BLOCK_TAGS = frozenset(
 _IGNORED_TAGS = frozenset({"script", "style", "noscript", "template", "svg"})
 _CHARSET_RE = re.compile(rb"charset\s*=\s*[\"']?([A-Za-z0-9._-]+)", re.I)
 _MAX_FRAGMENT_COUNT = 4096
+_DNS_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="offerpilot-dns")
+_DNS_SLOTS = BoundedSemaphore(4)
 AnnotatedText = Text
 
 
@@ -145,42 +149,46 @@ def _validated_url(value: str) -> Any:
         raise SourceReadError("unsafe_url", "only public HTTP/HTTPS URLs are allowed") from error
 
 
+def _canonical_url(value: str) -> tuple[str, Any]:
+    url = _validated_url(value)
+    parts = urllib.parse.urlsplit(str(url))
+    canonical = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, parts.query, ""))
+    canonical_url = _validated_url(canonical)
+    return str(canonical_url), canonical_url
+
+
 def _resolve_public_url(
     value: str, *, deadline: float | None = None
 ) -> tuple[str, Any, list[tuple[int, int, int, str, tuple[Any, ...]]]]:
-    url = _validated_url(value)
+    canonical_url, url = _canonical_url(value)
     hostname = url.host
     if not hostname:
         raise SourceReadError("unsafe_url", "source URL must include a hostname")
     if deadline is not None and time.monotonic() >= deadline:
         raise SourceReadError("network_error", "source request timed out", retryable=True)
-    addresses: list[tuple[int, int, int, str, tuple[Any, ...]]] = []
-    errors: list[BaseException] = []
-
-    def resolve() -> None:
-        try:
-            addresses.extend(
-                socket.getaddrinfo(
-                    hostname,
-                    url.port or (443 if url.scheme == "https" else 80),
-                    type=socket.SOCK_STREAM,
-                )
-            )
-        except BaseException as error:  # noqa: BLE001
-            errors.append(error)
-
-    resolver = Thread(target=resolve, daemon=True)
-    resolver.start()
     remaining = None if deadline is None else max(deadline - time.monotonic(), 0)
-    resolver.join(remaining)
-    if resolver.is_alive():
+    if not _DNS_SLOTS.acquire(timeout=remaining):
         raise SourceReadError("network_error", "source request timed out", retryable=True)
-    if errors:
-        error = errors[0]
-        if not isinstance(error, socket.gaierror):
-            raise SourceReadError(
-                "network_error", "source host could not be resolved", retryable=True
-            ) from error
+    try:
+        resolver = _DNS_EXECUTOR.submit(
+            socket.getaddrinfo,
+            hostname,
+            url.port or (443 if url.scheme == "https" else 80),
+            0,
+            socket.SOCK_STREAM,
+        )
+    except Exception:
+        _DNS_SLOTS.release()
+        raise
+    resolver.add_done_callback(lambda _: _DNS_SLOTS.release())
+    try:
+        addresses = resolver.result(timeout=remaining)
+    except FuturesTimeoutError as error:
+        resolver.cancel()
+        raise SourceReadError(
+            "network_error", "source request timed out", retryable=True
+        ) from error
+    except socket.gaierror as error:
         raise SourceReadError(
             "network_error", "source host could not be resolved", retryable=True
         ) from error
@@ -188,7 +196,7 @@ def _resolve_public_url(
         raise SourceReadError("network_error", "source request timed out", retryable=True)
     if not addresses or any(not ipaddress.ip_address(info[4][0]).is_global for info in addresses):
         raise SourceReadError("unsafe_url", "source URL must resolve to a public address")
-    return str(url), url, addresses
+    return canonical_url, url, addresses
 
 
 def _connect_public(
@@ -206,19 +214,40 @@ def _connect_public(
         try:
             raw_socket.settimeout(remaining)
             raw_socket.connect(address)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise SourceReadError("network_error", "source request timed out", retryable=True)
+            raw_socket.settimeout(remaining)
             if url.scheme == "https":
                 raw_socket = ssl.create_default_context().wrap_socket(
                     raw_socket, server_hostname=url.host
                 )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise SourceReadError(
+                        "network_error", "source request timed out", retryable=True
+                    )
+                raw_socket.settimeout(remaining)
             connection = http.client.HTTPConnection(url.host, port, timeout=remaining)
             connection.sock = raw_socket
             return connection
+        except SourceReadError:
+            raw_socket.close()
+            raise
         except (OSError, ssl.SSLError) as error:
             last_error = error
             raw_socket.close()
     if last_error is not None:
         raise last_error
     raise OSError("source host has no usable public address")
+
+
+def _refresh_connection_timeout(connection: http.client.HTTPConnection, deadline: float) -> None:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise SourceReadError("network_error", "source request timed out", retryable=True)
+    if connection.sock is not None:
+        connection.sock.settimeout(remaining)
 
 
 def _open_public_response(
@@ -235,6 +264,7 @@ def _open_public_response(
         if parsed_url.port not in {None, 80 if parsed_url.scheme == "http" else 443}:
             host_header = f"{host_header}:{parsed_url.port}"
         try:
+            _refresh_connection_timeout(connection, deadline)
             connection.request(
                 "GET",
                 path,
@@ -244,7 +274,13 @@ def _open_public_response(
                     "User-Agent": "OfferPilot/0.1",
                 },
             )
+            _refresh_connection_timeout(connection, deadline)
             response = connection.getresponse()
+        except http.client.IncompleteRead as error:
+            connection.close()
+            raise SourceReadError(
+                "incomplete_response", "source returned an incomplete HTTP response", retryable=True
+            ) from error
         except (http.client.HTTPException, OSError, TimeoutError) as error:
             connection.close()
             raise SourceReadError(
@@ -269,10 +305,9 @@ class _TooManyFragments(ValueError):
 
 
 class _HtmlBlock:
-    def __init__(self, tag: str, depth: int, order: int) -> None:
+    def __init__(self, tag: str, depth: int) -> None:
         self.tag = tag
         self.depth = depth
-        self.order = order
         self.parts: list[str] = []
 
 
@@ -294,9 +329,14 @@ class _HtmlBlocks(HTMLParser):
 
     def _close_block(self) -> None:
         block = self._block_stack.pop()
+        self._flush_block_segment(block)
+
+    def _flush_block_segment(self, block: _HtmlBlock) -> None:
         text = _normalize_text("".join(block.parts))
         if text:
-            self._append_item(block.order, block.tag, text)
+            self._append_item(self._next_order, block.tag, text)
+            self._next_order += 1
+            block.parts.clear()
 
     def _append_item(self, order: int, tag: str, text: str) -> None:
         if tag == "body" and self._completed and self._completed[-1][1] == "body":
@@ -313,17 +353,18 @@ class _HtmlBlocks(HTMLParser):
 
     def _start_block(self, tag: str) -> None:
         current_depth = len(self._element_stack)
-        if tag == "p" and self._block_stack and self._block_stack[-1].tag == "p":
+        while self._block_stack and self._block_stack[-1].depth >= current_depth:
             self._close_block()
-        elif (
-            tag == "li"
-            and self._block_stack
-            and self._block_stack[-1].tag == "li"
-            and self._block_stack[-1].depth == current_depth
-        ):
-            self._close_block()
-        self._block_stack.append(_HtmlBlock(tag, current_depth, self._next_order))
-        self._next_order += 1
+        if self._block_stack:
+            self._flush_block_segment(self._block_stack[-1])
+        block_tag = "td" if any(item in {"td", "th"} for item in self._element_stack) else tag
+        self._block_stack.append(_HtmlBlock(block_tag, current_depth))
+
+    def _element_index(self, tag: str) -> int | None:
+        for index in range(len(self._element_stack) - 1, -1, -1):
+            if self._element_stack[index] == tag:
+                return index
+        return None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         tag = tag.lower()
@@ -337,6 +378,9 @@ class _HtmlBlocks(HTMLParser):
         if tag == "br":
             if self._block_stack:
                 self._block_stack[-1].parts.append("\n")
+            return
+        if tag in {"td", "th"}:
+            self._element_stack.append(tag)
             return
         if tag == "title":
             self._in_title = True
@@ -353,18 +397,18 @@ class _HtmlBlocks(HTMLParser):
         if tag in _IGNORED_TAGS:
             if self._blocked_depth:
                 self._blocked_depth -= 1
-            if tag in self._element_stack:
-                index = len(self._element_stack) - 1 - self._element_stack[::-1].index(tag)
+            index = self._element_index(tag)
+            if index is not None:
                 del self._element_stack[index:]
             return
         if self._blocked_depth:
-            if tag in self._element_stack:
-                index = len(self._element_stack) - 1 - self._element_stack[::-1].index(tag)
+            index = self._element_index(tag)
+            if index is not None:
                 del self._element_stack[index:]
             return
-        if tag not in self._element_stack:
+        index = self._element_index(tag)
+        if index is None:
             return
-        index = len(self._element_stack) - 1 - self._element_stack[::-1].index(tag)
         self._close_nested_blocks(index)
         if tag == "title":
             self._in_title = False
@@ -381,6 +425,9 @@ class _HtmlBlocks(HTMLParser):
             return
         if self._block_stack:
             self._block_stack[-1].parts.append(data)
+        elif any(item in {"td", "th"} for item in self._element_stack):
+            self._append_item(self._next_order, "td", text)
+            self._next_order += 1
         else:
             self._append_item(self._next_order, "body", text)
             self._next_order += 1
@@ -433,6 +480,10 @@ def _read_body(response, max_bytes: int, deadline: float) -> bytes:  # noqa: ANN
         _set_response_timeout(response, remaining)
         try:
             chunk = response.read(min(64 * 1024, max_bytes - total + 1))
+        except http.client.IncompleteRead as error:
+            raise SourceReadError(
+                "incomplete_response", "source returned an incomplete HTTP response", retryable=True
+            ) from error
         except (http.client.HTTPException, OSError, TimeoutError) as error:
             raise SourceReadError(
                 "network_error", "source response could not be read", retryable=True
@@ -452,6 +503,8 @@ def _fragment_models(blocks: list[tuple[str, str]]) -> list[SourceFragment]:
     fragments = []
     paragraph = 0
     headings: dict[str, int] = {}
+    list_item = 0
+    table_row = 0
     for tag, quote in blocks:
         if tag.startswith("h"):
             section_base = quote[:280]
@@ -459,6 +512,12 @@ def _fragment_models(blocks: list[tuple[str, str]]) -> list[SourceFragment]:
             occurrence = headings[section_base]
             section = section_base if occurrence == 1 else f"{section_base} [第{occurrence}处]"
             locator: Locator = {"kind": "section", "section": section}
+        elif tag == "li":
+            list_item += 1
+            locator = {"kind": "list_item", "list": "网页列表", "item": list_item}
+        elif tag in {"td", "th"}:
+            table_row += 1
+            locator = {"kind": "table_row", "table": "网页表格", "row": table_row}
         else:
             paragraph += 1
             locator = {
@@ -497,7 +556,7 @@ def parse_public_html(
 ) -> PublicSourceResult:
     """Parse a verified public HTML response into a traceable source result."""
     request_model = _request_model(request)
-    final_url = str(_validated_url(final_url))
+    final_url, _ = _canonical_url(final_url)
     media_type = content_type.split(";", 1)[0].strip().lower()
     if media_type not in {"text/html", "application/xhtml+xml"}:
         raise SourceReadError("unsupported_content_type", "source is not an HTML document")
