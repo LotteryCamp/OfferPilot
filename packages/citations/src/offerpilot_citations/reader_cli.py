@@ -7,13 +7,18 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from .reader import PublicSourceRequest, SourceReadError, read_public_html
+from .reader import SourceReadError, read_public_html
+
+
+class _JsonArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise SourceReadError("invalid_request", message)
 
 
 def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = _JsonArgumentParser(description=__doc__)
     parser.add_argument("url")
     parser.add_argument("--publisher", required=True)
     parser.add_argument("--scope-year", required=True, type=int)
@@ -21,18 +26,21 @@ def main() -> int:
     parser.add_argument("--matter-id", type=UUID)
     parser.add_argument("--timeout", type=float, default=10.0)
     parser.add_argument("--max-bytes", type=int, default=2 * 1024 * 1024)
-    args = parser.parse_args()
+    parser.add_argument("--max-fragments", type=int, default=4096)
     try:
-        request = PublicSourceRequest(
-            url=args.url,
-            publisher=args.publisher,
-            scope_year=args.scope_year,
-            title=args.title,
-            matter_id=args.matter_id,
-            timeout_seconds=args.timeout,
-            max_bytes=args.max_bytes,
+        args = parser.parse_args()
+        result = read_public_html(
+            {
+                "url": args.url,
+                "publisher": args.publisher,
+                "scope_year": args.scope_year,
+                "title": args.title,
+                "matter_id": args.matter_id,
+                "timeout_seconds": args.timeout,
+                "max_bytes": args.max_bytes,
+                "max_fragments": args.max_fragments,
+            }
         )
-        result = read_public_html(request)
     except (ValidationError, SourceReadError) as error:
         if isinstance(error, SourceReadError):
             payload = error.as_dict()

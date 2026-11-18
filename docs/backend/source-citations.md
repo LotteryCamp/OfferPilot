@@ -122,19 +122,20 @@ uv run --project packages/citations --locked offerpilot-source-reader \
   --matter-id 3e8d27b5-07d4-44ca-bae5-f2f4e57bf631
 ```
 
-命令成功退出码为 `0`，标准输出返回 `status="success"` 的 JSON。结果中的 `source_id` 按最终 URL 稳定生成，`snapshot_id` 按最终 URL 与内容摘要生成；同一页面内容再次读取时可以识别为同一快照。`fragments` 保存标题、段落、列表和表格单元格等可读块，每一项包含 `quote`、`locator` 和 `locator_text`。`citation_batch()` 可以将读取结果转换为本模块的公开引用校验输入。
+命令成功退出码为 `0`，标准输出返回 `status="success"` 的 JSON。结果中的 `source_id` 按最终 URL 稳定生成，`snapshot_id` 按最终 URL 与内容摘要生成；同一页面内容再次读取时可以识别为同一快照。`fragments` 保存标题、段落、列表和表格单元格等可读块，每一项包含 `quote`、`locator` 和 `locator_text`。`citation_batch()` 可以将读取结果转换为本模块的公开引用校验输入。`--max-bytes` 和 `--max-fragments` 用于限制单次读取的响应大小和可保留片段数量。
 
 读取失败时不返回成功对象，也不生成空白规则结论，而是向标准错误返回结构化错误并以非零退出码结束：
 
 | 错误码 | 说明 |
 | :--- | :--- |
 | `invalid_request` | 必填参数或参数范围不符合接口契约 |
-| `unsafe_url` | 不是公开 HTTP/HTTPS 地址，或地址包含账号密码等不允许内容 |
+| `unsafe_url` | 不是公开 HTTP/HTTPS 地址、包含账号密码，或解析到环回、私有、链路本地和保留地址 |
 | `network_error` | DNS、连接或超时失败，可重试 |
 | `http_error` | 页面返回 HTTP 错误状态 |
 | `unsupported_content_type` | 响应不是 `text/html` 或 `application/xhtml+xml` |
 | `response_too_large` | 响应超过读取上限 |
 | `empty_content` | 页面没有可读取文本 |
+| `too_many_fragments` | 页面可读区块超过片段数量上限 |
 | `decode_error`、`parse_error` | 页面编码或 HTML 解析失败 |
 
 首版支持范围限定为公开 HTML；不承诺任意 PDF、扫描件、需要登录的页面、依赖浏览器执行 JavaScript 才能生成正文的复杂网页。PDF 或附件应由专门的附件读取流程提取定位后，再送入公开引用接口。读取器也不替业务层完成官方身份核实、政策资格判断或数据库写入；这些动作由后端和领域 Agent 的授权流程负责。
@@ -169,7 +170,7 @@ refs = build_fact_references(
 
 ## 5. 真实通知样例
 
-`packages/citations/examples/fzu_notice.json` 使用[福州大学数学与统计学院2027年推免工作方案](https://math.fzu.edu.cn/info/1171/10393.htm)第（4）项的一句公开摘录，来源已列在团队领域资料索引 S4 中。实际获取时间、页面编码摘要及样例标识生成方法见同目录的 `fzu_notice_provenance.json`。
+`packages/citations/examples/fzu_notice.html` 是[福州大学数学与统计学院2027年推免工作方案](https://math.fzu.edu.cn/info/1171/10393.htm)的公开 HTML 快照，`fzu_notice.json` 使用其中第（4）项的一句公开摘录，来源已列在团队领域资料索引 S4 中。实际获取时间、页面编码摘要及样例标识生成方法见同目录的 `fzu_notice_provenance.json`。
 
 本样例的适用年度为 2027，发布日期和本次获取年份为 2026。该通知的申请期已经结束，用于验证引用处理。样例标识由实际 URL 与获取内容的摘要派生，仅用于本地演示；接入后使用后端登记的来源和快照标识。例中的版本 1 是本地样例版本。
 
@@ -177,11 +178,11 @@ refs = build_fact_references(
 
 ## 6. 检查
 
-测试直接调用实现并执行实际命令行入口，包含真实通知样例及明确构造的字段缺失、版本不匹配、跨年、重复、页码、时区和公开/私有边界输入。测试中的私人标识为测试专用，不包含真实学生资料。普通测试完全离线，不将本地样例处理描述为远程业务链路验收。
+测试直接调用实现，使用真实通知快照验证正文、标题、定位、快照标识和引文适配；同时覆盖字段缺失、版本不匹配、跨年、重复、页码、时区、片段上限和公开/私有边界输入。测试中的私人标识为测试专用，不包含真实学生资料。测试不把本地快照描述为远程业务链路验收。
 
 接入顺序：检索与后端提供来源快照视图及原文定位；调用公开引用接口；将缺口反馈给原流程；成功结果供页面和材料预览读取。个人事实由已授权业务接口单独提供引用标识。真实通知样例可用于双方确认字段与返回格式。
 
-读取器的验证命令和结果：
+读取器的验证命令：
 
 ```bash
 uv run --project packages/citations --locked pytest -q
@@ -189,4 +190,4 @@ uv run --project packages/citations --locked ruff check .
 uv run --project packages/citations --locked ruff format --check .
 ```
 
-本次实现实际结果为 `80 passed`，Ruff 检查和格式检查均通过。开发过程中已于 2026-11-15 从福州大学数学与统计学院通知页面 `https://math.fzu.edu.cn/info/1171/10393.htm` 获取 HTTP 200 的本地快照，并提取到“思想品德考核不合格者不予推荐和录取。”等原文片段；随后使用该快照通过本地 HTTP 服务验证读取器，结果为 `status=success` 且成功定位该摘录。该样例只用于验证读取和出处记录，不代表完整 Alpha 业务流程已经联调。当前环境直接重跑 HTTPS 页面时受到 Windows 证书吊销检查离线限制，命令按设计返回 `network_error`，不会伪造成功结果。
+这些命令覆盖来源契约、真实通知快照解析、CLI 错误输出、代码检查和格式检查。它们通过后，读取结果可交给后端的来源登记与引文校验流程；这不代表完整 Alpha 业务流程已经联调。

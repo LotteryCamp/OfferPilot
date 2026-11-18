@@ -1,6 +1,12 @@
 """Public API for OfferPilot source and citation processing."""
 
-from .reader import PublicSourceRequest, PublicSourceResult, SourceReadError, read_public_html
+from .reader import (
+    PublicSourceRequest,
+    PublicSourceResult,
+    SourceReadError,
+    parse_public_html,
+    read_public_html,
+)
 from .service import (
     CitationIssue,
     CitationValidationError,
@@ -16,5 +22,6 @@ __all__ = [
     "PublicSourceRequest",
     "PublicSourceResult",
     "SourceReadError",
+    "parse_public_html",
     "read_public_html",
 ]
