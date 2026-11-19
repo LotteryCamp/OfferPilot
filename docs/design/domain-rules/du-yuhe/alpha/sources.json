@@ -1,5 +1,5 @@
 {
-  "fixture_version": "1.0.0",
+  "fixture_version": "1.1.0",
   "verified_on": "2026-11-18",
   "timezone": "Asia/Shanghai",
   "sources": [
@@ -130,35 +130,6 @@
   ],
   "read_results": [
     {
-      "kind": "实测",
-      "source_id": "S4",
-      "read_status": "成功",
-      "fetched_at": "2026-11-18T08:19:04+08:00",
-      "source_version_id": "S4-1f66ecfcae3d",
-      "unread_ranges": [],
-      "verified_range": "第（3）、（5）项，覆盖范围以条款索引为准。"
-    },
-    {
-      "kind": "实测",
-      "source_id": "S4",
-      "read_status": "读取失败",
-      "run_started_at": "2026-11-18T08:30:38+08:00",
-      "fetched_at": null,
-      "source_version_id": null,
-      "error_code": "SOURCE_UNAVAILABLE",
-      "message": "接收来源响应前发生连接握手超时。",
-      "last_successful_version_id": "S4-1f66ecfcae3d",
-      "last_successful_at": "2026-11-18T08:19:04+08:00",
-      "unread_ranges": [
-        "此次请求未取得正文"
-      ],
-      "recheck": {
-        "run_started_at": "2026-11-18T08:32:16+08:00",
-        "http_status": 200,
-        "source_version_id": "S4-1f66ecfcae3d"
-      }
-    },
-    {
       "kind": "验收输入",
       "source_id": "S5",
       "read_status": "正文可读，关键附件缺失",
@@ -179,7 +150,7 @@
         "A28",
         "A11"
       ],
-      "note": "输入有意省去专业目录。本次官网实测已取到该附件。"
+      "note": "验收输入省去专业目录，用来区分受附件影响的条款。"
     }
   ]
 }

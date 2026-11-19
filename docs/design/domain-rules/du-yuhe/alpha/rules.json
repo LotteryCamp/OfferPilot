@@ -1,5 +1,5 @@
 {
-  "fixture_version": "1.0.0",
+  "fixture_version": "1.1.0",
   "scope_resolution": "继承 source_id 的事项类型、学校、学院、入学年度、用途，再匹配本条 scope 的全部字段；数组表示任一。全包只覆盖所列局部条款。",
   "rules": [
     {
@@ -144,7 +144,8 @@
       "source_id": "S5",
       "scope": {
         "stage": "正式报名",
-        "program_group": "普通推免"
+        "program_group": "普通推免",
+        "selection_route": "校内预报名后正式报名"
       },
       "domain_rules": [
         "DYH-R01",
@@ -154,9 +155,11 @@
       "kind": "materials",
       "parameters": {
         "required_facts": [
+          "university_preregistration_record",
           "ministry_registration_record"
         ],
         "fact_definitions": {
+          "university_preregistration_record": "本人已记录完成福州大学校内预报名",
           "ministry_registration_record": "本人已记录在教育部推免服务系统完成正式报名"
         }
       },
@@ -174,7 +177,7 @@
           ]
         }
       ],
-      "interpretation": "福大预报名与教育部系统报名分别记录。仅有校内预报名记录时，正式报名状态仍待本人补充。"
+      "interpretation": "适用于原文所述先校内预报名、再在教育部系统正式报名的流程。两段记录分别核对，缺哪一段就提示补哪一段。"
     },
     {
       "requirement_id": "GR-05",

@@ -1,5 +1,5 @@
 {
-  "fixture_version": "1.0.0",
+  "fixture_version": "1.1.0",
   "context_id": "FZU-REC",
   "input_case_id": "A04",
   "mode": "历史回放",
@@ -73,7 +73,8 @@
           0
         ],
         "final_formal_tasks": 0,
-        "candidate_state": "待确认"
+        "candidate_state": "待确认",
+        "confirmation_error": null
       },
       "interpretation": "候选可回看两处依据，正式任务列表为空。"
     },
@@ -91,7 +92,8 @@
           0
         ],
         "final_formal_tasks": 0,
-        "candidate_state": "已拒绝"
+        "candidate_state": "已拒绝",
+        "confirmation_error": null
       },
       "interpretation": "结束本次候选，个人任务数保持为零。"
     },
@@ -110,7 +112,8 @@
           1
         ],
         "final_formal_tasks": 1,
-        "candidate_state": "已确认"
+        "candidate_state": "已确认",
+        "confirmation_error": null
       },
       "interpretation": "所有权、范围、来源与工作区版本有效时，写入个人准备任务一条。"
     },
@@ -134,7 +137,8 @@
           0
         ],
         "final_formal_tasks": 1,
-        "candidate_state": "已确认"
+        "candidate_state": "已确认",
+        "confirmation_error": null
       },
       "interpretation": "同一操作返回首次写入结果，正式任务仍为一条。"
     },
@@ -144,11 +148,13 @@
       "starting_formal_tasks": 0,
       "steps": [
         {
-          "action": "来源换版"
+          "action": "来源换版",
+          "previous_source_version_id": "S4-1f66ecfcae3d",
+          "new_source_version_id": "S4-replay-revision-2"
         },
         {
-          "action": "确认旧候选",
-          "operation_id": "demo-stale-01"
+          "action": "确认",
+          "operation_id": "demo-confirm-01"
         }
       ],
       "expected": {
@@ -157,9 +163,10 @@
           0
         ],
         "final_formal_tasks": 0,
-        "candidate_state": "需重新生成"
+        "candidate_state": "需重新生成",
+        "confirmation_error": "basis_changed"
       },
-      "interpretation": "重新读取现行条款，保留旧候选的原始出处。"
+      "interpretation": "验收用新版本替换当前版本，候选保留原引用。同一确认操作由于依据已换版而被拒绝，重新生成后才能确认。"
     },
     {
       "case_id": "P06",
@@ -176,7 +183,8 @@
           0
         ],
         "final_formal_tasks": 0,
-        "candidate_state": "仅供历史参考"
+        "candidate_state": "仅供历史参考",
+        "confirmation_error": null
       },
       "interpretation": "保留历史演示和引用，查找新的适用通知。"
     }

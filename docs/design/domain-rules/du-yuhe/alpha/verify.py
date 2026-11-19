@@ -143,6 +143,57 @@ def citation_key(cite):
     return cite["source_version_id"], cite["locator"], cite["excerpt"]
 
 
+def replay_decisions(path, tasks, source_versions):
+    basis = {cite["source_version_id"] for task in tasks.values() for cite in task["basis"]}
+    current = set(source_versions)
+    state = "待确认"
+    confirmed_operation = None
+    confirmation_error = None
+    new_tasks = []
+
+    for step in path["steps"]:
+        action = step["action"]
+        written = 0
+        if action == "查看":
+            pass
+        elif action == "来源换版":
+            old = step["previous_source_version_id"]
+            replacement = step["new_source_version_id"]
+            require(state == "待确认", "换版样例需要待确认的候选")
+            require(old in current and replacement not in current, "来源换版前后版本不匹配")
+            current.remove(old)
+            current.add(replacement)
+        elif action == "确认":
+            operation = step["operation_id"]
+            require(isinstance(operation, str) and operation.strip(), "确认操作缺少操作编号")
+            if operation != confirmed_operation:
+                require(state == "待确认", "只有待确认候选可以首次确认")
+                if basis <= current:
+                    state, confirmed_operation = "已确认", operation
+                    written = len(tasks)
+                else:
+                    state, confirmation_error = "需重新生成", "basis_changed"
+        elif action == "拒绝":
+            require(state == "待确认", "只有待确认候选可以拒绝")
+            state = "已拒绝"
+        elif action == "切换到当前办理":
+            as_of = instant(step["as_of"])
+            expired = any(t["official_deadline"] and instant(t["official_deadline"]) < as_of
+                          for t in tasks.values())
+            require(state == "待确认" and expired, "当前办理样例需要已过官方期限的待确认候选")
+            state = "仅供历史参考"
+        else:
+            raise ValueError(f"未知候选决定操作 {action}")
+        new_tasks.append(written)
+
+    return {
+        "candidate_state": state,
+        "confirmation_error": confirmation_error,
+        "new_tasks_per_step": new_tasks,
+        "final_formal_tasks": path["starting_formal_tasks"] + sum(new_tasks),
+    }
+
+
 def check_plan(example, cases, contexts, rules, versions):
     plan = example["candidate_plan"]
     tasks = indexed(plan["tasks"], "task_id")
@@ -168,19 +219,10 @@ def check_plan(example, cases, contexts, rules, versions):
         require(date.fromisoformat(task["suggested_date"]) <= instant(deadlines[0]).date(), "建议日超出官方期限")
         require(set(task["depends_on"]) <= tasks.keys() - {tid}, "无效的任务依赖")
     for path in indexed(example["decision_cases"], "case_id").values():
-        # Review only the example expectations. No business service is invoked.
-        expected = path["expected"]
-        steps = path["steps"]
-        delta = expected["new_tasks_per_step"]
-        require(len(delta) == len(steps), "步骤与预期增量不一致")
-        require(path["starting_formal_tasks"] + sum(delta) == expected["final_formal_tasks"], "预期任务数不一致")
-        seen = set()
-        for step, count in zip(steps, delta):
-            operation = step.get("operation_id")
-            writes = step["action"] == "确认" and operation is not None and operation not in seen
-            require(count == (len(tasks) if writes else 0), f"{path['case_id']} 确认预期不一致")
-            if operation is not None:
-                seen.add(operation)
+        actual = replay_decisions(path, tasks, example["inputs"]["current_source_versions"])
+        for field, value in actual.items():
+            expected = path["expected"][field]
+            require(expected == value, f"{path['case_id']} {field} 实际 {value!r}，预期 {expected!r}")
 
 
 def main():
@@ -216,7 +258,7 @@ def main():
             require(actual[field] == value, f"{cid} {field} 实际 {actual[field]!r}，预期 {value!r}")
     check_plan(plan, cases, suite["contexts"], rules, versions)
     print(f"离线校验通过：{len(sources)} 个来源版本，{len(rules)} 条规则，{len(cases)} 个领域用例。")
-    print(f"候选引用及 {len(plan['decision_cases'])} 组决定预期一致。正式任务写入尚待业务联调。")
+    print(f"候选引用及 {len(plan['decision_cases'])} 组决定的状态、原因和任务数一致。")
 
 
 if __name__ == "__main__":

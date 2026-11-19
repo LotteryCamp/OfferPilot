@@ -1,5 +1,5 @@
 {
-  "fixture_version": "1.0.0",
+  "fixture_version": "1.1.0",
   "default_mode": "历史回放",
   "input_note": "所有个人事实、事件、代号、决定及历史回放时钟均为验收输入。source_state 描述本用例可用证据，官网下载实测见 sources.json。",
   "contexts": {
@@ -24,7 +24,8 @@
       "program_group": "普通推免",
       "degree": "硕士",
       "stage": "正式报名",
-      "as_of": "2026-09-21T16:00:00+08:00"
+      "as_of": "2026-09-21T16:00:00+08:00",
+      "selection_route": "校内预报名后正式报名"
     },
     "FZU-RETEST": {
       "matter_type": "推免",
@@ -295,8 +296,9 @@
       "case_id": "A11",
       "requirement_id": "GR-04",
       "context_id": "FZU-REG",
-      "title": "目录附件缺失，独立的报名条款仍可核对",
+      "title": "两段报名记录齐全，目录附件缺失仍可核对",
       "confirmed_facts": {
+        "university_preregistration_record": true,
         "ministry_registration_record": true
       },
       "source_state": {
@@ -311,7 +313,7 @@
           "S5"
         ]
       },
-      "reason": "正文足以证明两个阶段。附件缺口只影响依赖目录的专业判断，与A28配对。"
+      "reason": "两段报名均有本人记录。目录只影响依赖它的专业判断，与A28配对。"
     },
     {
       "case_id": "A12",
@@ -846,6 +848,24 @@
         "official_deadline": null
       },
       "reason": "本院方案用于2027届优秀应届本科毕业生。同校同院的其他届别须另查其方案。"
+    },
+    {
+      "case_id": "A39",
+      "requirement_id": "GR-04",
+      "context_id": "FZU-REG",
+      "title": "有正式报名记录，缺校内预报名记录",
+      "confirmed_facts": {
+        "ministry_registration_record": true
+      },
+      "expected": {
+        "scope_match": "匹配",
+        "status": "待补充信息",
+        "gaps": [
+          "university_preregistration_record"
+        ],
+        "official_deadline": null
+      },
+      "reason": "正式报名的记录只覆盖教育部系统。校内预报名须有独立记录。"
     }
   ]
 }
