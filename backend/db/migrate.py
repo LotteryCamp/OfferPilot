@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """OfferPilot Alpha 数据库迁移执行器。
 
 用法::

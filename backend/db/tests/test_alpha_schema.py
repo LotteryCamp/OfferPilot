@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """OfferPilot Alpha schema 集成测试。
 
 前置：一个可连接的 PostgreSQL 16 实例，以及有建库权限的账号。

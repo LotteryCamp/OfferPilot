@@ -35,13 +35,17 @@ jobs:
         run: uv sync --project backend --locked
 
       - name: Lint
-        run: uv run --project backend ruff check backend
+        working-directory: backend
+        run: uv run ruff check .
 
       - name: Check formatting
-        run: uv run --project backend ruff format --check backend
+        working-directory: backend
+        run: uv run ruff format --check .
 
       - name: Type check
-        run: uv run --project backend ty check backend/src backend/tests
+        working-directory: backend
+        run: uv run ty check src tests
 
       - name: Run unit tests
-        run: uv run --project backend pytest backend/tests/test_basis.py -q
+        working-directory: backend
+        run: uv run pytest tests/test_basis.py -q
