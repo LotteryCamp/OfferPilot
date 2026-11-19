@@ -23,12 +23,13 @@ VALUES (
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO core.matter (
-    id, workspace_id, type_code, goal, status, scope_year, scope_attrs
+    id, workspace_id, type_code, template_version_id, goal, status, scope_year, scope_attrs
 )
 VALUES (
     '00000000-0000-7000-8000-000000000003',
     '00000000-0000-7000-8000-000000000002',
     'pre_recommend',
+    '10000000-0000-7000-8000-000000000001',
     '申请 2027 年示例大学计算机学院推免',
     'active',
     2027,
@@ -117,7 +118,7 @@ VALUES (
     '00000000-0000-7000-8000-000000000008',
     '00000000-0000-7000-8000-000000000003',
     1,
-    'pending',
+    'draft',
     repeat('a', 64),
     '{"matter_id": "00000000-0000-7000-8000-000000000003", "requirement_ids": ["00000000-0000-7000-8000-000000000006"], "rule_pack_version": "RP-2026-01", "template_version_id": null}'::jsonb,
     '2026-11-18T02:10:00Z'
@@ -166,3 +167,8 @@ VALUES (
     '学业成绩排名前 30%'
 )
 ON CONFLICT (id) DO NOTHING;
+
+UPDATE core.candidate_plan
+   SET status = 'pending'
+ WHERE id = '00000000-0000-7000-8000-000000000008'
+   AND status = 'draft';

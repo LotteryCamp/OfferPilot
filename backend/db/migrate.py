@@ -3,11 +3,12 @@
 
 用法::
 
-    export DATABASE_URL='postgresql://offerpilot_app:...@127.0.0.1:5432/offerpilot'
-    python backend/db/migrate.py status
-    python backend/db/migrate.py migrate
-    python backend/db/migrate.py seed            # 参考数据（事项类型）
-    python backend/db/migrate.py seed --demo     # 追加演示数据
+    cd backend
+    uv sync
+    uv run python db/migrate.py status
+    uv run python db/migrate.py migrate
+    uv run python db/migrate.py seed
+    uv run python db/migrate.py seed --demo
 
 设计约定：
 
@@ -17,7 +18,7 @@
 * 迁移期间持有会话级 advisory lock，避免两个部署同时执行。
 * 种子脚本不写入 schema_version，必须自身幂等（ON CONFLICT）。
 
-依赖：psycopg 3（``pip install "psycopg[binary]"``）。
+依赖由 ``backend/pyproject.toml`` 管理（psycopg）。
 """
 
 from __future__ import annotations
@@ -33,9 +34,7 @@ from pathlib import Path
 try:
     import psycopg
 except ImportError:  # pragma: no cover - 运行环境错误
-    sys.exit(
-        "缺少 psycopg。请先安装：python -m pip install 'psycopg[binary]'"
-    )
+    sys.exit("缺少 psycopg。请在 backend 目录执行 uv sync。")
 
 BASE_DIR = Path(__file__).resolve().parent
 MIGRATIONS_DIR = BASE_DIR / "migrations"
@@ -75,28 +74,41 @@ def migration_files(directory: Path) -> list[Path]:
                 f"迁移版本号重复：{seen[version].name} 与 {path.name}"
             )
         seen[version] = path
+
+    versions = [int(MIGRATION_RE.match(path.name).group("version")) for path in files]
+    for expected, actual in enumerate(versions, start=1):
+        if actual != expected:
+            raise SystemExit(
+                f"迁移编号不连续：期望 {expected:04d}，实际 {actual:04d}"
+            )
     return files
 
 
-def applied_versions(conn: "psycopg.Connection") -> dict[str, tuple[str, object]]:
+def schema_version_exists(conn: psycopg.Connection) -> bool:
+    return bool(
+        conn.execute("SELECT to_regclass('ops.schema_version') IS NOT NULL").fetchone()[0]
+    )
+
+
+def applied_versions(conn: psycopg.Connection) -> dict[str, tuple[str, object]]:
     rows = conn.execute(
         "SELECT version, checksum, applied_at FROM ops.schema_version ORDER BY version"
     ).fetchall()
     return {row[0]: (row[1].strip(), row[2]) for row in rows}
 
 
-def ensure_bootstrap(conn: "psycopg.Connection") -> None:
+def ensure_bootstrap(conn: psycopg.Connection) -> None:
     conn.execute(BOOTSTRAP_SQL)
     conn.commit()
 
 
-def cmd_status(conn: "psycopg.Connection", directory: Path) -> int:
-    ensure_bootstrap(conn)
-    applied = applied_versions(conn)
+def cmd_status(conn: psycopg.Connection, directory: Path) -> int:
     files = migration_files(directory)
+    applied = applied_versions(conn) if schema_version_exists(conn) else {}
     print(f"数据库：{conn.info.dbname} @ {conn.info.host}:{conn.info.port}")
     print(f"迁移目录：{directory}")
     print(f"{'版本':<8}{'状态':<12}{'校验和':<14}文件名")
+    drifted = False
     for path in files:
         version = MIGRATION_RE.match(path.name).group("version")
         digest = sha256(path)
@@ -104,19 +116,43 @@ def cmd_status(conn: "psycopg.Connection", directory: Path) -> int:
             state = "PENDING"
         elif applied[version][0] != digest:
             state = "CHECKSUM-DIFF"
+            drifted = True
         else:
             state = "APPLIED"
         print(f"{version:<8}{state:<12}{digest[:12]:<14}{path.name}")
     unknown = sorted(set(applied) - {MIGRATION_RE.match(p.name).group("version") for p in files})
     for version in unknown:
+        drifted = True
         print(f"{version:<8}{'MISSING-FILE':<12}{applied[version][0][:12]:<14}(数据库有记录)")
-    return 0
+    return 1 if drifted else 0
 
 
-def cmd_migrate(conn: "psycopg.Connection", directory: Path, dry_run: bool) -> int:
+def cmd_migrate(conn: psycopg.Connection, directory: Path, dry_run: bool) -> int:
     files = migration_files(directory)
     if not files:
-        print("没有迁移文件。")
+        print(f"错误：迁移目录为空或不存在：{directory}", file=sys.stderr)
+        return 2
+
+    known = {MIGRATION_RE.match(path.name).group("version") for path in files}
+
+    if dry_run:
+        applied = applied_versions(conn) if schema_version_exists(conn) else {}
+        unknown = sorted(set(applied) - known)
+        if unknown:
+            print(
+                "错误：数据库已应用当前目录中不存在的迁移版本："
+                + ", ".join(unknown),
+                file=sys.stderr,
+            )
+            return 2
+        pending = 0
+        for path in files:
+            version = MIGRATION_RE.match(path.name).group("version")
+            if version in applied:
+                continue
+            pending += 1
+            print(f"待执行 {path.name}")
+        print(f"预演完成：{pending} 个迁移待执行。")
         return 0
 
     ensure_bootstrap(conn)
@@ -124,7 +160,6 @@ def cmd_migrate(conn: "psycopg.Connection", directory: Path, dry_run: bool) -> i
     conn.commit()
     try:
         applied = applied_versions(conn)
-        known = {MIGRATION_RE.match(path.name).group("version") for path in files}
         unknown = sorted(set(applied) - known)
         if unknown:
             print(
@@ -153,10 +188,6 @@ def cmd_migrate(conn: "psycopg.Connection", directory: Path, dry_run: bool) -> i
                 continue
 
             pending += 1
-            if dry_run:
-                print(f"待执行 {path.name}")
-                continue
-
             print(f"执行 {path.name} ...", end="", flush=True)
             started = time.perf_counter()
             try:
@@ -175,8 +206,6 @@ def cmd_migrate(conn: "psycopg.Connection", directory: Path, dry_run: bool) -> i
 
         if pending == 0:
             print("数据库已是最新，无迁移需要执行。")
-        elif dry_run:
-            print(f"预演完成：{pending} 个迁移待执行。")
         else:
             print(f"迁移完成：本次执行 {pending} 个。")
         return 0
@@ -185,7 +214,7 @@ def cmd_migrate(conn: "psycopg.Connection", directory: Path, dry_run: bool) -> i
         conn.commit()
 
 
-def cmd_seed(conn: "psycopg.Connection", with_demo: bool) -> int:
+def cmd_seed(conn: psycopg.Connection, with_demo: bool) -> int:
     scripts = [SEED_DIR / "0001_reference.sql"]
     if with_demo:
         scripts.append(SEED_DIR / "demo.sql")

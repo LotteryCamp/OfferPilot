@@ -7,10 +7,11 @@
 
 运行::
 
-    python -m pip install "psycopg[binary]"
-    python backend/db/tests/test_alpha_schema.py -v
+    cd backend
+    uv sync
+    uv run python db/tests/test_alpha_schema.py -v
 
-测试会创建并删除名为 ``offerpilot_schema_test`` 的数据库，不触碰其他库。
+测试使用 ``offerpilot_schema_test`` 数据库，并在每次运行时重建 ``core``/``ops`` 模式。
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ import os
 import subprocess
 import sys
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID
 
@@ -46,9 +47,10 @@ SNAPSHOT_ID = UUID("33333333-3333-7333-8333-333333333332")
 REQ_ID = UUID("33333333-3333-7333-8333-333333333333")
 EVIDENCE_ID = UUID("33333333-3333-7333-8333-333333333334")
 PLAN_ID = UUID("44444444-4444-7444-8444-444444444441")
+TEMPLATE_PRE = UUID("10000000-0000-7000-8000-000000000001")
 ITEM_1 = UUID("44444444-4444-7444-8444-444444444442")
 ITEM_2 = UUID("44444444-4444-7444-8444-444444444443")
-FIXED_FETCHED = datetime(2026, 11, 18, 2, 0, tzinfo=timezone.utc)
+FIXED_FETCHED = datetime(2026, 11, 18, 2, 0, tzinfo=UTC)
 HASH = "a" * 64
 HASH_2 = "b" * 64
 
@@ -141,9 +143,10 @@ class AlphaSchemaTest(unittest.TestCase):
             "INSERT INTO core.workspace (id, owner_id) VALUES (%s, %s)", (ws, user)
         )
         self.conn.execute(
-            "INSERT INTO core.matter (id, workspace_id, type_code, goal, status, scope_year, scope_attrs)"
-            " VALUES (%s, %s, 'pre_recommend', %s, 'active', 2027, %s)",
-            (matter, ws, goal, '{"school": "示例大学", "program": "计算机"}'),
+            "INSERT INTO core.matter"
+            " (id, workspace_id, type_code, template_version_id, goal, status, scope_year, scope_attrs)"
+            " VALUES (%s, %s, 'pre_recommend', %s, %s, 'active', 2027, %s)",
+            (matter, ws, TEMPLATE_PRE, goal, '{"school": "示例大学", "program": "计算机"}'),
         )
 
     def make_source_chain(self) -> None:
@@ -178,8 +181,8 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute(
             "INSERT INTO core.candidate_plan"
             " (id, matter_id, version_no, status, basis_version, basis_input)"
-            " VALUES (%s, %s, %s, 'pending', repeat('a', 64), %s)",
-            (plan_id, MATTER_A, version_no, '{"matter_id": "%s"}' % MATTER_A),
+            " VALUES (%s, %s, %s, 'draft', repeat('a', 64), %s)",
+            (plan_id, MATTER_A, version_no, f'{{"matter_id": "{MATTER_A}"}}'),
         )
         self.conn.execute(
             "INSERT INTO core.candidate_plan_item"
@@ -189,8 +192,6 @@ class AlphaSchemaTest(unittest.TestCase):
             "        (%s, %s, 2, '联系导师', 'to_verify', NULL, false, NULL)",
             (ITEM_1, plan_id, REQ_ID, ITEM_2, plan_id),
         )
-
-    def make_item_source(self) -> None:
         self.conn.execute(
             "INSERT INTO core.candidate_plan_item_source"
             " (id, plan_item_id, source_id, snapshot_id, locator_kind, locator, quote)"
@@ -201,6 +202,10 @@ class AlphaSchemaTest(unittest.TestCase):
                 SOURCE_ID,
                 SNAPSHOT_ID,
             ),
+        )
+        self.conn.execute(
+            "UPDATE core.candidate_plan SET status = 'pending' WHERE id = %s",
+            (plan_id,),
         )
 
     def reject_plan(self, plan_id: UUID, operation_id: UUID) -> None:
@@ -273,6 +278,7 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.app_user",
             "core.workspace",
             "core.matter_type",
+            "core.template_version",
             "core.matter",
             "core.requirement",
             "core.candidate_plan",
@@ -334,17 +340,17 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.commit()
         with self.assertRaises(errors.CheckViolation):
             self.conn.execute(
-                "INSERT INTO core.matter (workspace_id, type_code, goal, scope_year)"
-                " VALUES (%s, 'pre_recommend', '目标', 2019)",
-                (WS_A,),
+                "INSERT INTO core.matter (workspace_id, type_code, template_version_id, goal, scope_year)"
+                " VALUES (%s, 'pre_recommend', %s, '目标', 2019)",
+                (WS_A, TEMPLATE_PRE),
             )
         self.conn.rollback()
 
         with self.assertRaises(errors.CheckViolation):
             self.conn.execute(
-                "INSERT INTO core.matter (workspace_id, type_code, goal)"
-                " VALUES (%s, 'pre_recommend', '   ')",
-                (WS_A,),
+                "INSERT INTO core.matter (workspace_id, type_code, template_version_id, goal)"
+                " VALUES (%s, 'pre_recommend', %s, '   ')",
+                (WS_A, TEMPLATE_PRE),
             )
         self.conn.rollback()
 
@@ -379,7 +385,7 @@ class AlphaSchemaTest(unittest.TestCase):
                     SOURCE_ID,
                     SNAPSHOT_ID,
                     REQ_ID,
-                    datetime(2026, 11, 18, 3, 0, tzinfo=timezone.utc),
+                    datetime(2026, 11, 18, 3, 0, tzinfo=UTC),
                 ),
             )
         self.conn.rollback()
@@ -479,7 +485,7 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute(
             "INSERT INTO core.candidate_plan"
             " (id, matter_id, version_no, status, basis_version, basis_input)"
-            " VALUES (%s, %s, 2, 'pending', repeat('b', 64), '{}')",
+            " VALUES (%s, %s, 2, 'draft', repeat('b', 64), '{}')",
             (plan_2, MATTER_A),
         )
         self.conn.execute(
@@ -487,11 +493,19 @@ class AlphaSchemaTest(unittest.TestCase):
             " VALUES (%s, %s, 1, '候选任务')",
             (UUID("44444444-4444-7444-8444-444444444445"), plan_2),
         )
+        self.conn.execute(
+            "UPDATE core.candidate_plan SET status = 'pending' WHERE id = %s", (plan_2,)
+        )
         with self.assertRaises(errors.CheckViolation) as ctx:
             self.conn.execute(
-                "INSERT INTO core.task (matter_id, plan_id, executor_id, title)"
-                " VALUES (%s, %s, %s, '提前写入')",
-                (MATTER_A, plan_2, USER_A),
+                "INSERT INTO core.task (matter_id, plan_id, plan_item_id, executor_id, title)"
+                " VALUES (%s, %s, %s, %s, '提前写入')",
+                (
+                    MATTER_A,
+                    plan_2,
+                    UUID("44444444-4444-7444-8444-444444444445"),
+                    USER_A,
+                ),
             )
         self.assertIn("未确认", str(ctx.exception))
         self.conn.rollback()
@@ -528,7 +542,6 @@ class AlphaSchemaTest(unittest.TestCase):
         self.make_identity(USER_B, WS_B, MATTER_B, "B 的事项")
         self.make_source_chain()
         self.make_plan()
-        self.make_item_source()
         self.conn.commit()
         self.confirm_plan(PLAN_ID, UUID("55555555-5555-7555-8555-555555555554"))
         self.conn.commit()
@@ -572,9 +585,9 @@ class AlphaSchemaTest(unittest.TestCase):
             )
             with self.assertRaises(errors.InsufficientPrivilege):
                 self.conn.execute(
-                    "INSERT INTO core.matter (workspace_id, type_code, goal)"
-                    " VALUES (%s, 'pre_recommend', '越权写入')",
-                    (WS_B,),
+                    "INSERT INTO core.matter (workspace_id, type_code, template_version_id, goal)"
+                    " VALUES (%s, 'pre_recommend', %s, '越权写入')",
+                    (WS_B, TEMPLATE_PRE),
                 )
         finally:
             self.conn.rollback()
@@ -617,24 +630,30 @@ class AlphaSchemaTest(unittest.TestCase):
         invalid_rows = [
             (
                 "expired without expired_at",
-                "INSERT INTO core.candidate_plan"
-                " (id, matter_id, version_no, status, basis_version, basis_input)"
-                " VALUES (%s, %s, 2, 'expired', repeat('d', 64), '{}')",
+                (
+                    "INSERT INTO core.candidate_plan"
+                    " (id, matter_id, version_no, status, basis_version, basis_input)"
+                    " VALUES (%s, %s, 2, 'expired', repeat('d', 64), '{}')"
+                ),
                 (UUID("44444444-4444-7444-8444-444444444446"), MATTER_A),
             ),
             (
                 "confirmed without confirmed_at",
-                "INSERT INTO core.candidate_plan"
-                " (id, matter_id, version_no, status, basis_version, basis_input)"
-                " VALUES (%s, %s, 3, 'confirmed', repeat('e', 64), '{}')",
+                (
+                    "INSERT INTO core.candidate_plan"
+                    " (id, matter_id, version_no, status, basis_version, basis_input)"
+                    " VALUES (%s, %s, 3, 'confirmed', repeat('e', 64), '{}')"
+                ),
                 (UUID("44444444-4444-7444-8444-444444444447"), MATTER_A),
             ),
             (
                 "confirmed with expired_at",
-                "INSERT INTO core.candidate_plan"
-                " (id, matter_id, version_no, status, basis_version, basis_input,"
-                "  confirmed_at, confirmed_by, expired_at)"
-                " VALUES (%s, %s, 4, 'confirmed', repeat('f', 64), '{}', now(), %s, now())",
+                (
+                    "INSERT INTO core.candidate_plan"
+                    " (id, matter_id, version_no, status, basis_version, basis_input,"
+                    "  confirmed_at, confirmed_by, expired_at)"
+                    " VALUES (%s, %s, 4, 'confirmed', repeat('f', 64), '{}', now(), %s, now())"
+                ),
                 (UUID("44444444-4444-7444-8444-444444444448"), MATTER_A, USER_A),
             ),
         ]
@@ -654,33 +673,143 @@ class AlphaSchemaTest(unittest.TestCase):
             )
         self.conn.rollback()
 
-    def test_11_plan_item_dependencies_and_source_chain(self) -> None:
+    def test_11_plan_item_freeze_and_dependencies(self) -> None:
         self.make_identity(USER_A, WS_A, MATTER_A, "目标")
         self.make_source_chain()
         self.make_plan()
         self.conn.commit()
 
-        self.make_item_source()
         self.assertEqual(1, self.count("core.candidate_plan_item_source"))
-        self.conn.commit()
 
-        # 依赖必须指向同一计划内的条目。
+        # pending 计划的条目已经冻结。
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.candidate_plan_item (plan_id, seq, title)"
+                " VALUES (%s, 3, '锁定后新增')",
+                (PLAN_ID,),
+            )
+        self.conn.rollback()
+
+        # 草稿计划内仍可编辑，但依赖必须指向同一计划。
+        draft_plan = UUID("44444444-4444-7444-8444-444444444460")
+        draft_item = UUID("44444444-4444-7444-8444-444444444461")
+        self.conn.execute(
+            "INSERT INTO core.candidate_plan"
+            " (id, matter_id, version_no, status, basis_version, basis_input)"
+            " VALUES (%s, %s, 2, 'draft', repeat('c', 64), '{}')",
+            (draft_plan, MATTER_A),
+        )
+        self.conn.commit()
         with self.assertRaises(errors.CheckViolation):
             self.conn.execute(
                 "INSERT INTO core.candidate_plan_item"
-                " (plan_id, seq, title, depends_on_item_ids)"
-                " VALUES (%s, 3, '越界依赖', %s)",
-                (PLAN_ID, [UUID("99999999-9999-7999-8999-999999999999")]),
+                " (id, plan_id, seq, title, depends_on_item_ids)"
+                " VALUES (%s, %s, 1, '越界依赖', %s)",
+                (
+                    draft_item,
+                    draft_plan,
+                    [UUID("99999999-9999-7999-8999-999999999999")],
+                ),
             )
         self.conn.rollback()
 
         # 来源必须与快照一致。
+        source_2 = UUID("33333333-3333-7333-8333-333333333340")
+        self.conn.execute(
+            "INSERT INTO ops.source (id, publisher, url, matter_type_id, scope_year,"
+            " status, auto_check_status, roi_status)"
+            " SELECT %s, '另一发布主体', 'https://example.test/other', id, 2027,"
+            " 'active', 'passed', 'original' FROM core.matter_type"
+            " WHERE type_code = 'pre_recommend'",
+            (source_2,),
+        )
+        self.conn.execute(
+            "INSERT INTO core.candidate_plan_item (id, plan_id, seq, title)"
+            " VALUES (%s, %s, 1, '来源校验')",
+            (draft_item, draft_plan),
+        )
         with self.assertRaises(errors.CheckViolation):
             self.conn.execute(
                 "INSERT INTO core.candidate_plan_item_source"
                 " (plan_item_id, source_id, snapshot_id, locator_kind, locator)"
-                " VALUES (%s, gen_random_uuid(), %s, 'section', '另一处')",
-                (ITEM_2, SNAPSHOT_ID),
+                " VALUES (%s, %s, %s, 'section', '另一处')",
+                (draft_item, source_2, SNAPSHOT_ID),
+            )
+        self.conn.rollback()
+
+    def test_12_snapshot_immutability_and_evidence_source(self) -> None:
+        self.make_identity(USER_A, WS_A, MATTER_A, "目标")
+        self.make_source_chain()
+        snapshot_2 = UUID("33333333-3333-7333-8333-333333333341")
+        self.conn.execute(
+            "INSERT INTO ops.snapshot (id, source_id, version_no, object_key,"
+            " content_hash, fetched_at, is_current)"
+            " VALUES (%s, %s, 2, 'inline:test2', %s, %s, false)",
+            (snapshot_2, SOURCE_ID, HASH_2, FIXED_FETCHED),
+        )
+        self.conn.commit()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "UPDATE ops.snapshot SET object_key = 'inline:changed' WHERE id = %s",
+                (snapshot_2,),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute("DELETE FROM ops.snapshot WHERE id = %s", (snapshot_2,))
+        self.conn.rollback()
+
+        source_2 = UUID("33333333-3333-7333-8333-333333333342")
+        self.conn.execute(
+            "INSERT INTO ops.source (id, publisher, url, matter_type_id, scope_year,"
+            " status, auto_check_status, roi_status)"
+            " SELECT %s, '另一发布主体', 'https://example.test/other-2', id, 2027,"
+            " 'active', 'passed', 'original' FROM core.matter_type"
+            " WHERE type_code = 'pre_recommend'",
+            (source_2,),
+        )
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO ops.evidence (source_id, snapshot_id, target_type, target_id,"
+                " locator_kind, locator, fetched_at)"
+                " VALUES (%s, %s, 'evaluation', %s, 'section', '第 1 节', %s)",
+                (source_2, snapshot_2, UUID("99999999-9999-7999-8999-999999999999"), FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+    def test_13_plan_decision_and_actor_owner(self) -> None:
+        self.make_identity(USER_A, WS_A, MATTER_A, "目标")
+        self.make_source_chain()
+        self.make_plan()
+        self.conn.commit()
+
+        # 直接改状态而不写决定，提交时必须失败。
+        direct_plan = UUID("44444444-4444-7444-8444-444444444470")
+        self.conn.execute(
+            "INSERT INTO core.candidate_plan"
+            " (id, matter_id, version_no, status, basis_version, basis_input)"
+            " VALUES (%s, %s, 2, 'pending', repeat('d', 64), '{}')",
+            (direct_plan, MATTER_A),
+        )
+        self.conn.execute(
+            "UPDATE core.candidate_plan"
+            " SET status = 'confirmed', confirmed_at = now(), confirmed_by = %s"
+            " WHERE id = %s",
+            (USER_A, direct_plan),
+        )
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.commit()
+        self.conn.rollback()
+
+        # 任务执行人必须是工作区所有者。
+        self.confirm_plan(PLAN_ID, UUID("55555555-5555-7555-8555-555555555557"))
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.task"
+                " (matter_id, plan_id, plan_item_id, executor_id, title)"
+                " VALUES (%s, %s, %s, %s, '他人任务')",
+                (MATTER_A, PLAN_ID, ITEM_2, USER_B),
             )
         self.conn.rollback()
 

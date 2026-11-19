@@ -5,6 +5,8 @@
 -- 变量未设置时 current_setting(..., true) 返回 NULL，策略不匹配任何行（默认拒绝）。
 --
 -- requirement 按事项归属启用工作区隔离；公开原文仍通过 source/snapshot 共享。
+-- Alpha 没有登录与账户体系，RLS 是开发期防误查的纵深防御；共享应用角色仍可设置
+-- 会话变量，不能独立承担多租户隔离。多账户上线前由认证层签发工作区标识并在服务端校验。
 -- 不对表执行 FORCE ROW LEVEL SECURITY：迁移与后台任务用所有者/超级用户执行，
 -- 应用必须使用独立的非所有者角色（见 db/dev/roles.sql）。
 

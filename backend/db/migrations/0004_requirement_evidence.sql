@@ -68,7 +68,7 @@ CREATE TABLE ops.evidence (
     CONSTRAINT fk_evidence_source FOREIGN KEY (source_id)
         REFERENCES ops.source (id) ON DELETE RESTRICT,
     CONSTRAINT fk_evidence_snapshot FOREIGN KEY (snapshot_id)
-        REFERENCES ops.snapshot (id) ON DELETE CASCADE,
+        REFERENCES ops.snapshot (id) ON DELETE RESTRICT,
     CONSTRAINT uq_evidence_quad UNIQUE (snapshot_id, target_type, target_id, locator),
     CONSTRAINT ck_evidence_target CHECK (
         target_type IN ('requirement', 'evaluation', 'material_version')
@@ -114,11 +114,18 @@ END $$;
 CREATE FUNCTION ops.check_evidence_fetched() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE
+    snapshot_source  uuid;
     snapshot_fetched timestamptz;
 BEGIN
-    SELECT fetched_at INTO snapshot_fetched
+    SELECT source_id, fetched_at INTO snapshot_source, snapshot_fetched
       FROM ops.snapshot
      WHERE id = NEW.snapshot_id;
+
+    IF snapshot_source IS DISTINCT FROM NEW.source_id THEN
+        RAISE EXCEPTION '证据来源 % 与快照 % 的来源 % 不一致',
+            NEW.source_id, NEW.snapshot_id, snapshot_source
+            USING ERRCODE = '23514';
+    END IF;
 
     IF NEW.fetched_at IS DISTINCT FROM snapshot_fetched THEN
         RAISE EXCEPTION '证据获取时间 % 与快照获取时间 % 不一致',

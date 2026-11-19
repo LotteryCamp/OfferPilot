@@ -9,3 +9,18 @@ VALUES
 ON CONFLICT (type_code) DO UPDATE
     SET name = EXCLUDED.name,
         built_in = true;
+
+INSERT INTO core.template_version (
+    id, type_code, version_no, stage_defs, requirement_skeleton, material_types,
+    status, published_at
+)
+VALUES
+    (
+        '10000000-0000-7000-8000-000000000001',
+        'pre_recommend', 'TP-pre-01', '[]', '[]', '[]', 'published', now()
+    ),
+    (
+        '10000000-0000-7000-8000-000000000002',
+        'competition', 'TP-comp-01', '[]', '[]', '[]', 'published', now()
+    )
+ON CONFLICT (id) DO NOTHING;

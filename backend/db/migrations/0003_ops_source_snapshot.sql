@@ -53,7 +53,7 @@ CREATE TABLE ops.snapshot (
     fetched_at   timestamptz NOT NULL DEFAULT now(),
     is_current   boolean NOT NULL DEFAULT true,
     CONSTRAINT fk_snapshot_source FOREIGN KEY (source_id)
-        REFERENCES ops.source (id) ON DELETE CASCADE,
+        REFERENCES ops.source (id) ON DELETE RESTRICT,
     CONSTRAINT uq_snapshot_version UNIQUE (source_id, version_no),
     CONSTRAINT uq_snapshot_hash UNIQUE (source_id, content_hash),
     CONSTRAINT ck_snapshot_version CHECK (version_no > 0),
@@ -88,3 +88,29 @@ END $$;
 CREATE TRIGGER trg_snapshot_current
     BEFORE INSERT OR UPDATE OF is_current ON ops.snapshot
     FOR EACH ROW EXECUTE FUNCTION ops.keep_single_current_snapshot();
+
+CREATE FUNCTION ops.reject_snapshot_mutation() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION '快照 % 只增不改，禁止删除', OLD.id
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF ROW(
+        NEW.id, NEW.source_id, NEW.version_no, NEW.object_key, NEW.content_hash,
+        NEW.html_version, NEW.text_version, NEW.extraction, NEW.fetched_at
+    ) IS DISTINCT FROM ROW(
+        OLD.id, OLD.source_id, OLD.version_no, OLD.object_key, OLD.content_hash,
+        OLD.html_version, OLD.text_version, OLD.extraction, OLD.fetched_at
+    ) THEN
+        RAISE EXCEPTION '快照 % 只增不改，仅允许切换 is_current', NEW.id
+            USING ERRCODE = '23514';
+    END IF;
+
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_snapshot_immutable
+    BEFORE UPDATE OR DELETE ON ops.snapshot
+    FOR EACH ROW EXECUTE FUNCTION ops.reject_snapshot_mutation();

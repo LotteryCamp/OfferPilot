@@ -83,39 +83,32 @@ CREATE INDEX ix_plan_item_requirement ON core.candidate_plan_item (requirement_i
     WHERE requirement_id IS NOT NULL;
 CREATE INDEX ix_plan_item_depends ON core.candidate_plan_item USING GIN (depends_on_item_ids);
 
-CREATE FUNCTION core.check_plan_item_depends() RETURNS trigger
-LANGUAGE plpgsql AS $$
-DECLARE
-    invalid_id uuid;
-BEGIN
-    IF NEW.depends_on_item_ids IS NULL OR cardinality(NEW.depends_on_item_ids) = 0 THEN
-        RETURN NEW;
-    END IF;
+CREATE TABLE core.candidate_plan_item_source (
+    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    plan_item_id uuid NOT NULL,
+    source_id    uuid NOT NULL,
+    snapshot_id  uuid NOT NULL,
+    locator_kind varchar(16) NOT NULL,
+    locator      varchar(300) NOT NULL,
+    quote        text,
+    CONSTRAINT fk_item_source_item FOREIGN KEY (plan_item_id)
+        REFERENCES core.candidate_plan_item (id) ON DELETE CASCADE,
+    CONSTRAINT fk_item_source_source FOREIGN KEY (source_id)
+        REFERENCES ops.source (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_item_source_snapshot FOREIGN KEY (snapshot_id)
+        REFERENCES ops.snapshot (id) ON DELETE RESTRICT,
+    CONSTRAINT uq_item_source_locator UNIQUE (plan_item_id, snapshot_id, locator),
+    CONSTRAINT ck_item_source_locator_kind CHECK (
+        locator_kind IN ('text_span', 'page', 'table_row', 'section')
+    ),
+    CONSTRAINT ck_item_source_locator_text CHECK (length(btrim(locator)) > 0)
+);
 
-    IF NEW.id = ANY(NEW.depends_on_item_ids) THEN
-        RAISE EXCEPTION '候选计划项 % 不能依赖自身', NEW.id
-            USING ERRCODE = '23514';
-    END IF;
+COMMENT ON TABLE core.candidate_plan_item_source IS
+    '候选计划项的来源定位；确认后任务经 plan_item_id 延续该证据链';
 
-    SELECT d.id INTO invalid_id
-      FROM unnest(NEW.depends_on_item_ids) AS d(id)
-     WHERE NOT EXISTS (
-         SELECT 1 FROM core.candidate_plan_item i
-          WHERE i.id = d.id AND i.plan_id = NEW.plan_id
-     )
-     LIMIT 1;
-
-    IF FOUND THEN
-        RAISE EXCEPTION '候选计划项依赖 % 不在同一计划内', invalid_id
-            USING ERRCODE = '23514';
-    END IF;
-
-    RETURN NEW;
-END $$;
-
-CREATE TRIGGER trg_plan_item_depends
-    BEFORE INSERT OR UPDATE OF depends_on_item_ids, plan_id ON core.candidate_plan_item
-    FOR EACH ROW EXECUTE FUNCTION core.check_plan_item_depends();
+CREATE INDEX ix_item_source_item ON core.candidate_plan_item_source (plan_item_id);
+CREATE INDEX ix_item_source_snapshot ON core.candidate_plan_item_source (snapshot_id);
 
 CREATE TABLE core.candidate_plan_decision (
     id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -135,6 +128,219 @@ CREATE TABLE core.candidate_plan_decision (
 
 COMMENT ON TABLE core.candidate_plan_decision IS
     '候选版本的终态决定；每个候选版本至多一条';
+
+CREATE TABLE core.task (
+    id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    matter_id             uuid NOT NULL,
+    plan_id               uuid NOT NULL,
+    plan_item_id          uuid NOT NULL,
+    executor_id           uuid NOT NULL,
+    title                 varchar(160) NOT NULL,
+    due_at                timestamptz,
+    official_deadline_date date,
+    official_deadline_at   timestamptz,
+    suggested_date         date,
+    status                core.task_status NOT NULL DEFAULT 'pending',
+    completion_evidence   text,
+    depends_on            uuid[],
+    created_at            timestamptz NOT NULL DEFAULT now(),
+    updated_at            timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT fk_task_matter FOREIGN KEY (matter_id)
+        REFERENCES core.matter (id) ON DELETE CASCADE,
+    CONSTRAINT fk_task_plan FOREIGN KEY (plan_id)
+        REFERENCES core.candidate_plan (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_task_plan_item FOREIGN KEY (plan_item_id)
+        REFERENCES core.candidate_plan_item (id) ON DELETE RESTRICT,
+    CONSTRAINT fk_task_executor FOREIGN KEY (executor_id)
+        REFERENCES core.app_user (id) ON DELETE RESTRICT,
+    CONSTRAINT uq_task_plan_item UNIQUE (plan_item_id),
+    CONSTRAINT ck_task_title CHECK (length(btrim(title)) > 0),
+    CONSTRAINT ck_task_done CHECK (
+        (status = 'done'
+            AND completion_evidence IS NOT NULL
+            AND length(btrim(completion_evidence)) > 0)
+        OR (status <> 'done' AND completion_evidence IS NULL)
+    ),
+    CONSTRAINT ck_task_depends CHECK (depends_on IS NULL OR cardinality(depends_on) <= 50)
+);
+
+COMMENT ON TABLE core.task IS
+    '用户确认后写入的正式任务；候选计划被拒绝时不产生任何行';
+COMMENT ON COLUMN core.task.plan_item_id IS
+    '来源候选条目，唯一；并发重试不会为同一条目创建第二个任务';
+COMMENT ON COLUMN core.task.official_deadline_date IS
+    '官方期限日期；date-only 期限只写此列';
+COMMENT ON COLUMN core.task.official_deadline_at IS
+    '官方期限时刻；来源给出具体时刻时填写';
+COMMENT ON COLUMN core.task.suggested_date IS
+    '个人建议准备日，与官方期限分列';
+
+CREATE INDEX ix_task_matter ON core.task (matter_id, status);
+CREATE INDEX ix_task_due ON core.task (due_at) WHERE status <> 'done';
+CREATE INDEX ix_task_plan ON core.task (plan_id);
+CREATE INDEX ix_task_depends ON core.task USING GIN (depends_on);
+
+CREATE TRIGGER trg_task_touch
+    BEFORE UPDATE ON core.task
+    FOR EACH ROW EXECUTE FUNCTION core.touch_updated_at();
+
+CREATE FUNCTION core.check_plan_item() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    plan_status   core.plan_status;
+    plan_matter   uuid;
+    req_matter    uuid;
+    invalid_id    uuid;
+    deleting_plan text := current_setting('app.deleting_plan', true);
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        SELECT status INTO plan_status
+          FROM core.candidate_plan
+         WHERE id = OLD.plan_id;
+
+        IF FOUND AND plan_status <> 'draft'
+           AND deleting_plan IS DISTINCT FROM OLD.plan_id::text THEN
+            RAISE EXCEPTION '计划已进入 %，候选计划项不可删除', plan_status
+                USING ERRCODE = '23514';
+        END IF;
+
+        IF EXISTS (
+            SELECT 1 FROM core.candidate_plan_item i
+             WHERE OLD.id = ANY (i.depends_on_item_ids)
+        ) THEN
+            RAISE EXCEPTION '候选计划项 % 仍被其他条目依赖', OLD.id
+                USING ERRCODE = '23514';
+        END IF;
+
+        RETURN OLD;
+    END IF;
+
+    SELECT status, matter_id INTO plan_status, plan_matter
+      FROM core.candidate_plan
+     WHERE id = NEW.plan_id;
+
+    IF NOT FOUND THEN
+        IF TG_OP = 'UPDATE' THEN
+            RETURN NEW;
+        END IF;
+        RAISE EXCEPTION '候选计划 % 不存在', NEW.plan_id
+            USING ERRCODE = '23503';
+    END IF;
+
+    IF plan_status <> 'draft' THEN
+        RAISE EXCEPTION '计划已进入 %，候选计划项不可修改', plan_status
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF NEW.requirement_id IS NOT NULL THEN
+        SELECT matter_id INTO req_matter
+          FROM core.requirement
+         WHERE id = NEW.requirement_id;
+
+        IF NOT FOUND THEN
+            RAISE EXCEPTION '要求 % 不存在', NEW.requirement_id
+                USING ERRCODE = '23503';
+        END IF;
+
+        IF req_matter IS DISTINCT FROM plan_matter THEN
+            RAISE EXCEPTION '要求 % 不属于事项 %', NEW.requirement_id, plan_matter
+                USING ERRCODE = '23514';
+        END IF;
+    END IF;
+
+    IF NEW.id = ANY (NEW.depends_on_item_ids) THEN
+        RAISE EXCEPTION '候选计划项 % 不能依赖自身', NEW.id
+            USING ERRCODE = '23514';
+    END IF;
+
+    SELECT d.id INTO invalid_id
+      FROM unnest(NEW.depends_on_item_ids) AS d(id)
+     WHERE NOT EXISTS (
+         SELECT 1 FROM core.candidate_plan_item i
+          WHERE i.id = d.id AND i.plan_id = NEW.plan_id
+     )
+     LIMIT 1;
+
+    IF FOUND THEN
+        RAISE EXCEPTION '候选计划项依赖 % 不在同一计划内', invalid_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    IF TG_OP = 'UPDATE' AND NEW.plan_id IS DISTINCT FROM OLD.plan_id THEN
+        IF EXISTS (
+            SELECT 1 FROM core.candidate_plan_item i
+             WHERE OLD.id = ANY (i.depends_on_item_ids)
+        ) THEN
+            RAISE EXCEPTION '候选计划项 % 仍被其他条目依赖，不能移动', OLD.id
+                USING ERRCODE = '23514';
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_plan_item_guard
+    BEFORE INSERT OR UPDATE OR DELETE ON core.candidate_plan_item
+    FOR EACH ROW EXECUTE FUNCTION core.check_plan_item();
+
+CREATE FUNCTION core.check_item_source() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    plan_status   core.plan_status;
+    item_plan     uuid;
+    snapshot_src  uuid;
+    deleting_plan text := current_setting('app.deleting_plan', true);
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        SELECT p.status, i.plan_id INTO plan_status, item_plan
+          FROM core.candidate_plan_item i
+          JOIN core.candidate_plan p ON p.id = i.plan_id
+         WHERE i.id = OLD.plan_item_id;
+
+        IF FOUND AND plan_status <> 'draft'
+           AND deleting_plan IS DISTINCT FROM item_plan::text THEN
+            RAISE EXCEPTION '计划已进入 %，计划项来源不可删除', plan_status
+                USING ERRCODE = '23514';
+        END IF;
+
+        RETURN OLD;
+    END IF;
+
+    SELECT p.status INTO plan_status
+      FROM core.candidate_plan_item i
+      JOIN core.candidate_plan p ON p.id = i.plan_id
+     WHERE i.id = NEW.plan_item_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION '候选计划项 % 不存在', NEW.plan_item_id
+            USING ERRCODE = '23503';
+    END IF;
+
+    IF plan_status <> 'draft' THEN
+        RAISE EXCEPTION '计划已进入 %，计划项来源不可修改', plan_status
+            USING ERRCODE = '23514';
+    END IF;
+
+    SELECT source_id INTO snapshot_src
+      FROM ops.snapshot
+     WHERE id = NEW.snapshot_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION '快照 % 不存在', NEW.snapshot_id
+            USING ERRCODE = '23503';
+    END IF;
+
+    IF snapshot_src IS DISTINCT FROM NEW.source_id THEN
+        RAISE EXCEPTION '来源 % 与快照 % 不一致', NEW.source_id, NEW.snapshot_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_item_source_guard
+    BEFORE INSERT OR UPDATE OR DELETE ON core.candidate_plan_item_source
+    FOR EACH ROW EXECUTE FUNCTION core.check_item_source();
 
 CREATE FUNCTION core.check_plan_decision() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -179,108 +385,111 @@ CREATE TRIGGER trg_plan_decision_guard
     BEFORE INSERT ON core.candidate_plan_decision
     FOR EACH ROW EXECUTE FUNCTION core.check_plan_decision();
 
-CREATE TABLE core.candidate_plan_item_source (
-    id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    plan_item_id uuid NOT NULL,
-    source_id    uuid NOT NULL,
-    snapshot_id  uuid NOT NULL,
-    locator_kind varchar(16) NOT NULL,
-    locator      varchar(300) NOT NULL,
-    quote        text,
-    CONSTRAINT fk_item_source_item FOREIGN KEY (plan_item_id)
-        REFERENCES core.candidate_plan_item (id) ON DELETE CASCADE,
-    CONSTRAINT fk_item_source_source FOREIGN KEY (source_id)
-        REFERENCES ops.source (id) ON DELETE RESTRICT,
-    CONSTRAINT fk_item_source_snapshot FOREIGN KEY (snapshot_id)
-        REFERENCES ops.snapshot (id) ON DELETE RESTRICT,
-    CONSTRAINT uq_item_source_locator UNIQUE (plan_item_id, snapshot_id, locator),
-    CONSTRAINT ck_item_source_locator_kind CHECK (
-        locator_kind IN ('text_span', 'page', 'table_row', 'section')
-    ),
-    CONSTRAINT ck_item_source_locator_text CHECK (length(btrim(locator)) > 0)
-);
-
-COMMENT ON TABLE core.candidate_plan_item_source IS
-    '候选计划项的来源定位；确认后任务经 plan_item_id 延续该证据链';
-
-CREATE INDEX ix_item_source_item ON core.candidate_plan_item_source (plan_item_id);
-CREATE INDEX ix_item_source_snapshot ON core.candidate_plan_item_source (snapshot_id);
-
-CREATE FUNCTION core.check_item_source_snapshot() RETURNS trigger
+CREATE FUNCTION core.reject_decision_change() RETURNS trigger
 LANGUAGE plpgsql AS $$
-DECLARE
-    snapshot_source uuid;
 BEGIN
-    SELECT source_id INTO snapshot_source
-      FROM ops.snapshot
-     WHERE id = NEW.snapshot_id;
-
-    IF NOT FOUND THEN
-        RAISE EXCEPTION '快照 % 不存在', NEW.snapshot_id
-            USING ERRCODE = '23503';
+    IF TG_OP = 'DELETE'
+       AND current_setting('app.deleting_plan', true) = OLD.plan_id::text THEN
+        RETURN OLD;
     END IF;
 
-    IF snapshot_source IS DISTINCT FROM NEW.source_id THEN
-        RAISE EXCEPTION '来源 % 与快照 % 不一致', NEW.source_id, NEW.snapshot_id
-            USING ERRCODE = '23514';
+    RAISE EXCEPTION '候选计划决定为终态记录，不可修改或删除'
+        USING ERRCODE = '23514';
+END $$;
+
+CREATE TRIGGER trg_plan_decision_immutable
+    BEFORE UPDATE OR DELETE ON core.candidate_plan_decision
+    FOR EACH ROW EXECUTE FUNCTION core.reject_decision_change();
+
+CREATE FUNCTION core.require_plan_decision() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    current_status core.plan_status;
+    current_op_id  uuid;
+BEGIN
+    SELECT status, op_id INTO current_status, current_op_id
+      FROM core.candidate_plan
+     WHERE id = NEW.id;
+
+    IF NOT FOUND THEN
+        RETURN NEW;
+    END IF;
+
+    IF current_status = 'confirmed' THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM core.candidate_plan_decision d
+             WHERE d.plan_id = NEW.id
+               AND d.decision = 'confirmed'
+               AND d.operation_id = current_op_id
+        ) THEN
+            RAISE EXCEPTION '候选计划 % 的确认终态缺少匹配决定', NEW.id
+                USING ERRCODE = '23514';
+        END IF;
+    ELSIF current_status = 'rejected' THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM core.candidate_plan_decision d
+             WHERE d.plan_id = NEW.id
+               AND d.decision = 'rejected'
+        ) THEN
+            RAISE EXCEPTION '候选计划 % 的拒绝终态缺少匹配决定', NEW.id
+                USING ERRCODE = '23514';
+        END IF;
+    ELSE
+        IF EXISTS (
+            SELECT 1 FROM core.candidate_plan_decision d WHERE d.plan_id = NEW.id
+        ) THEN
+            RAISE EXCEPTION '候选计划 % 未处于终态，但已存在决定', NEW.id
+                USING ERRCODE = '23514';
+        END IF;
     END IF;
 
     RETURN NEW;
 END $$;
 
-CREATE TRIGGER trg_item_source_snapshot
-    BEFORE INSERT OR UPDATE ON core.candidate_plan_item_source
-    FOR EACH ROW EXECUTE FUNCTION core.check_item_source_snapshot();
+CREATE CONSTRAINT TRIGGER trg_plan_decision_complete
+    AFTER INSERT OR UPDATE ON core.candidate_plan
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION core.require_plan_decision();
 
-CREATE TABLE core.task (
-    id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    matter_id             uuid NOT NULL,
-    plan_id               uuid,
-    plan_item_id          uuid,
-    executor_id           uuid NOT NULL,
-    title                 varchar(160) NOT NULL,
-    due_at                timestamptz,
-    official_deadline_date date,
-    official_deadline_at   timestamptz,
-    suggested_date         date,
-    status                core.task_status NOT NULL DEFAULT 'pending',
-    completion_evidence   text,
-    depends_on            uuid[],
-    created_at            timestamptz NOT NULL DEFAULT now(),
-    updated_at            timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT fk_task_matter FOREIGN KEY (matter_id)
-        REFERENCES core.matter (id) ON DELETE CASCADE,
-    CONSTRAINT fk_task_plan FOREIGN KEY (plan_id)
-        REFERENCES core.candidate_plan (id) ON DELETE SET NULL,
-    CONSTRAINT fk_task_plan_item FOREIGN KEY (plan_item_id)
-        REFERENCES core.candidate_plan_item (id) ON DELETE SET NULL,
-    CONSTRAINT fk_task_executor FOREIGN KEY (executor_id)
-        REFERENCES core.app_user (id) ON DELETE RESTRICT,
-    CONSTRAINT uq_task_plan_item UNIQUE (plan_item_id),
-    CONSTRAINT ck_task_title CHECK (length(btrim(title)) > 0),
-    CONSTRAINT ck_task_done CHECK ((status = 'done') = (completion_evidence IS NOT NULL)),
-    CONSTRAINT ck_task_depends CHECK (depends_on IS NULL OR cardinality(depends_on) <= 50)
-);
+CREATE FUNCTION core.check_actor_owner() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    actor_id  uuid;
+    matter_id uuid;
+    owner_id  uuid;
+BEGIN
+    IF TG_TABLE_NAME = 'candidate_plan' THEN
+        actor_id := NEW.confirmed_by;
+        matter_id := NEW.matter_id;
+    ELSE
+        actor_id := NEW.decided_by;
+        SELECT plan.matter_id INTO matter_id
+          FROM core.candidate_plan plan
+         WHERE plan.id = NEW.plan_id;
+    END IF;
 
-COMMENT ON TABLE core.task IS
-    '用户确认后写入的正式任务；候选计划被拒绝时不产生任何行';
-COMMENT ON COLUMN core.task.plan_item_id IS
-    '来源候选条目，唯一；并发重试不会为同一条目创建第二个任务';
-COMMENT ON COLUMN core.task.official_deadline_date IS
-    '官方期限日期；date-only 期限只写此列';
-COMMENT ON COLUMN core.task.official_deadline_at IS
-    '官方期限时刻；来源给出具体时刻时填写';
-COMMENT ON COLUMN core.task.suggested_date IS
-    '个人建议准备日，与官方期限分列';
+    IF actor_id IS NOT NULL THEN
+        SELECT w.owner_id INTO owner_id
+          FROM core.matter m
+          JOIN core.workspace w ON w.id = m.workspace_id
+         WHERE m.id = matter_id;
 
-CREATE INDEX ix_task_matter ON core.task (matter_id, status);
-CREATE INDEX ix_task_due ON core.task (due_at) WHERE status <> 'done';
-CREATE INDEX ix_task_plan ON core.task (plan_id);
-CREATE INDEX ix_task_depends ON core.task USING GIN (depends_on);
+        IF owner_id IS DISTINCT FROM actor_id THEN
+            RAISE EXCEPTION '操作用户 % 不是事项 % 的工作区所有者', actor_id, matter_id
+                USING ERRCODE = '23514';
+        END IF;
+    END IF;
 
-CREATE TRIGGER trg_task_touch
-    BEFORE UPDATE ON core.task
-    FOR EACH ROW EXECUTE FUNCTION core.touch_updated_at();
+    RETURN NEW;
+END $$;
+
+CREATE TRIGGER trg_plan_actor_owner
+    BEFORE INSERT OR UPDATE OF confirmed_by, matter_id ON core.candidate_plan
+    FOR EACH ROW EXECUTE FUNCTION core.check_actor_owner();
+
+CREATE TRIGGER trg_decision_actor_owner
+    BEFORE INSERT ON core.candidate_plan_decision
+    FOR EACH ROW EXECUTE FUNCTION core.check_actor_owner();
 
 CREATE FUNCTION core.check_task_links() RETURNS trigger
 LANGUAGE plpgsql AS $$
@@ -288,90 +497,61 @@ DECLARE
     plan_matter uuid;
     plan_status core.plan_status;
     item_plan   uuid;
+    owner_id    uuid;
+    relink      boolean := false;
 BEGIN
-    IF NEW.plan_item_id IS NOT NULL AND NEW.plan_id IS NULL THEN
-        RAISE EXCEPTION '任务引用了候选计划项 % 却没有 plan_id', NEW.plan_item_id
-            USING ERRCODE = '23514';
+    IF TG_OP = 'INSERT' THEN
+        relink := true;
+    ELSE
+        relink := NEW.matter_id IS DISTINCT FROM OLD.matter_id
+            OR NEW.plan_id IS DISTINCT FROM OLD.plan_id
+            OR NEW.plan_item_id IS DISTINCT FROM OLD.plan_item_id
+            OR NEW.executor_id IS DISTINCT FROM OLD.executor_id;
     END IF;
 
-    IF TG_OP = 'INSERT' THEN
-        IF NEW.plan_id IS NOT NULL THEN
-            SELECT matter_id, status INTO plan_matter, plan_status
-              FROM core.candidate_plan
-             WHERE id = NEW.plan_id;
+    IF relink THEN
+        SELECT matter_id, status INTO plan_matter, plan_status
+          FROM core.candidate_plan
+         WHERE id = NEW.plan_id;
 
-            IF NOT FOUND THEN
-                RAISE EXCEPTION '任务引用的候选计划 % 不存在', NEW.plan_id
-                    USING ERRCODE = '23503';
-            END IF;
-
-            IF plan_matter IS DISTINCT FROM NEW.matter_id THEN
-                RAISE EXCEPTION '任务事项 % 与候选计划事项 % 不一致',
-                    NEW.matter_id, plan_matter
-                    USING ERRCODE = '23514';
-            END IF;
-
-            IF plan_status <> 'confirmed' THEN
-                RAISE EXCEPTION '候选计划 % 未确认，不能写入正式任务', NEW.plan_id
-                    USING ERRCODE = '23514';
-            END IF;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION '任务引用的候选计划 % 不存在', NEW.plan_id
+                USING ERRCODE = '23503';
         END IF;
 
-        IF NEW.plan_item_id IS NOT NULL THEN
-            SELECT plan_id INTO item_plan
-              FROM core.candidate_plan_item
-             WHERE id = NEW.plan_item_id;
-
-            IF NOT FOUND THEN
-                RAISE EXCEPTION '任务引用的候选计划项 % 不存在', NEW.plan_item_id
-                    USING ERRCODE = '23503';
-            END IF;
-
-            IF item_plan IS DISTINCT FROM NEW.plan_id THEN
-                RAISE EXCEPTION '候选计划项 % 不属于计划 %', NEW.plan_item_id, NEW.plan_id
-                    USING ERRCODE = '23514';
-            END IF;
-        END IF;
-    ELSE
-        IF NEW.plan_id IS DISTINCT FROM OLD.plan_id AND NEW.plan_id IS NOT NULL THEN
-            SELECT matter_id, status INTO plan_matter, plan_status
-              FROM core.candidate_plan
-             WHERE id = NEW.plan_id;
-
-            IF NOT FOUND THEN
-                RAISE EXCEPTION '任务引用的候选计划 % 不存在', NEW.plan_id
-                    USING ERRCODE = '23503';
-            END IF;
-
-            IF plan_matter IS DISTINCT FROM NEW.matter_id THEN
-                RAISE EXCEPTION '任务事项 % 与候选计划事项 % 不一致',
-                    NEW.matter_id, plan_matter
-                    USING ERRCODE = '23514';
-            END IF;
-
-            IF plan_status <> 'confirmed' THEN
-                RAISE EXCEPTION '候选计划 % 未确认，不能写入正式任务', NEW.plan_id
-                    USING ERRCODE = '23514';
-            END IF;
+        IF plan_status <> 'confirmed' THEN
+            RAISE EXCEPTION '候选计划 % 未确认，不能写入正式任务', NEW.plan_id
+                USING ERRCODE = '23514';
         END IF;
 
-        IF NEW.plan_item_id IS DISTINCT FROM OLD.plan_item_id
-           AND NEW.plan_item_id IS NOT NULL
-           AND NEW.plan_id IS NOT NULL
-        THEN
-            SELECT plan_id INTO item_plan
-              FROM core.candidate_plan_item
-             WHERE id = NEW.plan_item_id;
+        IF plan_matter IS DISTINCT FROM NEW.matter_id THEN
+            RAISE EXCEPTION '任务事项 % 与候选计划事项 % 不一致',
+                NEW.matter_id, plan_matter
+                USING ERRCODE = '23514';
+        END IF;
 
-            IF NOT FOUND THEN
-                RAISE EXCEPTION '任务引用的候选计划项 % 不存在', NEW.plan_item_id
-                    USING ERRCODE = '23503';
-            END IF;
+        SELECT plan_id INTO item_plan
+          FROM core.candidate_plan_item
+         WHERE id = NEW.plan_item_id;
 
-            IF item_plan IS DISTINCT FROM NEW.plan_id THEN
-                RAISE EXCEPTION '候选计划项 % 不属于计划 %', NEW.plan_item_id, NEW.plan_id
-                    USING ERRCODE = '23514';
-            END IF;
+        IF NOT FOUND THEN
+            RAISE EXCEPTION '任务引用的候选计划项 % 不存在', NEW.plan_item_id
+                USING ERRCODE = '23503';
+        END IF;
+
+        IF item_plan IS DISTINCT FROM NEW.plan_id THEN
+            RAISE EXCEPTION '候选计划项 % 不属于计划 %', NEW.plan_item_id, NEW.plan_id
+                USING ERRCODE = '23514';
+        END IF;
+
+        SELECT w.owner_id INTO owner_id
+          FROM core.matter m
+          JOIN core.workspace w ON w.id = m.workspace_id
+         WHERE m.id = NEW.matter_id;
+
+        IF owner_id IS DISTINCT FROM NEW.executor_id THEN
+            RAISE EXCEPTION '执行人 % 不是事项 % 的工作区所有者', NEW.executor_id, NEW.matter_id
+                USING ERRCODE = '23514';
         END IF;
     END IF;
 
@@ -379,5 +559,67 @@ BEGIN
 END $$;
 
 CREATE TRIGGER trg_task_links
-    BEFORE INSERT OR UPDATE OF plan_id, plan_item_id, matter_id ON core.task
+    BEFORE INSERT OR UPDATE OF matter_id, plan_id, plan_item_id, executor_id ON core.task
     FOR EACH ROW EXECUTE FUNCTION core.check_task_links();
+
+CREATE FUNCTION core.require_task_dependencies() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    invalid_id uuid;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF EXISTS (
+            SELECT 1 FROM core.task
+             WHERE OLD.id = ANY (depends_on)
+        ) THEN
+            RAISE EXCEPTION '任务 % 仍被其他任务依赖', OLD.id
+                USING ERRCODE = '23514';
+        END IF;
+        RETURN OLD;
+    END IF;
+
+    IF NEW.depends_on IS NULL OR cardinality(NEW.depends_on) = 0 THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.id = ANY (NEW.depends_on) THEN
+        RAISE EXCEPTION '任务 % 不能依赖自身', NEW.id
+            USING ERRCODE = '23514';
+    END IF;
+
+    SELECT d.id INTO invalid_id
+      FROM unnest(NEW.depends_on) AS d(id)
+     WHERE NOT EXISTS (
+         SELECT 1 FROM core.task t
+          WHERE t.id = d.id AND t.matter_id = NEW.matter_id
+     )
+     LIMIT 1;
+
+    IF FOUND THEN
+        RAISE EXCEPTION '任务依赖 % 不在同一事项内', invalid_id
+            USING ERRCODE = '23514';
+    END IF;
+
+    RETURN NEW;
+END $$;
+
+CREATE CONSTRAINT TRIGGER trg_task_depends_check
+    AFTER INSERT OR UPDATE ON core.task
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION core.require_task_dependencies();
+
+CREATE CONSTRAINT TRIGGER trg_task_depends_delete
+    AFTER DELETE ON core.task
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION core.require_task_dependencies();
+
+CREATE FUNCTION core.mark_plan_deleting() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM set_config('app.deleting_plan', OLD.id::text, true);
+    RETURN OLD;
+END $$;
+
+CREATE TRIGGER trg_plan_deleting
+    BEFORE DELETE ON core.candidate_plan
+    FOR EACH ROW EXECUTE FUNCTION core.mark_plan_deleting();
