@@ -26,7 +26,7 @@ def create_app(
     session_factory = build_session_factory(engine)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         yield
         engine.dispose()
 

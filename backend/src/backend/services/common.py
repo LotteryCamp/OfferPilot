@@ -19,7 +19,7 @@ from backend.tables import matter, workspace
 
 
 @contextmanager
-def transaction(session: Session, settings: Settings) -> Generator[None, None, None]:
+def transaction(session: Session, settings: Settings) -> Generator[None]:
     with workspace_transaction(session, settings.demo_workspace_id):
         _ensure_demo_identity(session, settings)
         yield

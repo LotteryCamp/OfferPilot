@@ -65,28 +65,24 @@ def migration_files(directory: Path) -> list[Path]:
     for path in files:
         match = MIGRATION_RE.match(path.name)
         if not match:
-            raise SystemExit(
-                f"迁移文件名不符合 NNNN_snake_case.sql：{path.name}"
-            )
+            raise SystemExit(f"迁移文件名不符合 NNNN_snake_case.sql：{path.name}")
         version = match.group("version")
         if version in seen:
-            raise SystemExit(
-                f"迁移版本号重复：{seen[version].name} 与 {path.name}"
-            )
+            raise SystemExit(f"迁移版本号重复：{seen[version].name} 与 {path.name}")
         seen[version] = path
 
     versions = [int(MIGRATION_RE.match(path.name).group("version")) for path in files]
     for expected, actual in enumerate(versions, start=1):
         if actual != expected:
-            raise SystemExit(
-                f"迁移编号不连续：期望 {expected:04d}，实际 {actual:04d}"
-            )
+            raise SystemExit(f"迁移编号不连续：期望 {expected:04d}，实际 {actual:04d}")
     return files
 
 
 def schema_version_exists(conn: psycopg.Connection) -> bool:
     return bool(
-        conn.execute("SELECT to_regclass('ops.schema_version') IS NOT NULL").fetchone()[0]
+        conn.execute("SELECT to_regclass('ops.schema_version') IS NOT NULL").fetchone()[
+            0
+        ]
     )
 
 
@@ -120,10 +116,14 @@ def cmd_status(conn: psycopg.Connection, directory: Path) -> int:
         else:
             state = "APPLIED"
         print(f"{version:<8}{state:<12}{digest[:12]:<14}{path.name}")
-    unknown = sorted(set(applied) - {MIGRATION_RE.match(p.name).group("version") for p in files})
+    unknown = sorted(
+        set(applied) - {MIGRATION_RE.match(p.name).group("version") for p in files}
+    )
     for version in unknown:
         drifted = True
-        print(f"{version:<8}{'MISSING-FILE':<12}{applied[version][0][:12]:<14}(数据库有记录)")
+        print(
+            f"{version:<8}{'MISSING-FILE':<12}{applied[version][0][:12]:<14}(数据库有记录)"
+        )
     return 1 if drifted else 0
 
 
@@ -140,8 +140,7 @@ def cmd_migrate(conn: psycopg.Connection, directory: Path, dry_run: bool) -> int
         unknown = sorted(set(applied) - known)
         if unknown:
             print(
-                "错误：数据库已应用当前目录中不存在的迁移版本："
-                + ", ".join(unknown),
+                "错误：数据库已应用当前目录中不存在的迁移版本：" + ", ".join(unknown),
                 file=sys.stderr,
             )
             return 2

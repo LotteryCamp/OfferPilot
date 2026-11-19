@@ -146,7 +146,13 @@ class AlphaSchemaTest(unittest.TestCase):
             "INSERT INTO core.matter"
             " (id, workspace_id, type_code, template_version_id, goal, status, scope_year, scope_attrs)"
             " VALUES (%s, %s, 'pre_recommend', %s, %s, 'active', 2027, %s)",
-            (matter, ws, TEMPLATE_PRE, goal, '{"school": "示例大学", "program": "计算机"}'),
+            (
+                matter,
+                ws,
+                TEMPLATE_PRE,
+                goal,
+                '{"school": "示例大学", "program": "计算机"}',
+            ),
         )
 
     def make_source_chain(self) -> None:
@@ -309,7 +315,10 @@ class AlphaSchemaTest(unittest.TestCase):
         )
         self.assertEqual(
             {"pre_recommend", "competition"},
-            {row[0] for row in self.conn.execute("SELECT type_code FROM core.matter_type")},
+            {
+                row[0]
+                for row in self.conn.execute("SELECT type_code FROM core.matter_type")
+            },
         )
 
     def test_02_matter_persists_and_can_be_reread(self) -> None:
@@ -774,7 +783,12 @@ class AlphaSchemaTest(unittest.TestCase):
                 "INSERT INTO ops.evidence (source_id, snapshot_id, target_type, target_id,"
                 " locator_kind, locator, fetched_at)"
                 " VALUES (%s, %s, 'evaluation', %s, 'section', '第 1 节', %s)",
-                (source_2, snapshot_2, UUID("99999999-9999-7999-8999-999999999999"), FIXED_FETCHED),
+                (
+                    source_2,
+                    snapshot_2,
+                    UUID("99999999-9999-7999-8999-999999999999"),
+                    FIXED_FETCHED,
+                ),
             )
         self.conn.rollback()
 

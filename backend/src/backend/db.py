@@ -35,9 +35,7 @@ def get_session(request: Request) -> Iterator[Session]:
 
 
 @contextmanager
-def workspace_transaction(
-    session: Session, workspace_id: UUID
-) -> Generator[None, None, None]:
+def workspace_transaction(session: Session, workspace_id: UUID) -> Generator[None]:
     """Open a transaction scoped to the current workspace for row-level security."""
 
     with session.begin():

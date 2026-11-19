@@ -16,7 +16,7 @@ from backend.services.common import (
     serialize_matter_overview,
     transaction,
 )
-from backend.tables import matter, matter_type, v_matter_overview
+from backend.tables import matter, matter_type, template_version, v_matter_overview
 
 
 def create_matter(
@@ -41,13 +41,33 @@ def create_matter(
                 next_step="检查 type_code 后重试",
             )
 
+        template_row = session.execute(
+            select(template_version.c.id)
+            .where(
+                template_version.c.type_code == body.type_code,
+                template_version.c.status == "published",
+            )
+            .order_by(
+                template_version.c.published_at.desc().nulls_last(),
+                template_version.c.created_at.desc(),
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        if template_row is None:
+            raise ApiError(
+                409,
+                "template_version_missing",
+                "事项类型没有已发布的模板版本",
+                next_step="检查模板版本数据后重试",
+            )
+
         matter_id = uuid4()
         session.execute(
             insert(matter).values(
                 id=matter_id,
                 workspace_id=settings.demo_workspace_id,
                 type_code=body.type_code,
-                template_version_id=None,
+                template_version_id=template_row,
                 goal=body.goal,
                 status="draft",
                 scope_year=body.scope_year,

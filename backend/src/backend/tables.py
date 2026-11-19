@@ -139,13 +139,28 @@ matter_type = Table(
     schema="core",
 )
 
+template_version = Table(
+    "template_version",
+    metadata,
+    Column("id", UUID_TYPE, primary_key=True),
+    Column("type_code", String(32), nullable=False),
+    Column("version_no", String(32), nullable=False),
+    Column("stage_defs", JSONB, nullable=False),
+    Column("requirement_skeleton", JSONB, nullable=False),
+    Column("material_types", JSONB, nullable=False),
+    Column("status", String(16), nullable=False),
+    Column("published_at", TIMESTAMPTZ),
+    Column("created_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
 matter = Table(
     "matter",
     metadata,
     Column("id", UUID_TYPE, primary_key=True),
     Column("workspace_id", UUID_TYPE, nullable=False),
     Column("type_code", String(32), nullable=False),
-    Column("template_version_id", UUID_TYPE),
+    Column("template_version_id", UUID_TYPE, nullable=False),
     Column("goal", String(200), nullable=False),
     Column("status", matter_status, nullable=False),
     Column("scope_year", SmallInteger),

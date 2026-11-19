@@ -8,6 +8,7 @@ from uuid import UUID
 from backend.basis import build_basis_input, compute_basis_version
 
 MATTER_ID = UUID("00000000-0000-7000-8000-000000000003")
+TEMPLATE_ID = UUID("10000000-0000-7000-8000-000000000001")
 REQUIREMENT_ID = UUID("00000000-0000-7000-8000-000000000006")
 SOURCE_ID = UUID("00000000-0000-7000-8000-000000000004")
 SNAPSHOT_ID = UUID("00000000-0000-7000-8000-000000000005")
@@ -17,7 +18,7 @@ def _matter() -> dict:
     return {
         "id": MATTER_ID,
         "type_code": "pre_recommend",
-        "template_version_id": None,
+        "template_version_id": TEMPLATE_ID,
         "scope_year": 2027,
         "scope_attrs": {"college": "数学与统计学院", "school": "福州大学"},
         "updated_at": datetime(2026, 9, 8, 12, 0, tzinfo=UTC),
@@ -91,5 +92,5 @@ def test_basis_changes_when_source_status_changes() -> None:
         source_rows=[_source("withdrawn")],
     )
     assert compute_basis_version(active) != compute_basis_version(withdrawn)
-    assert active["matter"]["template_version_id"] is None
+    assert active["matter"]["template_version_id"] == str(TEMPLATE_ID)
     assert active["confirmed_facts"] == []

@@ -9,7 +9,7 @@ from typing import Any, Literal
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
 from backend.basis import compute_basis_version
@@ -27,7 +27,6 @@ from backend.tables import (
     candidate_plan_item,
     matter,
     task,
-    workspace,
 )
 
 DecisionValue = Literal["confirmed", "rejected"]
@@ -55,9 +54,11 @@ def decide_plan(
 ) -> DecisionResult:
     with transaction(session, settings):
         session.execute(
-            select(workspace.c.id)
-            .where(workspace.c.id == settings.demo_workspace_id)
-            .with_for_update()
+            select(
+                func.pg_advisory_xact_lock(
+                    func.hashtext(f"offerpilot:workspace:{settings.demo_workspace_id}")
+                )
+            )
         )
         plan_row = (
             session.execute(

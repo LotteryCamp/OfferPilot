@@ -9,10 +9,11 @@ from uuid import UUID
 
 import psycopg
 import pytest
+from fastapi.testclient import TestClient
+
 from backend.clock import Clock
 from backend.config import Settings
 from backend.main import create_app
-from fastapi.testclient import TestClient
 
 USER_ID = UUID("00000000-0000-7000-8000-000000000001")
 WORKSPACE_ID = UUID("00000000-0000-7000-8000-000000000002")

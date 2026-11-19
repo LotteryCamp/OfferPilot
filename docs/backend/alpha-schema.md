@@ -155,8 +155,8 @@ workspace_id = current_setting('app.current_workspace_id', true)::uuid
 ```
 
 会话变量未设置时策略不匹配任何行。应用使用非所有者角色连接；表所有者绕过 RLS。
-`source`、`snapshot`、`evidence` 为共享只读层，由角色授权控制写入。
-应用角色授权见 `backend/db/dev/roles.sql`：共享层只读，账户表不授予 `password_hash`。
+`source`、`snapshot`、`evidence` 为共享层。应用角色可登记来源、追加快照与证据，
+快照与证据写入后不可修改；账户表不授予 `password_hash`。
 
 Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS 是开发期防误查的纵深防御，
 共享应用角色仍可设置会话变量，不能独立承担多租户隔离。多账户上线前必须由认证层

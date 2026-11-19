@@ -219,8 +219,14 @@ def test_cross_workspace_matter_is_not_visible(
     admin.execute(
         """
         INSERT INTO core.matter
-            (id, workspace_id, type_code, goal, status, scope_year, scope_attrs)
-        VALUES (%s, %s, 'pre_recommend', '其他用户的事项', 'draft', 2027, '{}')
+            (id, workspace_id, type_code, template_version_id, goal, status,
+             scope_year, scope_attrs)
+        SELECT %s, %s, 'pre_recommend', template_version.id, '其他用户的事项',
+               'draft', 2027, '{}'
+        FROM core.template_version
+        WHERE type_code = 'pre_recommend' AND status = 'published'
+        ORDER BY published_at DESC
+        LIMIT 1
         """,
         (other_matter, other_workspace),
     )

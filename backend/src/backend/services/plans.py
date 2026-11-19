@@ -62,7 +62,7 @@ def create_plan(
                 id=plan_id,
                 matter_id=matter_id,
                 version_no=next_version,
-                status="pending",
+                status="draft",
                 basis_version="0" * 64,
                 basis_input={},
                 generated_at=now,
@@ -124,6 +124,7 @@ def create_plan(
             .values(
                 basis_version=compute_basis_version(basis_input),
                 basis_input=basis_input,
+                status="pending",
             )
         )
         return _plan_detail(session, plan_id, settings.demo_workspace_id)
