@@ -130,7 +130,9 @@ class StructuredModelAdapter:
         self.last_scope_summary: dict[str, Any] = {}
 
     @classmethod
-    def from_backend_adapter(cls, *, strategy_version: str = "alpha-1") -> StructuredModelAdapter:
+    def from_backend_adapter(
+        cls, *, strategy_version: str = "alpha-1"
+    ) -> StructuredModelAdapter:
         """Construct adapter using PR #38 backend.model_adapter.call_model."""
         try:
             module = importlib.import_module("backend.model_adapter")
@@ -147,7 +149,9 @@ class StructuredModelAdapter:
         sources: list[SourceDocument],
     ) -> list[ExtractedRequirement]:
         """Extract structured requirements from official sources via LLM."""
-        requirements, gaps, scope_summary = self.extract_requirements_with_metadata(goal, sources)
+        requirements, gaps, scope_summary = self.extract_requirements_with_metadata(
+            goal, sources
+        )
         self.last_gaps = gaps
         self.last_scope_summary = scope_summary
         return requirements
@@ -187,7 +191,9 @@ class StructuredModelAdapter:
         requirements: list[ExtractedRequirement] = []
 
         for draft in parsed.requirements:
-            citations = _validate_and_enrich_citations(draft.basis, valid_source_ids, sources_by_id)
+            citations = _validate_and_enrich_citations(
+                draft.basis, valid_source_ids, sources_by_id
+            )
             requirements.append(
                 ExtractedRequirement(
                     requirement_id=draft.requirement_id,
@@ -245,7 +251,9 @@ class StructuredModelAdapter:
         tasks: list[CandidateTask] = []
 
         for item in parsed.tasks:
-            citations = _validate_and_enrich_citations(item.basis, valid_source_ids, sources_by_id)
+            citations = _validate_and_enrich_citations(
+                item.basis, valid_source_ids, sources_by_id
+            )
             tasks.append(
                 CandidateTask(
                     task_id=item.task_id,
@@ -286,7 +294,9 @@ class StructuredModelAdapter:
         except ModelInvocationError:
             raise
         except TimeoutError as exc:
-            raise ModelInvocationError(AgentErrorCode.TIMEOUT, f"模型请求超时: {exc}") from exc
+            raise ModelInvocationError(
+                AgentErrorCode.TIMEOUT, f"模型请求超时: {exc}"
+            ) from exc
         except ValidationError as exc:
             raise ModelInvocationError(
                 AgentErrorCode.VALIDATION_FAILED, f"模型输出不符合结构契约: {exc}"
@@ -296,7 +306,9 @@ class StructuredModelAdapter:
             if raw_code == "TIMEOUT":
                 raise ModelInvocationError(AgentErrorCode.TIMEOUT, str(exc)) from exc
             if raw_code == "INVALID_RESPONSE":
-                raise ModelInvocationError(AgentErrorCode.VALIDATION_FAILED, str(exc)) from exc
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED, str(exc)
+                ) from exc
             raise ModelInvocationError(AgentErrorCode.MODEL_ERROR, str(exc)) from exc
 
 
@@ -318,12 +330,20 @@ def _validate_and_enrich_citations(
             )
         doc = sources_by_id[cite.source_version_id]
 
-        if cite.source_id is not None and doc.source_id is not None and cite.source_id != doc.source_id:
+        if (
+            cite.source_id is not None
+            and doc.source_id is not None
+            and cite.source_id != doc.source_id
+        ):
             raise ModelInvocationError(
                 AgentErrorCode.VALIDATION_FAILED,
                 f"引用 {cite.source_version_id} 的 source_id 与真实来源记录不一致",
             )
-        if cite.snapshot_id is not None and doc.snapshot_id is not None and cite.snapshot_id != doc.snapshot_id:
+        if (
+            cite.snapshot_id is not None
+            and doc.snapshot_id is not None
+            and cite.snapshot_id != doc.snapshot_id
+        ):
             raise ModelInvocationError(
                 AgentErrorCode.VALIDATION_FAILED,
                 f"引用 {cite.source_version_id} 的 snapshot_id 与真实来源记录不一致",
@@ -332,7 +352,9 @@ def _validate_and_enrich_citations(
         norm_locator = _normalize_ws(cite.locator)
         if doc.fragments:
             matching_frags = [
-                frag for frag in doc.fragments if _normalize_ws(frag.locator) == norm_locator
+                frag
+                for frag in doc.fragments
+                if _normalize_ws(frag.locator) == norm_locator
             ]
             if not matching_frags:
                 raise ModelInvocationError(
@@ -341,7 +363,9 @@ def _validate_and_enrich_citations(
                 )
             if cite.excerpt is not None:
                 norm_excerpt = _normalize_ws(cite.excerpt)
-                if not any(norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags):
+                if not any(
+                    norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags
+                ):
                     raise ModelInvocationError(
                         AgentErrorCode.VALIDATION_FAILED,
                         f"引用摘录与定位 '{cite.locator}' 对应的原文片段不符",

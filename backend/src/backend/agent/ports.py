@@ -54,11 +54,15 @@ class ModelAdapterPort(Protocol):
 class CandidatePersistencePort(Protocol):
     """Port for persisting, reading, and deciding candidate plans (PR #41)."""
 
-    def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def persist_requirements(
+        self, matter_id: str, payload: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Persist extracted requirements + evidence and return created records."""
         ...
 
-    def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def persist_candidate_plan(
+        self, matter_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         """Persist pending candidate plan + items + item sources and return plan detail."""
         ...
 
@@ -66,11 +70,15 @@ class CandidatePersistencePort(Protocol):
         """Fetch a persisted candidate plan detail by plan_id."""
         ...
 
-    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+    def confirm_candidate_plan(
+        self, plan_id: str, *, operation_id: str
+    ) -> dict[str, Any]:
         """Confirm a persisted candidate plan idempotently on the backend."""
         ...
 
-    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+    def reject_candidate_plan(
+        self, plan_id: str, *, operation_id: str
+    ) -> dict[str, Any]:
         """Reject a persisted candidate plan idempotently on the backend."""
         ...
 
@@ -78,11 +86,15 @@ class CandidatePersistencePort(Protocol):
 class WorkspaceBackendPort(Protocol):
     """Port for business service ownership, version, consent, and write checks (owned by 李义东)."""
 
-    def check_permission(self, user_id: str, matter_id: str, auth_level: AuthLevel) -> bool:
+    def check_permission(
+        self, user_id: str, matter_id: str, auth_level: AuthLevel
+    ) -> bool:
         """Verify user ownership of the matter and authorization for the requested tier."""
         ...
 
-    def has_valid_transfer_consent(self, user_id: str, matter_id: str, consent_id: str | None) -> bool:
+    def has_valid_transfer_consent(
+        self, user_id: str, matter_id: str, consent_id: str | None
+    ) -> bool:
         """Verify bound, non-revoked external model transfer consent."""
         ...
 

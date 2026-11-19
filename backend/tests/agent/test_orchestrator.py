@@ -54,7 +54,9 @@ class InMemoryModelAdapter:
         self._fail_on_plan = fail_on_plan
         self._cycle_plan = cycle_plan
 
-    def extract_requirements(self, goal: str, sources: list[SourceDocument]) -> list[ExtractedRequirement]:
+    def extract_requirements(
+        self, goal: str, sources: list[SourceDocument]
+    ) -> list[ExtractedRequirement]:
         return list(self._requirements)
 
     def generate_candidate_plan(
@@ -70,7 +72,11 @@ class InMemoryModelAdapter:
             CandidateTask(
                 task_id="t1",
                 title="准备个人陈述",
-                basis=[SourceCitation(source_version_id=sources[0].source_version_id, locator="第三条")],
+                basis=[
+                    SourceCitation(
+                        source_version_id=sources[0].source_version_id, locator="第三条"
+                    )
+                ],
                 obligation=ObligationType.OFFICIAL_REQUIRED,
                 depends_on=["t1"] if self._cycle_plan else [],
                 evidence_required="导出的 DOCX 副本",
@@ -86,15 +92,21 @@ class InMemoryModelAdapter:
 
 
 class InMemoryWorkspaceBackend:
-    def __init__(self, *, workspace_version: int = 1, consent_valid: bool = True) -> None:
+    def __init__(
+        self, *, workspace_version: int = 1, consent_valid: bool = True
+    ) -> None:
         self.workspace_version = workspace_version
         self.consent_valid = consent_valid
         self.records: list[ExecutionRecord] = []
 
-    def check_permission(self, user_id: str, matter_id: str, auth_level: AuthLevel) -> bool:
+    def check_permission(
+        self, user_id: str, matter_id: str, auth_level: AuthLevel
+    ) -> bool:
         return user_id == "u1" and matter_id == "m1"
 
-    def has_valid_transfer_consent(self, user_id: str, matter_id: str, consent_id: str | None) -> bool:
+    def has_valid_transfer_consent(
+        self, user_id: str, matter_id: str, consent_id: str | None
+    ) -> bool:
         return self.consent_valid and consent_id == "consent-1"
 
     def get_workspace_version(self, matter_id: str) -> int:
@@ -122,10 +134,14 @@ class InMemoryCandidatePersistence:
         self.fail_first_confirm_timeout = fail_first_confirm_timeout
         self._confirm_attempts = 0
 
-    def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def persist_requirements(
+        self, matter_id: str, payload: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         return [{"id": str(uuid4()), **item} for item in payload["requirements"]]
 
-    def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def persist_candidate_plan(
+        self, matter_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         plan_id = str(uuid4())
         plan = {
             "id": plan_id,
@@ -139,10 +155,14 @@ class InMemoryCandidatePersistence:
 
     def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
         if plan_id not in self.plans:
-            raise PersistenceApiError(404, "plan_not_found", error_code="plan_not_found")
+            raise PersistenceApiError(
+                404, "plan_not_found", error_code="plan_not_found"
+            )
         return self.plans[plan_id]
 
-    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+    def confirm_candidate_plan(
+        self, plan_id: str, *, operation_id: str
+    ) -> dict[str, Any]:
         self._confirm_attempts += 1
         if self.fail_first_confirm_timeout and self._confirm_attempts == 1:
             raise PersistenceApiError(
@@ -190,7 +210,9 @@ class InMemoryCandidatePersistence:
             "replayed": False,
         }
 
-    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+    def reject_candidate_plan(
+        self, plan_id: str, *, operation_id: str
+    ) -> dict[str, Any]:
         plan = self.plans[plan_id]
         if plan["status"] != "pending":
             raise PersistenceApiError(
@@ -258,13 +280,17 @@ def test_happy_path_waits_for_confirmation_then_writes_idempotently() -> None:
     assert start_res.persisted_plan_id is not None
     assert persistence.write_calls == 0
 
-    confirm_res = orch.confirm_plan(start_res.run_id, candidate_version=1, operation_id="op-001")
+    confirm_res = orch.confirm_plan(
+        start_res.run_id, candidate_version=1, operation_id="op-001"
+    )
     assert confirm_res.status == RunStatus.COMPLETED
     assert len(confirm_res.written_tasks) == 1
     assert persistence.write_calls == 1
 
     # Repeated confirmation returns same result without duplicating writes
-    replay_res = orch.confirm_plan(start_res.run_id, candidate_version=1, operation_id="op-001")
+    replay_res = orch.confirm_plan(
+        start_res.run_id, candidate_version=1, operation_id="op-001"
+    )
     assert replay_res.status == RunStatus.COMPLETED
     assert len(replay_res.written_tasks) == 1
     assert persistence.write_calls == 1
@@ -324,19 +350,25 @@ def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
     res = orch.start_run(ctx)
 
     # First confirm times out -> remains WAITING_CONFIRMATION so retry with same operation_id works
-    first_try = orch.confirm_plan(res.run_id, candidate_version=1, operation_id="op-retry-1")
+    first_try = orch.confirm_plan(
+        res.run_id, candidate_version=1, operation_id="op-retry-1"
+    )
     assert first_try.status == RunStatus.WAITING_CONFIRMATION
     assert first_try.error is not None
     assert first_try.error.code == AgentErrorCode.TIMEOUT
 
-    retry_ok = orch.confirm_plan(res.run_id, candidate_version=1, operation_id="op-retry-1")
+    retry_ok = orch.confirm_plan(
+        res.run_id, candidate_version=1, operation_id="op-retry-1"
+    )
     assert retry_ok.status == RunStatus.COMPLETED
     assert len(retry_ok.written_tasks) == 1
 
     # Version change before confirmation blocks stale write
     res_stale = orch.start_run(ctx)
     backend.workspace_version = 2
-    stale_res = orch.confirm_plan(res_stale.run_id, candidate_version=1, operation_id="op-stale-1")
+    stale_res = orch.confirm_plan(
+        res_stale.run_id, candidate_version=1, operation_id="op-stale-1"
+    )
     assert stale_res.status == RunStatus.FAILED
     assert stale_res.error is not None
     assert stale_res.error.code == AgentErrorCode.VERSION_CONFLICT
@@ -421,7 +453,9 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
         backend=backend_ok,
         persistence=InMemoryCandidatePersistence(),
     )
-    res_timeout = orch_timeout.start_run(ctx.model_copy(update={"model_transfer_consent_id": "consent-1"}))
+    res_timeout = orch_timeout.start_run(
+        ctx.model_copy(update={"model_transfer_consent_id": "consent-1"})
+    )
     assert res_timeout.status == RunStatus.FAILED
     assert res_timeout.error is not None
     assert res_timeout.error.code == AgentErrorCode.TIMEOUT
