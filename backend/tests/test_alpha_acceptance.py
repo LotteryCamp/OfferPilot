@@ -110,7 +110,7 @@ def test_acceptance_unknown_plan_returns_404(client: TestClient) -> None:
     response = client.get(f"/api/v1/candidate-plans/{uuid4()}")
     assert response.status_code == 404
     body = response.json()
-    assert "error" in body or "detail" in body
+    assert body["error"]["code"] == "plan_not_found"
 
 
 def test_acceptance_cross_workspace_matter_is_hidden(
@@ -133,7 +133,7 @@ def test_acceptance_cross_workspace_matter_is_hidden(
         "INSERT INTO core.workspace (id, owner_id) VALUES (%s, %s)",
         (other_workspace, other_user),
     )
-    admin.execute(
+    inserted = admin.execute(
         """
         INSERT INTO core.matter
             (id, workspace_id, type_code, template_version_id, goal, status,
@@ -144,9 +144,11 @@ def test_acceptance_cross_workspace_matter_is_hidden(
         WHERE type_code = 'pre_recommend' AND status = 'published'
         ORDER BY published_at DESC
         LIMIT 1
+        RETURNING id
         """,
         (other_matter, other_workspace),
     )
+    assert inserted.fetchone() is not None
 
     assert client.get(f"/api/v1/matters/{other_matter}").status_code == 404
     listed = client.get("/api/v1/matters").json()["matters"]

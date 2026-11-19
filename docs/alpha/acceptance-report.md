@@ -42,7 +42,7 @@ uv run pytest tests/test_alpha_acceptance.py -q
 | 3. Agent 生成带出处和缺口的候选计划 | 当前只验证 API 接受带 citation 的候选计划；Agent 生成见 PR #23 | 阻塞 |
 | 4. 确认候选计划后任务出现且可读取 | 主流程测试覆盖确认、幂等重放和任务读取 | 通过 |
 | 5. 拒绝候选计划不创建任务 | `test_acceptance_reject_does_not_create_tasks` | 通过 |
-| 6. 来源读取失败时显示失败/缺口 | 非法 URL 的 422 已覆盖；来源读取/UI 完整链路见 PR #37 与前端 PR | 部分：API 通过，UI 未测 |
+| 6. 来源读取失败时显示失败/缺口 | 非法 URL 的 422 只覆盖请求校验；来源读取失败路径尚未覆盖，UI 完整链路见 PR #37 与前端 PR | 部分：仅 URL 校验通过；来源读取失败未测 |
 | 缺字段 | `test_acceptance_missing_required_fields` | 通过 |
 | 非法来源 URL | `test_acceptance_invalid_source_url` | 通过 |
 | 未知计划 | `test_acceptance_unknown_plan_returns_404` | 通过 |
@@ -52,7 +52,7 @@ uv run pytest tests/test_alpha_acceptance.py -q
 
 - **Agent 候选计划生成**：PR #23 未合入；场景 3 未做完整链路验证。
 - **UI 冒烟（创建 → 工作区）**：前端 PR 尚未出现；当前只到 API 级验证，UI 标记未测。
-- **来源失败 UI**：后端失败路径通过；页面提示需等来源/前端模块合入后复测。
+- **来源读取失败**：非法 URL 只覆盖请求校验，fetch/read 失败路径未测；需等来源 #37 与前端模块合入后补测 API 和页面提示。
 
 ## 结论
 
