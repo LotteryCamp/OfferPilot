@@ -186,10 +186,10 @@ refs = build_fact_references(
 | :--- | :--- |
 | `source_id`、`url`、`publisher` | `ops.source.id/url/publisher` |
 | `snapshot_id`、`version_no`、`scope_year`、`fetched_at` | `ops.snapshot.id/version_no/scope_year/fetched_at` |
-| `basis`、`locator.kind`、`locator_text`、`quote`、`quote_hash` | `ops.evidence` 的证据四元组、`locator_kind`、`locator`、摘录与摘要 |
+| `basis`、`locator.kind`、`locator_text`、`quote`、`quote_hash` | `ops.evidence` 的证据四元组、定位类型、定位描述、摘录与摘要，由后端适配 |
 | `fact_id`、`fact_version`、`confirmed_at` | `core.fact.id/version_no/confirmed_at` |
 
-`origin` 和 `title` 为检索适配视图的字段，当前来源表没有对应列。业务对象的 `target_type`、`target_id` 由调用方写证据时提供。页面信息来自快照视图，数据库的写入、授权及并发版本检查由后端完成。
+`origin` 和 `title` 为检索适配视图的字段，当前来源表没有对应列。业务对象的 `target_type`、`target_id` 由调用方写证据时提供。`list_item` 是来源模块的 HTML 定位类型。后端适配时按应用库的定位类型约束处理，保留 `locator_text` 和原文摘录用于核对。页面信息来自快照视图，数据库的写入、授权及并发版本检查由后端完成。
 
 ## 5. 真实通知样例
 

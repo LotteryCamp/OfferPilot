@@ -332,7 +332,7 @@ CONSTRAINT uq_evidence_quad UNIQUE (snapshot_id, target_type, target_id, locator
 CONSTRAINT ck_evidence_target CHECK (target_type IN
         ('requirement','evaluation','material_version')),
 CONSTRAINT ck_evidence_locator CHECK (locator_kind IN
-        ('text_span','page','table_row','section','list_item')),
+        ('text_span','page','table_row','section')),
     CONSTRAINT fk_evidence_source_id FOREIGN KEY (source_id),
         REFERENCES ops.source (id) ON DELETE RESTRICT,
     CONSTRAINT fk_evidence_snapshot_id FOREIGN KEY (snapshot_id),
