@@ -1,0 +1,475 @@
+{
+  "fixture_version": "1.1.0",
+  "scope_resolution": "继承 source_id 的事项类型、学校、学院、入学年度、用途，再匹配本条 scope 的全部字段；数组表示任一。全包只覆盖所列局部条款。",
+  "rules": [
+    {
+      "requirement_id": "GR-01",
+      "title": "校内推荐资格的上位依据",
+      "source_id": "S4",
+      "scope": {
+        "stage": "推荐申请"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R02",
+        "DYH-R07",
+        "DYH-R15"
+      ],
+      "kind": "coverage_gap",
+      "parameters": {
+        "missing_documents": [
+          "校招考〔2026〕2号",
+          "福大招考〔2022〕5号"
+        ]
+      },
+      "basis": [
+        {
+          "source_version_id": "S4-1f66ecfcae3d",
+          "locator": "（3）推荐免试生的条件",
+          "excerpt": "等文件的规定执行",
+          "section_start": "（3）推荐免试生的条件",
+          "section_end": "（4）坚持",
+          "keywords": [
+            "校招考〔2026〕2号",
+            "福大招考〔2022〕5号"
+          ]
+        }
+      ],
+      "interpretation": "通知指向两份校级文件等依据。本样例仅核对该引用和材料条款，整套推荐资格保留证据缺口。"
+    },
+    {
+      "requirement_id": "GR-02",
+      "title": "向数统学院提交申请材料的截止时刻",
+      "source_id": "S4",
+      "scope": {
+        "stage": "推荐申请",
+        "application_choice": "本人申请推荐"
+      },
+      "domain_rules": [
+        "DYH-R03",
+        "DYH-R07",
+        "DYH-R11"
+      ],
+      "kind": "fixed_deadline",
+      "parameters": {
+        "event": "本人向学院提交申请材料",
+        "before": "2026-09-10T15:00:00+08:00",
+        "time_zone": "Asia/Shanghai",
+        "operator": "<",
+        "fact": "submitted_at"
+      },
+      "basis": [
+        {
+          "source_version_id": "S4-1f66ecfcae3d",
+          "locator": "（5）提交申请材料（首段）",
+          "excerpt": "15:00前提交",
+          "section_start": "（5）符合推荐条件的学生",
+          "section_end": "申请材料包括",
+          "keywords": [
+            "2026年9月10日下午15:00前"
+          ]
+        }
+      ],
+      "interpretation": "仅比较本人记录的提交时点。按原文“前”作严格早于比较，时区按福州当地民用时间解释。",
+      "fallback_basis": [
+        {
+          "source_version_id": "S4-A-4df7c36b3b32",
+          "locator": "（5）提交申请材料（首段）",
+          "excerpt": "15:00前提交",
+          "section_start": "（5）符合推荐条件的学生",
+          "section_end": "申请材料包括",
+          "keywords": [
+            "2026年9月10日下午15:00前"
+          ]
+        }
+      ]
+    },
+    {
+      "requirement_id": "GR-03",
+      "title": "成绩单纸质件和对应电子版",
+      "source_id": "S4",
+      "scope": {
+        "stage": "推荐申请",
+        "application_choice": "本人申请推荐"
+      },
+      "domain_rules": [
+        "DYH-R03",
+        "DYH-R10",
+        "DYH-R13"
+      ],
+      "kind": "materials",
+      "parameters": {
+        "required_facts": [
+          "paper_transcript",
+          "named_pdf"
+        ],
+        "fact_definitions": {
+          "paper_transcript": "教务自助打印的本科成绩单一份",
+          "named_pdf": "同一成绩单电子版，按通知的身份证号与姓名格式命名"
+        }
+      },
+      "basis": [
+        {
+          "source_version_id": "S4-1f66ecfcae3d",
+          "locator": "（5）申请材料清单，第3目",
+          "excerpt": "身份证号_姓名.pdf",
+          "section_start": "申请材料包括",
+          "section_end": "（6）参加",
+          "keywords": [
+            "本科成绩单1份",
+            "教务自助打印机",
+            "该成绩单电子版"
+          ]
+        }
+      ],
+      "interpretation": "仅核对成绩单这一项。样例仅保存备齐标志，不采集身份证号、姓名或文件。",
+      "fallback_basis": [
+        {
+          "source_version_id": "S4-A-4df7c36b3b32",
+          "locator": "（5）申请材料清单，第3目",
+          "excerpt": "身份证号_姓名.pdf",
+          "section_start": "申请材料包括",
+          "section_end": "（6）参加",
+          "keywords": [
+            "本科成绩单1份",
+            "教务自助打印机",
+            "该成绩单电子版"
+          ]
+        }
+      ]
+    },
+    {
+      "requirement_id": "GR-04",
+      "title": "预报名与教育部系统正式报名记录",
+      "source_id": "S5",
+      "scope": {
+        "stage": "正式报名",
+        "program_group": "普通推免",
+        "selection_route": "校内预报名后正式报名"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R11",
+        "DYH-R16"
+      ],
+      "kind": "materials",
+      "parameters": {
+        "required_facts": [
+          "university_preregistration_record",
+          "ministry_registration_record"
+        ],
+        "fact_definitions": {
+          "university_preregistration_record": "本人已记录完成福州大学校内预报名",
+          "ministry_registration_record": "本人已记录在教育部推免服务系统完成正式报名"
+        }
+      },
+      "basis": [
+        {
+          "source_version_id": "S5-7d3370f84872",
+          "locator": "一、申请、遴选原则、复试比例及录取办法 /（一）申请",
+          "excerpt": "完成正式报名",
+          "section_start": "（一）申请",
+          "section_end": "（二）遴选原则",
+          "keywords": [
+            "推免生预报名系统",
+            "推免服务系统",
+            "正式报名"
+          ]
+        }
+      ],
+      "interpretation": "适用于原文所述先校内预报名、再在教育部系统正式报名的流程。两段记录分别核对，缺哪一段就提示补哪一段。"
+    },
+    {
+      "requirement_id": "GR-05",
+      "title": "复试通知的24小时确认期限",
+      "source_id": "S5",
+      "scope": {
+        "stage": "复试通知确认",
+        "program_group": "普通推免",
+        "selection_route": "校内预报名并经复试拟录取"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R11",
+        "DYH-R12"
+      ],
+      "kind": "relative_deadline",
+      "parameters": {
+        "trigger": "教育部系统收到福大复试通知",
+        "duration_hours": 24,
+        "received_fact": "retest_received_at",
+        "action_fact": "retest_accepted_at",
+        "time_zone": "Asia/Shanghai"
+      },
+      "basis": [
+        {
+          "source_version_id": "S5-7d3370f84872",
+          "locator": "一、申请、遴选原则、复试比例及录取办法 /（四）录取办法 / 复试通知",
+          "excerpt": "复试通知的24小时内",
+          "section_start": "（四）录取办法",
+          "section_end": "二、复试形式及时间安排",
+          "keywords": [
+            "预报名并经复试后拟录取",
+            "在教育部系统上接收到我校复试通知的24小时内"
+          ]
+        }
+      ],
+      "interpretation": "从本人收到这类通知的时点起算。申请日、公告发布日和待录取通知均不能提供起点。"
+    },
+    {
+      "requirement_id": "GR-06",
+      "title": "待录取通知按其载明期限确认",
+      "source_id": "S5",
+      "scope": {
+        "stage": "待录取确认",
+        "program_group": "普通推免"
+      },
+      "domain_rules": [
+        "DYH-R03",
+        "DYH-R11",
+        "DYH-R12"
+      ],
+      "kind": "notice_deadline",
+      "parameters": {
+        "deadline_fact": "offer_notice_deadline",
+        "action_fact": "offer_accepted_at"
+      },
+      "basis": [
+        {
+          "source_version_id": "S5-7d3370f84872",
+          "locator": "一、申请、遴选原则、复试比例及录取办法 /（四）录取办法 / 待录取通知",
+          "excerpt": "规定时间内须予以确认接受",
+          "section_start": "（四）录取办法",
+          "section_end": "二、复试形式及时间安排",
+          "keywords": [
+            "收到“待录取通知”规定时间内"
+          ]
+        }
+      ],
+      "interpretation": "从本人收到的待录取通知取得期限；学院正文未在此处给出统一小时数。个人通知只作本事项事实。"
+    },
+    {
+      "requirement_id": "GR-07",
+      "title": "英语成绩四选一的数值条件",
+      "source_id": "S6",
+      "scope": {
+        "stage": "接收报名",
+        "degree": [
+          "硕士",
+          "本科直博"
+        ]
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R06",
+        "DYH-R07",
+        "DYH-R08"
+      ],
+      "kind": "any_minimum",
+      "parameters": {
+        "qualifier": "原则上",
+        "operator": ">=",
+        "minimum": {
+          "cet4": 500,
+          "cet6": 425,
+          "toefl": 80,
+          "ielts": 6
+        },
+        "units": {
+          "cet4": "分",
+          "cet6": "分",
+          "toefl": "分",
+          "ielts": "分"
+        }
+      },
+      "basis": [
+        {
+          "source_version_id": "S6-f69773299ea2",
+          "locator": "二、申请条件 / 第5项",
+          "excerpt": "原则上英语水平要求",
+          "section_start": "5.英语水平良好",
+          "section_end": "6.如申请本科直博",
+          "keywords": [
+            "CET-4≥500",
+            "CET-6≥425",
+            "TOEFL≥80",
+            "IELTS≥6.0",
+            "或者"
+          ]
+        }
+      ],
+      "interpretation": "任一项达标即可判断该数值分支。四项均已知且低于阈值时只说明此分支未达；其他可选成绩未知时提示补充。例外与录取结果由校方决定。"
+    },
+    {
+      "requirement_id": "GR-08",
+      "title": "东南大学本科直博专家推荐信",
+      "source_id": "S6",
+      "scope": {
+        "stage": "接收报名",
+        "degree": "本科直博"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R09",
+        "DYH-R10"
+      ],
+      "kind": "letters",
+      "parameters": {
+        "min_distinct": 2,
+        "accepted_ranks": [
+          "副教授",
+          "教授",
+          "相当职称"
+        ],
+        "checks": {
+          "discipline_related": true,
+          "proposed_supervisor": false,
+          "letter_present": true
+        },
+        "document_name": "推荐信"
+      },
+      "basis": [
+        {
+          "source_version_id": "S6-f69773299ea2",
+          "locator": "三、申请者报名 / 2.提交材料要求 / 材料表第9项",
+          "excerpt": "拟报考导师除外",
+          "section_start": "9.专家推荐信",
+          "section_end": "10.拟报考导师同意报名",
+          "keywords": [
+            "两位具有副教授及以上（或相当）职称",
+            "请两位专家各填一份"
+          ]
+        }
+      ],
+      "interpretation": "申请学科相关的两名合格专家各填一份，拟报考导师不计入。该材料项仅约束本科直博。"
+    },
+    {
+      "requirement_id": "GR-09",
+      "title": "东南大学本科直博导师同意证明",
+      "source_id": "S6",
+      "scope": {
+        "stage": "接收报名",
+        "degree": "本科直博"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R09",
+        "DYH-R10"
+      ],
+      "kind": "materials",
+      "parameters": {
+        "required_facts": [
+          "supervisor_consent_proof"
+        ],
+        "fact_definitions": {
+          "supervisor_consent_proof": "证明能辨明拟报考导师同意该考生报考其2027年秋季入学的全日制博士生"
+        }
+      },
+      "basis": [
+        {
+          "source_version_id": "S6-f69773299ea2",
+          "locator": "三、申请者报名 / 2.提交材料要求 / 材料表第10项",
+          "excerpt": "仅本科直博必须",
+          "section_start": "10.拟报考导师同意报名",
+          "section_end": "11.个人简历",
+          "keywords": [
+            "导师同意报名的证明材料",
+            "2027年秋季入学的全日制博士生",
+            "如不申请本科直博"
+          ]
+        }
+      ],
+      "interpretation": "核对同意证明。硕士路径跳过此材料；是否应提前联系导师须另有适用依据。"
+    },
+    {
+      "requirement_id": "GR-10",
+      "title": "经管学院目录中的理论经济学专业",
+      "source_id": "S5",
+      "scope": {
+        "stage": "专业选择",
+        "program_group": "普通推免",
+        "degree": "硕士",
+        "degree_type": "学术型",
+        "program_code": "020100"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R02",
+        "DYH-R03",
+        "DYH-R15"
+      ],
+      "kind": "catalog_row",
+      "parameters": {
+        "program_name": "理论经济学"
+      },
+      "basis": [
+        {
+          "source_version_id": "S5-7d3370f84872",
+          "locator": "文末附件1 / 招生专业目录入口",
+          "excerpt": "招生专业目录（含复试参考书目）",
+          "section_start": "附件1：",
+          "section_end": "附件2：",
+          "keywords": [
+            "2027年推荐免试研究生"
+          ]
+        },
+        {
+          "source_version_id": "S5-A1-ae3b0e07e67d",
+          "locator": "招生专业目录表 / 学术型硕士 / 020100 理论经济学",
+          "excerpt": "020100",
+          "section_start": "学术型硕士",
+          "section_end": "020200",
+          "keywords": [
+            "学术型硕士020100理论经济学"
+          ]
+        }
+      ],
+      "interpretation": "只核对这个专业代码在该类型目录中列出。关键附件缺失只阻塞目录判断，正文已有依据的报名步骤可继续。"
+    },
+    {
+      "requirement_id": "GR-11",
+      "title": "福州大学经管学院直博专家推荐书",
+      "source_id": "S5",
+      "scope": {
+        "stage": "资格审查",
+        "program_group": "普通推免",
+        "degree": "本科直博"
+      },
+      "domain_rules": [
+        "DYH-R01",
+        "DYH-R09",
+        "DYH-R10",
+        "DYH-R13"
+      ],
+      "kind": "letters",
+      "parameters": {
+        "min_distinct": 2,
+        "accepted_ranks": [
+          "教授",
+          "相当正高职称"
+        ],
+        "checks": {
+          "discipline_related": true,
+          "letter_present": true,
+          "hand_signed": true,
+          "unit_seal": true
+        },
+        "document_name": "推荐书"
+      },
+      "basis": [
+        {
+          "source_version_id": "S5-7d3370f84872",
+          "locator": "三、考生资格审查 /（一）直博增补材料 / 第7项",
+          "excerpt": "加盖专家所在单位公章",
+          "section_start": "7.至少两名所报考学科",
+          "section_end": "四、复试内容及安排",
+          "keywords": [
+            "教授（或相当专业技术职称的专家）",
+            "推荐人手写签名"
+          ]
+        }
+      ],
+      "interpretation": "至少两名报考学科专业领域内的教授或相当职称专家，推荐书须由推荐人手签并加盖专家所在单位公章。个人科研计划见同节第6项，另行准备。"
+    }
+  ]
+}
