@@ -13,12 +13,12 @@
 本接口覆盖 Alpha 核心演示的后端业务：
 
 - 创建个人事项，读取事项列表与事项详情。
-- 登记公开来源与快照，按事项读取来源链。
+- 读取公开 HTML 来源或登记调用方提供的正文与快照，按事项读取来源链。
 - 持久化候选要求、候选计划、计划项及计划项出处。
 - 读取候选计划，由用户确认或拒绝。
 - 确认后生成个人任务，读取任务及其来源定位。
 
-本模块不执行网络抓取。调用方提供来源 URL、正文、发布信息和原文片段，接口负责登记来源与快照。候选要求与候选计划由 Agent 生成后通过本接口持久化，接口本身不调用模型。
+来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划由 Agent 生成后通过本接口持久化，接口本身不调用模型。
 
 ## 2. 通用约定
 
@@ -96,15 +96,18 @@ Alpha 当前没有登录能力，接口使用固定演示身份：
 sequenceDiagram
     participant Client as 前端
     participant API as 业务 API
+    participant Web as 公开来源
     participant DB as PostgreSQL
 
     Client->>API: POST /matters
     API->>DB: 写入 core.matter
     API-->>Client: 事项
 
-    Client->>API: POST /matters/{id}/sources
+    Client->>API: POST /matters/{id}/sources/read
+    API->>Web: 读取公开 HTML
+    Web-->>API: HTML
     API->>DB: 写入 ops.source / ops.snapshot
-    API-->>Client: 来源与快照
+    API-->>Client: 来源、快照与 Agent 来源文档
 
     Client->>API: POST /matters/{id}/requirements
     API->>DB: 写入 core.requirement / ops.evidence
@@ -335,7 +338,65 @@ sequenceDiagram
 - `created.source` 与 `created.snapshot` 分别表示本次请求是否创建了新记录。
 - `title`、`published_date`、`content` 和 `fragments` 保存在快照的提取结果中。
 
-### 4.2 读取事项来源链
+### 4.2 读取并登记公开来源
+
+`POST /api/v1/matters/{matter_id}/sources/read`
+
+业务接口读取一份公开 HTML 页面，按 4.1 的规则登记来源与快照，并返回可直接交给 Agent 的来源文档。
+
+请求字段：
+
+| 字段 | 类型 | 必填 | 约束 |
+| :--- | :--- | :--- | :--- |
+| `url` | string | 是 | 公开 HTTP/HTTPS URL，最长 500 字符，不允许内嵌凭据 |
+| `publisher` | string | 是 | 1—160 字符 |
+| `scope` | string | 否 | 最长 200 字符 |
+| `scope_year` | integer | 是 | 2020—2100 |
+| `title` | string | 否 | 1—500 字符；省略时使用网页标题 |
+
+请求示例：
+
+```json
+{
+  "url": "https://math.fzu.edu.cn/info/1171/10393.htm",
+  "publisher": "福州大学数学与统计学院",
+  "scope_year": 2027,
+  "scope": "2027 届、本院、校内推免推荐"
+}
+```
+
+响应 `201`：
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `source`、`snapshot`、`created` | 与 4.1 登记来源的响应相同 |
+| `document` | Agent 来源文档，字段见下表 |
+
+`document` 字段：
+
+| 字段 | 说明 |
+| :--- | :--- |
+| `source_version_id`、`snapshot_id` | 登记后的快照标识，两值相同 |
+| `source_id` | 登记后的来源标识 |
+| `version_no` | 快照版本号 |
+| `title`、`publisher`、`url`、`year`、`scope`、`published_date` | 登记后的来源与快照元数据 |
+| `content` | 规范化正文 |
+| `content_hash` | 原始 HTML 响应的 SHA-256 |
+| `fetched_at` | 本次成功获取页面的时间 |
+| `source_status`、`auto_check_status`、`roi_status` | 来源状态 |
+| `is_repost`、`is_expired` | 由 `roi_status` 派生的标记 |
+| `fragments` | 原文片段，元素含 `locator_kind`、`locator`、`quote` |
+
+读取与登记规则：
+
+- 读取在数据库事务外执行。事项不存在或不属于当前工作区时先返回 `404 matter_not_found`，不发起读取。
+- 读取只接受 HTML 与 XHTML 响应，限制总耗时、响应大小和片段数量；每次跳转都重新解析并校验目的地址，只连接公网地址。
+- 成功后按 URL 与原始响应摘要登记来源和快照。同一 URL、同一响应的重复读取返回既有记录，`created` 均为 `false`。
+- `title`、`published_date`、`content` 和 `fragments` 来自实际响应；请求中的 `title` 覆盖网页标题。
+- 读取失败返回 `source_read_failed`，`details.code` 为来源读取错误码，`details.retryable` 表示是否可以重试。错误码为 `unsafe_url`、`invalid_request`、`network_error`、`http_error`、`unsupported_content_type`、`empty_content`、`response_too_large`、`too_many_fragments`、`decode_error`、`parse_error` 或 `incomplete_response`。
+- 网络不可达、响应不完整或来源返回 5xx 时返回 `502`；地址不合规、页面类型不符、正文为空或解析失败时返回 `422`。
+
+### 4.3 读取事项来源链
 
 `GET /api/v1/matters/{matter_id}/sources`
 
@@ -414,7 +475,7 @@ sequenceDiagram
 
 每个来源返回其全部快照版本，`is_current` 标识当前版本；要求嵌套在对应快照下，证据嵌套在要求下。候选要求没有独立的列表接口，读取入口为来源链。
 
-### 4.3 写入候选要求
+### 4.4 写入候选要求
 
 `POST /api/v1/matters/{matter_id}/requirements`
 
@@ -947,6 +1008,7 @@ sequenceDiagram
 | 422 | `unknown_matter_type` | 事项类型不存在或未启用 |
 | 422 | `unknown_snapshot` | 要求引用的快照不存在 |
 | 422 | `scope_year_mismatch` | 来源适用年度与事项年度不一致 |
+| 422 / 502 | `source_read_failed` | 公开来源读取失败；`details.code` 为读取错误码，`details.retryable` 表示是否可重试 |
 | 422 | `evidence_snapshot_mismatch` | 证据快照与要求快照不一致 |
 | 422 | `evidence_source_mismatch` | 证据来源与快照所属来源不一致 |
 | 422 | `unknown_requirement` | 计划项引用了不属于当前事项的要求 |
@@ -976,7 +1038,7 @@ sequenceDiagram
 
 - 无登录与账户切换，所有请求使用固定演示身份。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
-- 不执行网络抓取、模型调用、材料生成或外部提交。
+- 来源读取只访问公开 HTML 页面；不解析 PDF 与附件，不调用模型、不生成材料、不执行外部提交。
 - 不提供跨设备、多用户共享与权限管理。
 - 官方期限只按调用方提供的计划项字段判断；接口不推断未给出的时刻。
 

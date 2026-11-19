@@ -12,6 +12,7 @@ from backend.clock import Clock
 from backend.config import Settings
 from backend.db import get_session
 from backend.errors import ApiError
+from backend.services.sources import SourceReader, read_public_html
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -43,3 +44,10 @@ def idempotency_key(
 
 
 IdempotencyKeyDep = Annotated[UUID, Depends(idempotency_key)]
+
+
+def get_source_reader() -> SourceReader:
+    return read_public_html
+
+
+SourceReaderDep = Annotated[SourceReader, Depends(get_source_reader)]

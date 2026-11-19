@@ -9,6 +9,7 @@ from uuid import UUID
 
 import psycopg
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from backend.clock import Clock
@@ -87,9 +88,9 @@ def clock() -> MutableClock:
 
 
 @pytest.fixture()
-def client(
+def app(
     database_urls: tuple[str, str], admin: psycopg.Connection, clock: MutableClock
-) -> Iterator[TestClient]:
+) -> FastAPI:
     app_url, _ = database_urls
     settings = Settings(
         database_url=app_url,
@@ -97,6 +98,10 @@ def client(
         demo_workspace_id=WORKSPACE_ID,
         demo_timezone="Asia/Shanghai",
     )
-    app = create_app(settings, clock=clock)
+    return create_app(settings, clock=clock)
+
+
+@pytest.fixture()
+def client(app: FastAPI) -> Iterator[TestClient]:
     with TestClient(app) as test_client:
         yield test_client

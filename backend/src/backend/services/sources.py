@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -13,13 +14,20 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings
 from backend.errors import ApiError
-from backend.schemas import SourceCreate
+from backend.schemas import SourceCreate, SourceReadRequest
 from backend.services.common import (
     iso,
     json_object,
     require_matter,
     transaction,
     uuid_text,
+)
+from backend.sources import (
+    PublicSourceResult,
+    SourceReadError,
+    read_public_html,
+    source_document_from_registration,
+    source_registration_payload,
 )
 from backend.tables import (
     candidate_plan,
@@ -31,6 +39,21 @@ from backend.tables import (
     snapshot,
     source,
 )
+
+SourceReader = Callable[[dict[str, Any]], PublicSourceResult]
+
+_SOURCE_READ_MESSAGES = {
+    "unsafe_url": "来源地址不可公开读取",
+    "invalid_request": "来源读取请求不符合契约",
+    "network_error": "来源暂时无法访问",
+    "http_error": "来源返回了错误响应",
+    "unsupported_content_type": "来源不是可读取的 HTML 页面",
+    "empty_content": "来源页面没有可读取的正文",
+    "response_too_large": "来源页面超过读取大小限制",
+    "too_many_fragments": "来源页面段落数量超过读取限制",
+    "decode_error": "来源页面编码无法识别",
+    "parse_error": "来源页面无法解析",
+}
 
 
 def register_source(
@@ -250,6 +273,60 @@ def register_source(
                 "snapshot": snapshot_created,
             },
         }
+
+
+def read_and_register_source(
+    session: Session,
+    settings: Settings,
+    matter_id: UUID,
+    body: SourceReadRequest,
+    *,
+    now: datetime,
+    reader: SourceReader = read_public_html,
+) -> dict[str, Any]:
+    with transaction(session, settings):
+        require_matter(session, settings, matter_id)
+    try:
+        result = reader(
+            {
+                "url": str(body.url),
+                "publisher": body.publisher,
+                "scope_year": body.scope_year,
+                "scope": body.scope,
+                "title": body.title,
+                "matter_id": matter_id,
+            }
+        )
+    except SourceReadError as error:
+        raise _source_read_failure(error) from error
+    registration = register_source(
+        session,
+        settings,
+        matter_id,
+        SourceCreate.model_validate(source_registration_payload(result)),
+        now=now,
+    )
+    return {
+        **registration,
+        "document": source_document_from_registration(registration),
+    }
+
+
+def _source_read_failure(error: SourceReadError) -> ApiError:
+    upstream_failure = error.code in {"network_error", "incomplete_response"} or (
+        error.code == "http_error" and error.retryable
+    )
+    return ApiError(
+        502 if upstream_failure else 422,
+        "source_read_failed",
+        _SOURCE_READ_MESSAGES.get(error.code, "来源读取失败"),
+        next_step=(
+            "稍后重试；若持续失败请检查来源地址"
+            if error.retryable
+            else "核对来源地址或页面类型后重试"
+        ),
+        details={"code": error.code, "retryable": error.retryable},
+    )
 
 
 def list_matter_sources(

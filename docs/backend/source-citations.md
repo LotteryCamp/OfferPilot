@@ -41,13 +41,17 @@ except SourceReadError as error:
 
 ## 事项接入和引用
 
-1. 调用方用 `source_registration_payload(result)` 生成 [业务接口](https://github.com/LotteryCamp/OfferPilot/pull/41) `POST /api/v1/matters/{matter_id}/sources` 的请求体，并在路径传入已确认归属的事项 ID。业务接口校验事项归属并保存共享来源、快照和原文片段。来源标识、快照标识及版本号由登记接口返回。
-2. 登记成功后，用 `source_document_from_registration(response)` 将返回的 `source`、`snapshot` 转成 [Agent 输入](https://github.com/LotteryCamp/OfferPilot/pull/23)。转换保留登记返回的来源和快照 ID、版本、获取时间和原文片段。快照与来源不匹配或缺少出处信息时抛出 `invalid_registration` 错误。
-3. Agent 将生成的要求和出处交给同一事项的 `POST /api/v1/matters/{matter_id}/requirements`。业务接口通过要求与快照建立事项关联，要求保存后可用 `GET /api/v1/matters/{matter_id}/sources` 回看。读取成功和登记成功各有独立结果。
+1. 前端在已确认归属的事项下调用 [业务接口](api.md) `POST /api/v1/matters/{matter_id}/sources/read`，请求体包含 `url`、`publisher`、`scope_year` 和可选的 `scope`、`title`。业务接口读取公开 HTML 页面，保存共享来源、快照和原文片段，并返回 `source`、`snapshot`、`created` 与 `document`。
+2. `document` 是 Agent 输入，包含登记后的来源与快照标识、版本号、获取时间、来源状态和原文片段。Agent 用它生成要求与出处。
+3. Agent 将生成的要求和出处交给同一事项的 `POST /api/v1/matters/{matter_id}/requirements`。业务接口通过要求与快照建立事项关联，要求保存后可用 `GET /api/v1/matters/{matter_id}/sources` 回看。
+
+需要分别控制读取与登记两个阶段时，可以直接调用本模块：用 `source_registration_payload(result)` 生成 `POST /api/v1/matters/{matter_id}/sources` 的请求体，登记成功后用 `source_document_from_registration(response)` 生成 Agent 输入。登记返回的来源标识、快照标识和版本号优先于读取阶段的临时结果。
 
 ## 固定样例与复现
 
 Alpha 样例 `FX-S4-2027-FZU-MATH` 使用福州大学数学与统计学院发布的 2027 年推免工作方案。发布日为 2026 年 9 月 8 日，原文第（5）项包含提交截止时间和材料要求。本通知的提交期限为 2026 年 9 月 10 日，用于历史回放。测试使用真实网页快照及其抓取时间，核对来源字段、快照标识、第（5）项定位和失败反馈。
+
+接口联调由 `tests/test_api_flow.py` 中的 `test_read_public_source_registers_snapshot_for_citation` 覆盖：使用同一网页快照回放读取，经业务接口登记来源与快照，再用返回的片段写入要求并读取来源链。该测试需要 PostgreSQL 测试库。
 
 ```powershell
 uv run --locked pytest tests/test_public_source_reader.py -q
