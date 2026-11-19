@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -476,10 +477,12 @@ def _eval_any_minimum(
     qualifier = str(params.get("qualifier", "")).strip()
     qualifier_note = f"（规则限定：{qualifier}）" if qualifier else ""
 
+    invalid_fields: list[str] = []
     for key, threshold in minimum.items():
         val = confirmed_facts.get(key)
-        if isinstance(val, (int, float)) and not isinstance(val, bool):
-            met = float(val) >= float(threshold) if operator == ">=" else float(val) > float(threshold)
+        numeric_val = _parse_finite_float(val)
+        if numeric_val is not None:
+            met = numeric_val >= float(threshold) if operator == ">=" else numeric_val > float(threshold)
             if met:
                 return RequirementEvaluation(
                     requirement_id=req.requirement_id,
@@ -489,6 +492,8 @@ def _eval_any_minimum(
                     basis=req.basis,
                     scope=req.scope,
                 )
+        elif val is not None:
+            invalid_fields.append(key)
 
     missing = [k for k in minimum if confirmed_facts.get(k) is None]
     if missing:
@@ -498,6 +503,17 @@ def _eval_any_minimum(
             status=EvaluationStatus.MISSING_INFO,
             reason=f"尚无达标项，待补充其他可替代项：{', '.join(missing)}{qualifier_note}",
             missing_fields=missing,
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    if invalid_fields:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason=f"以下字段格式非有效数值，待核对：{', '.join(invalid_fields)}{qualifier_note}",
+            missing_fields=invalid_fields,
             basis=req.basis,
             scope=req.scope,
         )
@@ -732,9 +748,10 @@ def collect_source_gaps(
                 )
             )
         elif ev.status == EvaluationStatus.MISSING_INFO:
+            gap_type = "missing_personal_fact" if ev.missing_fields else "missing_basis"
             gaps.append(
                 SourceGap(
-                    gap_type="missing_basis",
+                    gap_type=gap_type,
                     description=f"{ev.title}：{ev.reason}",
                     source_version_id=ev.basis[0].source_version_id if ev.basis else None,
                     locator=ev.basis[0].locator if ev.basis else None,
@@ -756,6 +773,24 @@ def find_expired_plan_tasks(plan: CandidatePlan, now: datetime) -> list[str]:
         elif task.official_deadline_date is not None and task.official_deadline_date < now_shanghai.date():
             expired_ids.append(task.task_id)
     return expired_ids
+
+
+def _parse_finite_float(value: object) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        num = float(value)
+        return num if math.isfinite(num) else None
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return None
+        try:
+            num = float(stripped)
+        except ValueError:
+            return None
+        return num if math.isfinite(num) else None
+    return None
 
 
 def _parse_aware_datetime(value: object) -> datetime | None:

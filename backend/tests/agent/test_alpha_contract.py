@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from datetime import UTC, date, datetime
 from typing import Any
@@ -312,7 +313,7 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
     assert persistence.written_tasks == []
     assert result.persisted_plan_id is not None
     assert len(result.persisted_requirement_ids) == 2
-    assert any(g.gap_type == "missing_basis" for g in result.gaps)
+    assert any(g.gap_type == "missing_personal_fact" for g in result.gaps)
     assert result.candidate_plan is not None
 
     # A-10: timestamp vs date-only preservation
@@ -611,6 +612,29 @@ def test_pr24_domain_probe_fixes_and_p2_malformed_params() -> None:
     )
     assert ev_a14[0].status == EvaluationStatus.NOT_MATCHED
 
+    # Fixed deadline strict comparison
+    req_fixed = ExtractedRequirement(
+        requirement_id="GR-03B",
+        title="系统报名固定截止",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="S5-v1", locator="二、报名")],
+        official_deadline=datetime(2026, 9, 10, 15, 0, tzinfo=SHANGHAI),
+        rule_kind="fixed_deadline",
+        rule_parameters={"action_fact": "submitted_at"},
+    )
+    ev_fixed_ok, _ = evaluate_requirements(
+        [req_fixed],
+        sources,
+        {"submitted_at": "2026-09-10T14:59:00+08:00"},
+    )
+    assert ev_fixed_ok[0].status == EvaluationStatus.MATCHED
+    ev_fixed_late, _ = evaluate_requirements(
+        [req_fixed],
+        sources,
+        {"submitted_at": "2026-09-10T15:00:00+08:00"},
+    )
+    assert ev_fixed_late[0].status == EvaluationStatus.NOT_MATCHED
+
     # Issue 3 (A11 vs A28): attachment scope isolation
     req_reg = ExtractedRequirement(
         requirement_id="GR-04",
@@ -722,3 +746,80 @@ def test_source_bridges_and_pr41_contract_payloads() -> None:
     assert plan_payload["items"][0]["sources"][0]["locator_kind"] == "section"
     assert plan_payload["items"][0]["official_deadline_date"] == "2026-09-10"
     assert "所需证据：电子版PDF" in plan_payload["items"][0]["detail"]
+
+
+def test_bot_fixes_string_scores_multisnap_and_concurrent_adapter() -> None:
+    src_a = str(uuid4())
+    snap_a = str(uuid4())
+    src_b = str(uuid4())
+    snap_b = str(uuid4())
+    doc_a = SourceDocument(
+        source_version_id=snap_a,
+        source_id=src_a,
+        snapshot_id=snap_a,
+        title="英语要求A",
+        publisher="某校",
+        content="四级>=500",
+    )
+    doc_b = SourceDocument(
+        source_version_id=snap_b,
+        source_id=src_b,
+        snapshot_id=snap_b,
+        title="补充说明B",
+        publisher="某校",
+        content="补充材料说明",
+    )
+    sources_map = {snap_a: doc_a, snap_b: doc_b}
+
+    req_eng = ExtractedRequirement(
+        requirement_id="R-ENG",
+        title="英语四级要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[
+            SourceCitation(source_version_id=snap_a, locator="四级>=500"),
+            SourceCitation(source_version_id=snap_b, locator="补充材料说明"),
+        ],
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 500}, "operator": ">="},
+    )
+    # Numeric string score evaluates cleanly instead of failing as NOT_MATCHED
+    ev_str_ok, _ = evaluate_requirements([req_eng], sources_map, {"cet4": "500"})
+    assert ev_str_ok[0].status == EvaluationStatus.MATCHED
+
+    # Non-numeric string flags NEEDS_USER_REVIEW instead of NOT_MATCHED
+    ev_str_bad, _ = evaluate_requirements([req_eng], sources_map, {"cet4": "N/A"})
+    assert ev_str_bad[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+
+    # Multiple snapshots in requirement basis are all preserved in payload
+    batch = build_requirements_batch_payload([req_eng], ev_str_ok, sources_map)
+    evidence = batch["requirements"][0]["evidence"]
+    assert len(evidence) == 2
+    assert {e["snapshot_id"] for e in evidence} == {snap_a, snap_b}
+
+    # Concurrent calls to StructuredModelAdapter.extract_requirements_with_metadata stay isolated
+    def fake_model(instruction: str, user_text: str, response_model: type[Any]) -> Any:
+        payload = json.loads(user_text)
+        goal = payload["goal"]
+        snap = payload["sources"][0]["source_version_id"]
+        return response_model.model_validate(
+            {
+                "requirements": [
+                    {
+                        "requirement_id": f"req-{goal}",
+                        "title": f"要求-{goal}",
+                        "obligation": "官方必需",
+                        "basis": [{"source_version_id": snap, "locator": "四级>=500"}],
+                    }
+                ],
+                "gaps": [{"gap_type": "scope_unclear", "description": f"gap-{goal}"}],
+                "scope_summary": {"goal_tag": goal},
+            }
+        )
+
+    adapter = StructuredModelAdapter(fake_model)
+    _, gaps1, scope1 = adapter.extract_requirements_with_metadata("G1", [doc_a])
+    _, gaps2, scope2 = adapter.extract_requirements_with_metadata("G2", [doc_a])
+    assert gaps1[0].description == "gap-G1"
+    assert scope1 == {"goal_tag": "G1"}
+    assert gaps2[0].description == "gap-G2"
+    assert scope2 == {"goal_tag": "G2"}

@@ -133,8 +133,6 @@ def build_requirements_batch_payload(
             source_id, snapshot_id = _resolve_citation_uuids(cite, sources_by_id)
             if primary_snapshot_id is None:
                 primary_snapshot_id = snapshot_id
-            elif primary_snapshot_id != snapshot_id:
-                continue
             evidence_list.append(
                 {
                     "source_id": source_id,

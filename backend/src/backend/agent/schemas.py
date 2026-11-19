@@ -119,6 +119,7 @@ class SourceGap(BaseModel):
     gap_type: Literal[
         "missing_attachment",
         "missing_basis",
+        "missing_personal_fact",
         "repost_only",
         "expired_source",
         "scope_unclear",
@@ -275,6 +276,7 @@ class RunContext(BaseModel):
     scope_attrs: dict[str, Any] = Field(default_factory=dict)
     source_documents: list[SourceDocument] = Field(default_factory=list)
     as_of: datetime | None = None
+    operation_id: str | None = None
 
 
 class ExecutionRecord(BaseModel):

@@ -101,7 +101,7 @@ class ToolGateway:
             raise GatewayError(err)
 
         cache_key = (user_id, matter_id, tool_name, operation_id or "")
-        if is_write and operation_id is not None:
+        if operation_id is not None:
             existing_by_op = self._find_other_scope_collision(operation_id, cache_key)
             if existing_by_op is not None:
                 err = AgentError(
@@ -170,7 +170,7 @@ class ToolGateway:
             self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
             raise GatewayError(err) from exc
 
-        if is_write and operation_id is not None:
+        if operation_id is not None:
             self._idempotency_cache[cache_key] = _IdempotencyEntry(
                 input_binding=idempotency_binding,
                 result=result,
@@ -217,7 +217,13 @@ class ToolGateway:
             error=error,
             output_summary=summary or {},
         )
-        self._backend.record_execution(matter_id, record)
+        try:
+            self._backend.record_execution(matter_id, record)
+        except Exception as exc:  # noqa: BLE001
+            record.output_summary = {
+                **record.output_summary,
+                "audit_record_failed": str(exc),
+            }
         return record
 
 

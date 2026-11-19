@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -69,10 +70,32 @@ class AgentOrchestrator:
         self._gateway = gateway or ToolGateway(backend)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._checkpoints: dict[str, RunCheckpoint] = {}
+        self._run_idempotency: dict[tuple[str, str, str], AgentRunResult] = {}
+        self._persisted_req_cache: dict[tuple[str, str], tuple[list[str], dict[str, str]]] = {}
+        self._run_locks: dict[str, threading.Lock] = {}
+        self._locks_guard = threading.Lock()
 
-    def get_checkpoint(self, run_id: str) -> RunCheckpoint | None:
-        """Return saved in-memory checkpoint for an existing run."""
-        return self._checkpoints.get(run_id)
+    def _get_run_lock(self, run_id: str) -> threading.Lock:
+        with self._locks_guard:
+            lock = self._run_locks.get(run_id)
+            if lock is None:
+                lock = threading.Lock()
+                self._run_locks[run_id] = lock
+            return lock
+
+    def get_checkpoint(
+        self,
+        run_id: str,
+        *,
+        caller_user_id: str | None = None,
+    ) -> RunCheckpoint | None:
+        """Return saved in-memory checkpoint for an existing run owned by caller_user_id."""
+        cp = self._checkpoints.get(run_id)
+        if cp is None:
+            return None
+        if caller_user_id is not None and cp.user_id != caller_user_id:
+            return None
+        return cp
 
     def get_persisted_plan(self, plan_id: str) -> dict[str, Any]:
         """Read a persisted candidate plan directly from the backend persistence port."""
@@ -86,8 +109,16 @@ class AgentOrchestrator:
         Alpha normal path requires candidate persistence to succeed before returning WAITING_CONFIRMATION.
         Never creates formal tasks prior to user confirmation.
         """
+        if context.operation_id:
+            cached_result = self._run_idempotency.get(
+                (context.user_id, context.matter_id, context.operation_id)
+            )
+            if cached_result is not None:
+                return cached_result
+
         run_id = f"run-{uuid4().hex[:12]}"
         records = []
+        requires_transfer_consent = bool(context.confirmed_facts or context.scope_attrs)
 
         if self._persistence is None:
             err = AgentError(
@@ -136,16 +167,36 @@ class AgentOrchestrator:
                 records=records,
             )
 
+        extract_with_meta = getattr(self._model_adapter, "extract_requirements_with_metadata", None)
+        adapter_gaps: list[SourceGap] = []
+        adapter_scope: dict[str, Any] = {}
         try:
-            requirements, rec_ext = self._gateway.invoke(
-                tool_name="extract_requirements",
-                user_id=context.user_id,
-                matter_id=context.matter_id,
-                expected_workspace_version=context.workspace_version,
-                requires_transfer_consent=bool(context.confirmed_facts),
-                consent_id=context.model_transfer_consent_id,
-                fn=lambda: self._model_adapter.extract_requirements(context.goal, sources),
-            )
+            if callable(extract_with_meta):
+                (requirements, adapter_gaps, adapter_scope), rec_ext = self._gateway.invoke(
+                    tool_name="extract_requirements",
+                    user_id=context.user_id,
+                    matter_id=context.matter_id,
+                    expected_workspace_version=context.workspace_version,
+                    requires_transfer_consent=requires_transfer_consent,
+                    consent_id=context.model_transfer_consent_id,
+                    fn=lambda: extract_with_meta(context.goal, sources),
+                )
+            else:
+                requirements, rec_ext = self._gateway.invoke(
+                    tool_name="extract_requirements",
+                    user_id=context.user_id,
+                    matter_id=context.matter_id,
+                    expected_workspace_version=context.workspace_version,
+                    requires_transfer_consent=requires_transfer_consent,
+                    consent_id=context.model_transfer_consent_id,
+                    fn=lambda: self._model_adapter.extract_requirements(context.goal, sources),
+                )
+                raw_gaps = getattr(self._model_adapter, "last_gaps", None)
+                if isinstance(raw_gaps, list):
+                    adapter_gaps = [g for g in raw_gaps if isinstance(g, SourceGap)]
+                raw_scope = getattr(self._model_adapter, "last_scope_summary", None)
+                if isinstance(raw_scope, dict):
+                    adapter_scope = dict(raw_scope)
             records.append(rec_ext)
         except GatewayError as exc:
             return self._save_terminal_or_wait(
@@ -164,19 +215,16 @@ class AgentOrchestrator:
             context.confirmed_facts,
         )
         gaps = collect_source_gaps(sources, evaluations)
-        adapter_gaps = getattr(self._model_adapter, "last_gaps", None)
-        if isinstance(adapter_gaps, list):
-            for gap in adapter_gaps:
-                if isinstance(gap, SourceGap) and gap not in gaps:
-                    gaps.append(gap)
+        for gap in adapter_gaps:
+            if gap not in gaps:
+                gaps.append(gap)
 
         scope_summary: dict[str, Any] = {}
         if context.scope_year is not None:
             scope_summary["scope_year"] = context.scope_year
         if context.scope_attrs:
             scope_summary.update(context.scope_attrs)
-        adapter_scope = getattr(self._model_adapter, "last_scope_summary", None)
-        if isinstance(adapter_scope, dict):
+        if adapter_scope:
             scope_summary.update(adapter_scope)
 
         if not requirements:
@@ -203,7 +251,7 @@ class AgentOrchestrator:
                 user_id=context.user_id,
                 matter_id=context.matter_id,
                 expected_workspace_version=context.workspace_version,
-                requires_transfer_consent=bool(context.confirmed_facts),
+                requires_transfer_consent=requires_transfer_consent,
                 consent_id=context.model_transfer_consent_id,
                 fn=lambda: self._model_adapter.generate_candidate_plan(context, sources, evaluations),
             )
@@ -281,18 +329,25 @@ class AgentOrchestrator:
                 scope_summary=merged_scope,
             )
 
+        persist_op_id = f"{context.operation_id}:persist" if context.operation_id else None
+        persist_binding = f"persist:{context.matter_id}:{context.goal}:{context.workspace_version}"
         try:
             (persisted_req_ids, persisted_plan_id), rec_persist = self._gateway.invoke(
                 tool_name="persist_candidate_artifacts",
                 user_id=context.user_id,
                 matter_id=context.matter_id,
                 expected_workspace_version=context.workspace_version,
+                operation_id=persist_op_id,
+                idempotency_binding=persist_binding,
+                requires_transfer_consent=requires_transfer_consent,
+                consent_id=context.model_transfer_consent_id,
                 fn=lambda: self._persist_candidates(
                     context.matter_id,
                     requirements,
                     evaluations,
                     candidate_plan,
                     sources_by_id,
+                    operation_id=context.operation_id,
                 ),
             )
             records.append(rec_persist)
@@ -345,7 +400,7 @@ class AgentOrchestrator:
             execution_records=records,
         )
         self._checkpoints[run_id] = checkpoint
-        return AgentRunResult(
+        result = AgentRunResult(
             run_id=run_id,
             status=RunStatus.WAITING_CONFIRMATION,
             extracted_requirements=requirements,
@@ -357,6 +412,9 @@ class AgentOrchestrator:
             persisted_plan_id=persisted_plan_id,
             execution_records=records,
         )
+        if context.operation_id:
+            self._run_idempotency[(context.user_id, context.matter_id, context.operation_id)] = result
+        return result
 
     def confirm_plan(
         self,
@@ -374,6 +432,28 @@ class AgentOrchestrator:
         Supports recovery from persisted plan_id when in-memory checkpoint is absent.
         Retains WAITING_CONFIRMATION on uncertain timeouts so retries with the same operation_id succeed.
         """
+        with self._get_run_lock(run_id):
+            return self._confirm_plan_locked(
+                run_id=run_id,
+                candidate_version=candidate_version,
+                operation_id=operation_id,
+                plan_id=plan_id,
+                user_id=user_id,
+                matter_id=matter_id,
+                workspace_version=workspace_version,
+            )
+
+    def _confirm_plan_locked(
+        self,
+        *,
+        run_id: str,
+        candidate_version: int,
+        operation_id: str,
+        plan_id: str | None = None,
+        user_id: str | None = None,
+        matter_id: str | None = None,
+        workspace_version: int | None = None,
+    ) -> AgentRunResult:
         cp = self._resolve_or_recover_checkpoint(
             run_id=run_id,
             plan_id=plan_id,
@@ -385,6 +465,13 @@ class AgentOrchestrator:
             err = AgentError(
                 code=AgentErrorCode.VALIDATION_FAILED,
                 message="不存在可确认的持久化候选计划",
+            )
+            return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
+
+        if user_id is not None and cp.user_id != user_id:
+            err = AgentError(
+                code=AgentErrorCode.PERMISSION_DENIED,
+                message="无权操作其他用户的运行记录",
             )
             return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
@@ -408,6 +495,37 @@ class AgentOrchestrator:
             )
             cp.error = err
             return self._result_from_checkpoint(cp, error=err)
+
+        if cp.candidate_plan is not None:
+            expired_tasks = find_expired_plan_tasks(cp.candidate_plan, self._clock())
+            if expired_tasks:
+                err = AgentError(
+                    code=AgentErrorCode.DEADLINE_EXPIRED,
+                    message=f"候选任务 {', '.join(expired_tasks)} 的官方截止时间已过，无法确认创建正式任务",
+                )
+                cp.status = RunStatus.FAILED
+                cp.error = err
+                return self._result_from_checkpoint(cp, error=err)
+
+            critical_gaps = [
+                g for g in cp.gaps if g.gap_type in ("missing_basis", "repost_only", "expired_source", "read_failed")
+            ]
+            unusable_sources = [
+                s
+                for s in cp.sources
+                if s.source_status != "active"
+                or s.auto_check_status in ("failed", "conflict")
+                or s.is_repost
+                or s.is_expired
+                or s.roi_status in ("reposted", "expired", "ambiguous")
+            ]
+            if critical_gaps or unusable_sources:
+                err = AgentError(
+                    code=AgentErrorCode.VALIDATION_FAILED,
+                    message="候选计划存在未解决的关键来源缺口或不可用来源，请先核对来源后再确认",
+                )
+                cp.error = err
+                return self._result_from_checkpoint(cp, error=err)
 
         persistence = self._persistence
         assert persistence is not None
@@ -450,6 +568,26 @@ class AgentOrchestrator:
         workspace_version: int | None = None,
     ) -> AgentRunResult:
         """Persist candidate rejection on the backend without creating tasks or altering completed runs."""
+        with self._get_run_lock(run_id):
+            return self._reject_plan_locked(
+                run_id=run_id,
+                operation_id=operation_id,
+                plan_id=plan_id,
+                user_id=user_id,
+                matter_id=matter_id,
+                workspace_version=workspace_version,
+            )
+
+    def _reject_plan_locked(
+        self,
+        *,
+        run_id: str,
+        operation_id: str | None = None,
+        plan_id: str | None = None,
+        user_id: str | None = None,
+        matter_id: str | None = None,
+        workspace_version: int | None = None,
+    ) -> AgentRunResult:
         cp = self._resolve_or_recover_checkpoint(
             run_id=run_id,
             plan_id=plan_id,
@@ -459,6 +597,13 @@ class AgentOrchestrator:
         )
         if cp is None or cp.persisted_plan_id is None:
             err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行或持久化计划不存在")
+            return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
+
+        if user_id is not None and cp.user_id != user_id:
+            err = AgentError(
+                code=AgentErrorCode.PERMISSION_DENIED,
+                message="无权操作其他用户的运行记录",
+            )
             return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
         if cp.status == RunStatus.COMPLETED:
@@ -509,19 +654,32 @@ class AgentOrchestrator:
         cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="用户已拒绝候选计划，未创建正式任务")
         return self._result_from_checkpoint(cp)
 
-    def cancel_run(self, run_id: str) -> AgentRunResult:
+    def cancel_run(
+        self,
+        run_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> AgentRunResult:
         """Cancel an active or waiting run without masking already-written tasks."""
-        cp = self._checkpoints.get(run_id)
-        if cp is None:
-            err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行记录不存在")
-            return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
+        with self._get_run_lock(run_id):
+            cp = self._checkpoints.get(run_id)
+            if cp is None:
+                err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行记录不存在")
+                return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
-        if cp.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED):
+            if user_id is not None and cp.user_id != user_id:
+                err = AgentError(
+                    code=AgentErrorCode.PERMISSION_DENIED,
+                    message="无权操作其他用户的运行记录",
+                )
+                return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
+
+            if cp.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED):
+                return self._result_from_checkpoint(cp)
+
+            cp.status = RunStatus.CANCELLED
+            cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="运行已被用户取消")
             return self._result_from_checkpoint(cp)
-
-        cp.status = RunStatus.CANCELLED
-        cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="运行已被用户取消")
-        return self._result_from_checkpoint(cp)
 
     def _fetch_sources(self, context: RunContext) -> list[SourceDocument]:
         if context.scope_year is not None:
@@ -593,17 +751,25 @@ class AgentOrchestrator:
         evaluations: list[RequirementEvaluation],
         candidate_plan: CandidatePlan,
         sources_by_id: dict[str, SourceDocument],
+        *,
+        operation_id: str | None = None,
     ) -> tuple[list[str], str | None]:
         assert self._persistence is not None
-        req_payload = build_requirements_batch_payload(requirements, evaluations, sources_by_id)
-        created_reqs = self._persistence.persist_requirements(matter_id, req_payload)
-        req_id_map: dict[str, str] = {}
-        persisted_ids: list[str] = []
-        for req_obj, created in zip(requirements, created_reqs, strict=False):
-            created_id = created.get("id")
-            if isinstance(created_id, str) and created_id:
-                req_id_map[req_obj.requirement_id] = created_id
-                persisted_ids.append(created_id)
+        cache_key = (matter_id, operation_id) if operation_id else None
+        if cache_key is not None and cache_key in self._persisted_req_cache:
+            persisted_ids, req_id_map = self._persisted_req_cache[cache_key]
+        else:
+            req_payload = build_requirements_batch_payload(requirements, evaluations, sources_by_id)
+            created_reqs = self._persistence.persist_requirements(matter_id, req_payload)
+            req_id_map = {}
+            persisted_ids = []
+            for req_obj, created in zip(requirements, created_reqs, strict=False):
+                created_id = created.get("id")
+                if isinstance(created_id, str) and created_id:
+                    req_id_map[req_obj.requirement_id] = created_id
+                    persisted_ids.append(created_id)
+            if cache_key is not None:
+                self._persisted_req_cache[cache_key] = (persisted_ids, req_id_map)
 
         plan_payload = build_candidate_plan_create_payload(
             candidate_plan,

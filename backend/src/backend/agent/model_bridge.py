@@ -147,6 +147,17 @@ class StructuredModelAdapter:
         sources: list[SourceDocument],
     ) -> list[ExtractedRequirement]:
         """Extract structured requirements from official sources via LLM."""
+        requirements, gaps, scope_summary = self.extract_requirements_with_metadata(goal, sources)
+        self.last_gaps = gaps
+        self.last_scope_summary = scope_summary
+        return requirements
+
+    def extract_requirements_with_metadata(
+        self,
+        goal: str,
+        sources: list[SourceDocument],
+    ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
+        """Extract structured requirements, gaps, and scope summary per call without shared state."""
         payload_input = {
             "goal": goal,
             "strategy_version": self._strategy_version,
@@ -197,9 +208,7 @@ class StructuredModelAdapter:
                 )
             )
 
-        self.last_gaps = list(parsed.gaps)
-        self.last_scope_summary = dict(parsed.scope_summary)
-        return requirements
+        return requirements, list(parsed.gaps), dict(parsed.scope_summary)
 
     def generate_candidate_plan(
         self,
@@ -255,8 +264,6 @@ class StructuredModelAdapter:
             )
 
         snapshot_id = sources[0].snapshot_id or sources[0].source_version_id
-        merged_gaps = list(self.last_gaps) + [g for g in parsed.gaps if g not in self.last_gaps]
-        merged_scope = dict(self.last_scope_summary) | dict(parsed.scope_summary)
 
         return CandidatePlan(
             candidate_id=f"cand-{context.matter_id}",
@@ -264,8 +271,8 @@ class StructuredModelAdapter:
             candidate_version=1,
             input_snapshot_id=snapshot_id,
             tasks=tasks,
-            scope_summary=merged_scope,
-            gaps=merged_gaps,
+            scope_summary=dict(parsed.scope_summary),
+            gaps=list(parsed.gaps),
         )
 
     def _invoke_model[T: BaseModel](

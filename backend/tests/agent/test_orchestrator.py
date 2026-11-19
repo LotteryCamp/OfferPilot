@@ -481,3 +481,97 @@ def test_gateway_blocks_unlisted_tool_and_cross_scope_idempotency() -> None:
         raise AssertionError("Expected GatewayError")
     except GatewayError as exc:
         assert exc.error.code == AgentErrorCode.VALIDATION_FAILED
+
+
+def test_ownership_consent_retry_and_recorder_resilience() -> None:
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
+    orch = AgentOrchestrator(
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter([_sample_req()]),
+        backend=backend,
+        persistence=persistence,
+    )
+
+    # scope_attrs without confirmed_facts still requires transfer consent
+    no_consent_res = orch.start_run(
+        RunContext(
+            user_id="u1",
+            matter_id="m1",
+            goal="整理计划",
+            workspace_version=1,
+            scope_attrs={"school": "福州大学"},
+        )
+    )
+    assert no_consent_res.status == RunStatus.FAILED
+    assert no_consent_res.error is not None
+    assert no_consent_res.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
+
+    # Revoking consent after model call blocks saving candidate artifacts
+    class RevokingModelAdapter(InMemoryModelAdapter):
+        def generate_candidate_plan(self, context, sources, evaluations):
+            backend.consent_valid = False
+            return super().generate_candidate_plan(context, sources, evaluations)
+
+    orch_revoke = AgentOrchestrator(
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=RevokingModelAdapter([_sample_req()]),
+        backend=backend,
+        persistence=persistence,
+    )
+    revoked_res = orch_revoke.start_run(
+        RunContext(
+            user_id="u1",
+            matter_id="m1",
+            goal="整理计划",
+            workspace_version=1,
+            confirmed_facts={"major": "软件工程"},
+            model_transfer_consent_id="consent-1",
+        )
+    )
+    assert revoked_res.status == RunStatus.FAILED
+    assert revoked_res.error is not None
+    assert revoked_res.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
+
+    # Re-enable consent for ownership & run idempotency tests
+    backend.consent_valid = True
+    ctx_op = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理计划",
+        workspace_version=1,
+        confirmed_facts={"major": "软件工程"},
+        model_transfer_consent_id="consent-1",
+        operation_id="run-op-1",
+    )
+    r1 = orch.start_run(ctx_op)
+    r2 = orch.start_run(ctx_op)
+    assert r1.run_id == r2.run_id
+    assert r1.persisted_plan_id == r2.persisted_plan_id
+
+    # Caller ownership checks
+    assert orch.get_checkpoint(r1.run_id, caller_user_id="u2") is None
+    assert orch.get_checkpoint(r1.run_id, caller_user_id="u1") is not None
+    bad_confirm = orch.confirm_plan(
+        r1.run_id,
+        candidate_version=1,
+        operation_id="op-own-1",
+        user_id="u2",
+    )
+    assert bad_confirm.status == RunStatus.FAILED
+    assert bad_confirm.error is not None
+    assert bad_confirm.error.code == AgentErrorCode.PERMISSION_DENIED
+
+    # Recorder failure does not hide committed tasks
+    def failing_record_execution(matter_id: str, record: ExecutionRecord) -> None:
+        raise RuntimeError("audit db down")
+
+    backend.record_execution = failing_record_execution  # type: ignore[method-assign]
+    ok_confirm = orch.confirm_plan(
+        r1.run_id,
+        candidate_version=1,
+        operation_id="op-own-2",
+        user_id="u1",
+    )
+    assert ok_confirm.status == RunStatus.COMPLETED
+    assert len(ok_confirm.written_tasks) == 1
