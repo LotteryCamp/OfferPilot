@@ -14,6 +14,7 @@ import pytest
 
 from backend.sources import (
     PublicSourceRequest,
+    PublicSourceResult,
     SourceReadError,
     parse_public_html,
     read_public_html,
@@ -32,16 +33,18 @@ OWNER_MATTER = UUID("3e8d27b5-07d4-44ca-bae5-f2f4e57bf631")
 
 
 def request(**kwargs: object) -> PublicSourceRequest:
-    return PublicSourceRequest(
-        url=SOURCE_URL,
-        publisher="福州大学数学与统计学院",
-        scope_year=2027,
-        scope="2027 届、本院、校内推免推荐",
-        **kwargs,
+    return PublicSourceRequest.model_validate(
+        {
+            "url": SOURCE_URL,
+            "publisher": "福州大学数学与统计学院",
+            "scope_year": 2027,
+            "scope": "2027 届、本院、校内推免推荐",
+            **kwargs,
+        }
     )
 
 
-def parse_fixture(**kwargs: object):
+def parse_fixture(**kwargs: object) -> PublicSourceResult:
     return parse_public_html(
         gzip.decompress(HTML.read_bytes()),
         content_type="text/html; charset=UTF-8",
@@ -209,14 +212,16 @@ def test_registration_payload_contains_traceable_notice_fragments():
     assert "version_no" not in payload
     assert "source_id" not in payload
     assert "snapshot_id" not in payload
+    fragments = payload["fragments"]
+    content = payload["content"]
+    assert isinstance(fragments, list)
+    assert isinstance(content, str)
     excerpt = next(
-        fragment
-        for fragment in payload["fragments"]
-        if fragment["quote"].startswith("（5）")
+        fragment for fragment in fragments if fragment["quote"].startswith("（5）")
     )
     assert excerpt["locator_kind"] == "text_span"
     assert excerpt["locator"] == "第31段，字符[0:124]"
-    assert excerpt["quote"] in payload["content"]
+    assert excerpt["quote"] in content
 
 
 def registered_notice():
