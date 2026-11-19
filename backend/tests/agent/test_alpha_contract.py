@@ -855,8 +855,8 @@ def test_bot_fixes_string_scores_multisnap_and_concurrent_adapter() -> None:
     assert {e["snapshot_id"] for e in evidence} == {snap_a, snap_b}
 
     # Concurrent calls to StructuredModelAdapter.extract_requirements_with_metadata stay isolated
-    def fake_model(instruction: str, user_text: str, response_model: type[Any]) -> Any:
-        payload = json.loads(user_text)
+    def fake_model(instruction: str, text: str, response_model: type[Any]) -> Any:
+        payload = json.loads(text)
         goal = payload["goal"]
         snap = payload["sources"][0]["source_version_id"]
         return response_model.model_validate(
