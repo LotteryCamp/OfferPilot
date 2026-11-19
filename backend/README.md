@@ -2,7 +2,7 @@
 
 Alpha 核心演示的业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16。
 
-覆盖流程：创建个人事项、登记来源与快照、写入候选要求、持久化并读取候选计划、确认或拒绝候选计划、读取确认后生成的任务。
+覆盖流程：创建个人事项、读取或登记来源与快照、写入候选要求、持久化并读取候选计划、确认或拒绝候选计划、读取确认后生成的任务。
 
 接口说明见 [`docs/backend/api.md`](../docs/backend/api.md)。
 
@@ -109,6 +109,7 @@ uv run ty check src tests
 | `src/backend/tables.py` | Alpha schema 的 SQLAlchemy 表与视图映射 |
 | `src/backend/schemas.py` | 请求字段校验 |
 | `src/backend/basis.py` | 依据输入规范化与指纹 |
+| `src/backend/sources/` | 公开 HTML 来源读取、来源文档转换与命令行入口 |
 | `src/backend/services/` | 事项、来源、要求、计划、决定与任务业务 |
 | `src/backend/routers/` | HTTP 路由与依赖 |
 | `tests/` | 真实数据库集成测试 |
@@ -116,6 +117,6 @@ uv run ty check src tests
 ## 演示边界
 
 - 无登录与账户切换，所有请求使用固定演示身份。
-- 不执行网络抓取、模型调用、材料生成或外部提交。
+- 来源读取只访问公开 HTML 页面；不解析 PDF 与附件，不调用模型、不生成材料、不执行外部提交。
 - 不提供任务状态更新、事项归档或候选计划内容修改接口。
 - 数据隔离依赖工作区校验与行级安全，当前不提供多用户认证。

@@ -65,11 +65,7 @@ class SourceCreate(RequestModel):
     @field_validator("url")
     @classmethod
     def check_url(cls, value: HttpUrl) -> HttpUrl:
-        if value.username is not None or value.password is not None:
-            raise ValueError("URL credentials are not allowed")
-        if len(str(value)) > 500:
-            raise ValueError("URL exceeds 500 characters")
-        return value
+        return _check_public_url(value)
 
     @field_validator("content_hash")
     @classmethod
@@ -87,6 +83,27 @@ class SourceCreate(RequestModel):
         ):
             raise ValueError("valid_to must not be earlier than valid_from")
         return self
+
+
+class SourceReadRequest(RequestModel):
+    url: HttpUrl
+    publisher: str = Field(min_length=1, max_length=160)
+    scope: str | None = Field(default=None, max_length=200)
+    scope_year: int = Field(ge=2020, le=2100)
+    title: str | None = Field(default=None, min_length=1, max_length=500)
+
+    @field_validator("url")
+    @classmethod
+    def check_url(cls, value: HttpUrl) -> HttpUrl:
+        return _check_public_url(value)
+
+
+def _check_public_url(value: HttpUrl) -> HttpUrl:
+    if value.username is not None or value.password is not None:
+        raise ValueError("URL credentials are not allowed")
+    if len(str(value)) > 500:
+        raise ValueError("URL exceeds 500 characters")
+    return value
 
 
 class EvidenceInput(RequestModel):

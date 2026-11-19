@@ -1,0 +1,192 @@
+{
+  "fixture_version": "1.1.0",
+  "context_id": "FZU-REC",
+  "input_case_id": "A04",
+  "mode": "历史回放",
+  "as_of": "2026-09-09T09:00:00+08:00",
+  "scope_note": "案例仅处理本人当时的个人准备任务。9月10日15:00是学院材料提交界限，建议准备日来自个人计划。",
+  "inputs": {
+    "matter_id": "DEMO-FZU-MATH-2027",
+    "workspace_version": 1,
+    "confirmed_facts": {
+      "paper_transcript": true
+    },
+    "current_source_versions": [
+      "S4-1f66ecfcae3d"
+    ]
+  },
+  "trace": [
+    {
+      "task_id": "T-01",
+      "requirement_ids": [
+        "GR-02",
+        "GR-03"
+      ],
+      "input_case_ids": [
+        "A02",
+        "A04"
+      ],
+      "rationale": "学院第（5）项给出提交限时和成绩单清单。本人已有纸质件，候选只补其电子版。A02是期限边界对照，A04是生成候选的输入。"
+    }
+  ],
+  "candidate_plan": {
+    "candidate_id": "C-FZU-01",
+    "workspace_version": 1,
+    "candidate_version": 1,
+    "input_snapshot_id": "FZU-MATH-20260909-v1",
+    "tasks": [
+      {
+        "task_id": "T-01",
+        "title": "备齐与纸质成绩单对应的电子版，供本人提交",
+        "basis": [
+          {
+            "source_version_id": "S4-1f66ecfcae3d",
+            "locator": "（5）提交申请材料（首段）",
+            "excerpt": "15:00前提交"
+          },
+          {
+            "source_version_id": "S4-1f66ecfcae3d",
+            "locator": "（5）申请材料清单，第3目",
+            "excerpt": "身份证号_姓名.pdf"
+          }
+        ],
+        "obligation": "官方必需",
+        "official_deadline": "2026-09-10T15:00:00+08:00",
+        "suggested_date": "2026-09-09",
+        "depends_on": [],
+        "evidence_required": "已备与纸质件对应的PDF，文件名符合原文第（5）项清单第3目。验收使用布尔标志。"
+      }
+    ]
+  },
+  "decision_cases": [
+    {
+      "case_id": "P01",
+      "title": "仅查看候选",
+      "starting_formal_tasks": 0,
+      "steps": [
+        {
+          "action": "查看"
+        }
+      ],
+      "expected": {
+        "new_tasks_per_step": [
+          0
+        ],
+        "final_formal_tasks": 0,
+        "candidate_state": "待确认",
+        "confirmation_error": null
+      },
+      "interpretation": "候选可回看两处依据，正式任务列表为空。"
+    },
+    {
+      "case_id": "P02",
+      "title": "拒绝候选",
+      "starting_formal_tasks": 0,
+      "steps": [
+        {
+          "action": "拒绝"
+        }
+      ],
+      "expected": {
+        "new_tasks_per_step": [
+          0
+        ],
+        "final_formal_tasks": 0,
+        "candidate_state": "已拒绝",
+        "confirmation_error": null
+      },
+      "interpretation": "结束本次候选，个人任务数保持为零。"
+    },
+    {
+      "case_id": "P03",
+      "title": "首次确认",
+      "starting_formal_tasks": 0,
+      "steps": [
+        {
+          "action": "确认",
+          "operation_id": "demo-confirm-01"
+        }
+      ],
+      "expected": {
+        "new_tasks_per_step": [
+          1
+        ],
+        "final_formal_tasks": 1,
+        "candidate_state": "已确认",
+        "confirmation_error": null
+      },
+      "interpretation": "所有权、范围、来源与工作区版本有效时，写入个人准备任务一条。"
+    },
+    {
+      "case_id": "P04",
+      "title": "同一确认重试",
+      "starting_formal_tasks": 0,
+      "steps": [
+        {
+          "action": "确认",
+          "operation_id": "demo-confirm-01"
+        },
+        {
+          "action": "确认",
+          "operation_id": "demo-confirm-01"
+        }
+      ],
+      "expected": {
+        "new_tasks_per_step": [
+          1,
+          0
+        ],
+        "final_formal_tasks": 1,
+        "candidate_state": "已确认",
+        "confirmation_error": null
+      },
+      "interpretation": "同一操作返回首次写入结果，正式任务仍为一条。"
+    },
+    {
+      "case_id": "P05",
+      "title": "确认前依据已更新",
+      "starting_formal_tasks": 0,
+      "steps": [
+        {
+          "action": "来源换版",
+          "previous_source_version_id": "S4-1f66ecfcae3d",
+          "new_source_version_id": "S4-replay-revision-2"
+        },
+        {
+          "action": "确认",
+          "operation_id": "demo-confirm-01"
+        }
+      ],
+      "expected": {
+        "new_tasks_per_step": [
+          0,
+          0
+        ],
+        "final_formal_tasks": 0,
+        "candidate_state": "需重新生成",
+        "confirmation_error": "basis_changed"
+      },
+      "interpretation": "验收用新版本替换当前版本，候选保留原引用。同一确认操作由于依据已换版而被拒绝，重新生成后才能确认。"
+    },
+    {
+      "case_id": "P06",
+      "title": "在11月用已结束批次创建当期待办",
+      "starting_formal_tasks": 0,
+      "steps": [
+        {
+          "action": "切换到当前办理",
+          "as_of": "2026-11-18T08:00:00+08:00"
+        }
+      ],
+      "expected": {
+        "new_tasks_per_step": [
+          0
+        ],
+        "final_formal_tasks": 0,
+        "candidate_state": "仅供历史参考",
+        "confirmation_error": null
+      },
+      "interpretation": "保留历史演示和引用，查找新的适用通知。"
+    }
+  ]
+}

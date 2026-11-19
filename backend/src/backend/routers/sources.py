@@ -6,8 +6,8 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
-from backend.routers.deps import ClockDep, SessionDep, SettingsDep
-from backend.schemas import RequirementBatchCreate, SourceCreate
+from backend.routers.deps import ClockDep, SessionDep, SettingsDep, SourceReaderDep
+from backend.schemas import RequirementBatchCreate, SourceCreate, SourceReadRequest
 from backend.services import requirements as requirement_service
 from backend.services import sources as source_service
 
@@ -27,6 +27,28 @@ def register_source(
 ) -> dict:
     return source_service.register_source(
         session, settings, matter_id, body, now=clock.now()
+    )
+
+
+@router.post(
+    "/sources/read",
+    status_code=status.HTTP_201_CREATED,
+)
+def read_public_source(
+    matter_id: UUID,
+    body: SourceReadRequest,
+    session: SessionDep,
+    settings: SettingsDep,
+    clock: ClockDep,
+    reader: SourceReaderDep,
+) -> dict:
+    return source_service.read_and_register_source(
+        session,
+        settings,
+        matter_id,
+        body,
+        now=clock.now(),
+        reader=reader,
     )
 
 

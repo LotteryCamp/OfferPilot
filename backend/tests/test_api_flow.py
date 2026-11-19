@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+import gzip
+import json
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 from uuid import UUID
 
 import psycopg
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+
+from backend.routers.deps import get_source_reader
+from backend.sources import PublicSourceResult, parse_public_html
 
 FX_URL = "https://math.fzu.edu.cn/info/1171/10393.htm"
 FX_TEXT = (
@@ -16,6 +24,12 @@ FX_TEXT = (
     "承诺书，本人签字按手印）。"
 )
 FX_HASH = "34599dc85bf72ca19837918f55c7cd275b9505bde994bbbea898ac7fa7b3abea"
+
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sources"
+NOTICE_HTML = FIXTURES / "fzu_notice.html.gz"
+NOTICE_PROVENANCE = json.loads(
+    (FIXTURES / "fzu_notice_provenance.json").read_text(encoding="utf-8")
+)
 
 
 def test_create_and_read_matter(client: TestClient) -> None:
@@ -263,6 +277,134 @@ def test_source_registration_versions_snapshots(client: TestClient) -> None:
         for item in sources["sources"][0]["snapshots"]
     }
     assert versions == {1: False, 2: True}
+
+
+def _captured_notice_reader(request: dict[str, Any]) -> PublicSourceResult:
+    return parse_public_html(
+        gzip.decompress(NOTICE_HTML.read_bytes()),
+        content_type="text/html; charset=UTF-8",
+        final_url=str(request["url"]),
+        request=request,
+        fetched_at=datetime.fromisoformat(NOTICE_PROVENANCE["retrieved_at"]),
+    )
+
+
+def test_read_public_source_registers_snapshot_for_citation(
+    app: FastAPI, client: TestClient
+) -> None:
+    app.dependency_overrides[get_source_reader] = lambda: _captured_notice_reader
+    try:
+        matter_id = _create_matter(client)
+        request_body = {
+            "url": NOTICE_PROVENANCE["url"],
+            "publisher": "福州大学数学与统计学院",
+            "scope_year": 2027,
+            "scope": "2027 届、本院、校内推免推荐",
+        }
+        response = client.post(
+            f"/api/v1/matters/{matter_id}/sources/read", json=request_body
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["created"] == {"source": True, "snapshot": True}
+        assert body["source"]["url"] == NOTICE_PROVENANCE["url"]
+        assert (
+            body["snapshot"]["content_hash"]
+            == (NOTICE_PROVENANCE["fixture_html_sha256"])
+        )
+        assert body["snapshot"]["version_no"] == 1
+        assert body["snapshot"]["published_date"] == "2026-09-08"
+        assert body["snapshot"]["title"] == (
+            "福州大学数学与统计学院2027年推荐优秀应届本科毕业生免试攻读研究生的工作方案"
+            "-福州大学数学统计学院"
+        )
+        excerpt = next(
+            fragment
+            for fragment in body["snapshot"]["fragments"]
+            if fragment["quote"].startswith("（5）")
+        )
+        assert excerpt["locator_kind"] == "text_span"
+        assert excerpt["locator"] == "第31段，字符[0:124]"
+
+        document = body["document"]
+        assert document["source_id"] == body["source"]["id"]
+        assert document["snapshot_id"] == document["source_version_id"]
+        assert document["snapshot_id"] == body["snapshot"]["id"]
+        assert document["version_no"] == 1
+        assert document["fragments"] == body["snapshot"]["fragments"]
+        assert document["is_expired"] is False
+
+        replay = client.post(
+            f"/api/v1/matters/{matter_id}/sources/read", json=request_body
+        )
+        assert replay.status_code == 201, replay.text
+        assert replay.json()["created"] == {"source": False, "snapshot": False}
+        assert replay.json()["snapshot"]["id"] == body["snapshot"]["id"]
+
+        requirement = client.post(
+            f"/api/v1/matters/{matter_id}/requirements",
+            json={
+                "requirements": [
+                    {
+                        "field_key": "application.material",
+                        "label": "提交申请与材料",
+                        "obligation_nature": "required",
+                        "extract_status": "checked",
+                        "snapshot_id": body["snapshot"]["id"],
+                        "evidence": [
+                            {
+                                "source_id": body["source"]["id"],
+                                "snapshot_id": body["snapshot"]["id"],
+                                "locator_kind": excerpt["locator_kind"],
+                                "locator": excerpt["locator"],
+                                "quote": excerpt["quote"],
+                            }
+                        ],
+                    }
+                ]
+            },
+        )
+        assert requirement.status_code == 201, requirement.text
+
+        sources = client.get(f"/api/v1/matters/{matter_id}/sources").json()["sources"]
+        assert len(sources) == 1
+        assert (
+            sources[0]["snapshots"][0]["requirements"][0]["evidence"][0]["locator"]
+            == excerpt["locator"]
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_read_public_source_reports_unreadable_source(
+    client: TestClient,
+) -> None:
+    matter_id = _create_matter(client)
+    response = client.post(
+        f"/api/v1/matters/{matter_id}/sources/read",
+        json={
+            "url": "http://127.0.0.1/notice",
+            "publisher": "福州大学",
+            "scope_year": 2027,
+        },
+    )
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "source_read_failed"
+    assert error["details"] == {"code": "unsafe_url", "retryable": False}
+
+
+def test_read_public_source_requires_owned_matter(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/matters/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/sources/read",
+        json={
+            "url": NOTICE_PROVENANCE["url"],
+            "publisher": "福州大学数学与统计学院",
+            "scope_year": 2027,
+        },
+    )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "matter_not_found"
 
 
 def _create_matter(client: TestClient) -> str:
