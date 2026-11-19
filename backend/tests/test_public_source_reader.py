@@ -17,6 +17,8 @@ from backend.sources import (
     SourceReadError,
     parse_public_html,
     read_public_html,
+    source_document_from_registration,
+    source_registration_payload,
 )
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sources"
@@ -194,6 +196,81 @@ def test_real_notice_uses_locators_accepted_by_backend():
         "table_row",
         "text_span",
     }
+
+
+def test_registration_payload_contains_traceable_notice_fragments():
+    result = parse_fixture(matter_id=OWNER_MATTER)
+    payload = source_registration_payload(result)
+    assert payload["url"] == SOURCE_URL
+    assert payload["published_date"] == "2026-09-08"
+    assert payload["fetched_at"] == FETCHED_AT.isoformat()
+    assert payload["content_hash"] == PROVENANCE["fixture_html_sha256"]
+    assert "matter_id" not in payload
+    assert "version_no" not in payload
+    assert "source_id" not in payload
+    assert "snapshot_id" not in payload
+    excerpt = next(
+        fragment
+        for fragment in payload["fragments"]
+        if fragment["quote"].startswith("（5）")
+    )
+    assert excerpt["locator_kind"] == "text_span"
+    assert excerpt["locator"] == "第31段，字符[0:124]"
+    assert excerpt["quote"] in payload["content"]
+
+
+def registered_notice():
+    payload = source_registration_payload(parse_fixture())
+    source_id = "00000000-0000-7000-8000-000000000004"
+    return {
+        "source": {
+            "id": source_id,
+            "publisher": payload["publisher"],
+            "url": payload["url"],
+            "scope": payload["scope"],
+            "scope_year": 2027,
+            "status": "active",
+            "auto_check_status": "pending",
+            "roi_status": "expired",
+        },
+        "snapshot": {
+            "id": "00000000-0000-7000-8000-000000000005",
+            "source_id": source_id,
+            "version_no": 3,
+            "title": payload["title"],
+            "published_date": payload["published_date"],
+            "text": payload["content"],
+            "content_hash": payload["content_hash"],
+            "fetched_at": "2026-11-16T02:00:00+00:00",
+            "fragments": payload["fragments"],
+        },
+        "created": {"source": False, "snapshot": False},
+    }
+
+
+def test_agent_document_uses_registered_snapshot_identity_and_fragments():
+    response = registered_notice()
+    doc = source_document_from_registration(response)
+    snapshot = response["snapshot"]
+    assert doc["source_id"] == response["source"]["id"]
+    assert doc["snapshot_id"] == doc["source_version_id"] == snapshot["id"]
+    assert doc["snapshot_id"] != str(parse_fixture().snapshot_id)
+    assert doc["version_no"] == 3
+    assert doc["fetched_at"] == snapshot["fetched_at"]
+    assert doc["fragments"] == snapshot["fragments"]
+    assert doc["is_expired"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "bad_value"),
+    [("source_id", "00000000-0000-7000-8000-000000000006"), ("fragments", [])],
+)
+def test_agent_document_rejects_invalid_saved_evidence(field, bad_value):
+    response = registered_notice()
+    response["snapshot"][field] = bad_value
+    with pytest.raises(SourceReadError) as error:
+        source_document_from_registration(response)
+    assert error.value.code == "invalid_registration"
 
 
 @pytest.mark.parametrize(

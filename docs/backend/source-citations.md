@@ -10,7 +10,7 @@
 uv run --locked python -m backend.sources https://math.fzu.edu.cn/info/1171/10393.htm --publisher "福州大学数学与统计学院" --scope-year 2027 --scope "2027 届、本院、校内推免推荐"
 ```
 
-在后端代码中可以直接调用同一接口。如果调用方已经确认事项归属，可传入 `matter_id` 供后续关联。
+在后端代码中可以直接调用同一接口。
 
 ```python
 from backend.sources import SourceReadError, read_public_html
@@ -35,9 +35,15 @@ except SourceReadError as error:
 | `matter_id` | 调用方传入的事项标识 |
 | `normalized_text`、`fragments` | 规范化正文和按原文顺序整理的片段。每个片段含原文、结构化位置和可读位置 |
 
-定位使用现有证据类型中的 `section`、`text_span` 和 `table_row`。列表项按文本段编号，正文段编号包括列表项，章节标题和表格行使用各自的定位。后端接入时通过现有来源和快照流程登记版本号，按实际事项关联和授权保存出处。
+定位使用现有证据类型中的 `section`、`text_span` 和 `table_row`。列表项按文本段编号，章节标题和表格行使用各自的定位。
 
 读取只访问公开 HTTP/HTTPS 页面，校验每次跳转的目的地址，并限制总耗时和响应大小。地址不合规、网络失败、非 HTML、空正文或解析失败时，接口抛出 `SourceReadError`。命令行以非零状态退出，将错误码及是否可重试写入标准错误。
+
+## 事项接入和引用
+
+1. 调用方用 `source_registration_payload(result)` 生成 [业务接口](https://github.com/LotteryCamp/OfferPilot/pull/41) `POST /api/v1/matters/{matter_id}/sources` 的请求体，并在路径传入已确认归属的事项 ID。业务接口校验事项归属并保存共享来源、快照和原文片段。来源标识、快照标识及版本号由登记接口返回。
+2. 登记成功后，用 `source_document_from_registration(response)` 将返回的 `source`、`snapshot` 转成 [Agent 输入](https://github.com/LotteryCamp/OfferPilot/pull/23)。转换保留登记返回的来源和快照 ID、版本、获取时间和原文片段。快照与来源不匹配或缺少出处信息时抛出 `invalid_registration` 错误。
+3. Agent 将生成的要求和出处交给同一事项的 `POST /api/v1/matters/{matter_id}/requirements`。业务接口通过要求与快照建立事项关联，要求保存后可用 `GET /api/v1/matters/{matter_id}/sources` 回看。读取成功和登记成功各有独立结果。
 
 ## 固定样例与复现
 
