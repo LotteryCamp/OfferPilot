@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from backend.agent.schemas import (
     AuthLevel,
@@ -42,6 +42,18 @@ class ModelAdapterPort(Protocol):
         evaluations: list[RequirementEvaluation],
     ) -> CandidatePlan:
         """Generate a structured candidate plan without persisting any formal tasks."""
+        ...
+
+
+class CandidatePersistencePort(Protocol):
+    """Port for persisting candidate requirements and pending plans (PR #41)."""
+
+    def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Persist extracted requirements + evidence and return created records."""
+        ...
+
+    def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Persist pending candidate plan + items + item sources and return plan detail."""
         ...
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TypeVar, cast
 
+from backend.agent.model_bridge import ModelInvocationError
 from backend.agent.ports import WorkspaceBackendPort
 from backend.agent.schemas import (
     AgentError,
@@ -12,6 +13,7 @@ from backend.agent.schemas import (
     AuthLevel,
     ExecutionRecord,
 )
+from backend.agent.source_bridge import SourceReadUnavailableError
 
 T = TypeVar("T")
 
@@ -19,6 +21,7 @@ ALLOWED_TOOLS: dict[str, AuthLevel] = {
     "fetch_official_sources": AuthLevel.L0,
     "extract_requirements": AuthLevel.L0,
     "generate_candidate_plan": AuthLevel.L0,
+    "persist_candidate_artifacts": AuthLevel.L0,
     "write_personal_tasks": AuthLevel.L1,
 }
 
@@ -114,6 +117,18 @@ class ToolGateway:
             result = fn()
         except GatewayError:
             raise
+        except SourceReadUnavailableError as exc:
+            err = AgentError(
+                code=AgentErrorCode.SOURCE_UNAVAILABLE,
+                message=exc.message,
+                details={"source_error_code": exc.code},
+            )
+            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            raise GatewayError(err) from exc
+        except ModelInvocationError as exc:
+            err = AgentError(code=exc.code, message=exc.message)
+            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            raise GatewayError(err) from exc
         except TimeoutError as exc:
             err = AgentError(code=AgentErrorCode.TIMEOUT, message=f"工具 {tool_name} 执行超时: {exc}")
             self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
