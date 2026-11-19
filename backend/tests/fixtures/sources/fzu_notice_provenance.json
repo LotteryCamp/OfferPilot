@@ -1,0 +1,11 @@
+{
+  "fixture_id": "FX-S4-2027-FZU-MATH",
+  "url": "https://math.fzu.edu.cn/info/1171/10393.htm",
+  "retrieved_at": "2026-11-15T13:36:26.229467+00:00",
+  "http_status": 200,
+  "published_date": "2026-09-08",
+  "scope_year": 2027,
+  "fixture_html_sha256": "1f66ecfcae3d4a25ba99c3695aa672cea161b1b05e8cd5fcddd42aef96dccc6d",
+  "section": "第（5）项",
+  "scope_note": "使用已结束申请期的官方历史通知验证引用处理；适用年度2027独立于2026年的发布日期和获取日期。"
+}
