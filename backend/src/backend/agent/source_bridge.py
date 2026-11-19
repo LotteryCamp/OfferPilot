@@ -180,10 +180,10 @@ class PublicHtmlSourceReader:
         if self._read_fn is not None:
             return self._read_fn
         try:
-            module = importlib.import_module("offerpilot_citations.reader")
+            module = importlib.import_module("backend.sources.reader")
         except ImportError as exc:
             raise SourceReadUnavailableError(
                 "READER_UNAVAILABLE",
-                "未安装 offerpilot_citations 来源读取包，无法拉取在线页面",
+                "未找到 backend.sources.reader 来源读取模块，无法拉取在线页面",
             ) from exc
         return module.read_public_html
