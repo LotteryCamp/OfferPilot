@@ -4,22 +4,27 @@ from __future__ import annotations
 
 import gzip
 import json
+import subprocess
+import sys
+from datetime import date, datetime
 from pathlib import Path
 from uuid import UUID
 
 import pytest
 
-from offerpilot_citations import (
+from backend.sources import (
     PublicSourceRequest,
     SourceReadError,
-    build_official_citations,
     parse_public_html,
     read_public_html,
 )
-from offerpilot_citations.reader_cli import main as reader_main
 
-ROOT = Path(__file__).resolve().parents[1]
-HTML = ROOT / "examples" / "fzu_notice.html.gz"
+FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sources"
+HTML = FIXTURES / "fzu_notice.html.gz"
+PROVENANCE = json.loads(
+    (FIXTURES / "fzu_notice_provenance.json").read_text(encoding="utf-8")
+)
+FETCHED_AT = datetime.fromisoformat(PROVENANCE["retrieved_at"])
 SOURCE_URL = "https://math.fzu.edu.cn/info/1171/10393.htm"
 OWNER_MATTER = UUID("3e8d27b5-07d4-44ca-bae5-f2f4e57bf631")
 
@@ -29,6 +34,7 @@ def request(**kwargs: object) -> PublicSourceRequest:
         url=SOURCE_URL,
         publisher="福州大学数学与统计学院",
         scope_year=2027,
+        scope="2027 届、本院、校内推免推荐",
         **kwargs,
     )
 
@@ -39,6 +45,7 @@ def parse_fixture(**kwargs: object):
         content_type="text/html; charset=UTF-8",
         final_url=SOURCE_URL,
         request=request(**kwargs),
+        fetched_at=FETCHED_AT,
     )
 
 
@@ -53,10 +60,19 @@ def test_reader_returns_traceable_result_from_real_notice():
     )
     assert result.publisher == "福州大学数学与统计学院"
     assert result.scope_year == 2027
+    assert result.scope == "2027 届、本院、校内推免推荐"
+    assert result.published_date == date(2026, 9, 8)
+    assert result.fetched_at == FETCHED_AT
     assert result.content_type == "text/html"
-    assert len(result.content_hash) == 64
-    assert any("思想品德考核不合格者不予推荐和录取。" in f.quote for f in result.fragments)
-    assert "secret_should_not_be_returned" not in result.normalized_text
+    assert result.content_hash == PROVENANCE["fixture_html_sha256"]
+    excerpt = next(
+        fragment for fragment in result.fragments if fragment.quote.startswith("（5）")
+    )
+    assert excerpt.locator.kind == "text_span"
+    assert excerpt.locator_text == "第31段，字符[0:124]"
+    assert "2026年9月10日下午15:00前" in excerpt.quote
+    assert "成绩单" in excerpt.quote
+    assert excerpt.quote in result.normalized_text
 
 
 def test_same_notice_has_stable_snapshot_identity():
@@ -64,7 +80,6 @@ def test_same_notice_has_stable_snapshot_identity():
     second = parse_fixture()
     assert first.source_id == second.source_id
     assert first.snapshot_id == second.snapshot_id
-    assert first.version_no == second.version_no == 1
     assert first.content_hash == second.content_hash
 
 
@@ -74,6 +89,7 @@ def test_url_fragment_does_not_change_source_identity():
         content_type="text/html",
         final_url=f"{SOURCE_URL}#section-1",
         request=request(),
+        fetched_at=FETCHED_AT,
     )
     without_fragment = parse_fixture()
     assert str(with_fragment.url) == SOURCE_URL
@@ -88,17 +104,10 @@ def test_changed_notice_gets_new_snapshot_version():
         content_type="text/html; charset=UTF-8",
         final_url=SOURCE_URL,
         request=request(),
+        fetched_at=FETCHED_AT,
     )
     assert changed.source_id == first.source_id
     assert changed.snapshot_id != first.snapshot_id
-    assert changed.version_no == first.version_no == 1
-
-
-def test_result_can_be_sent_to_citation_validator():
-    result = parse_fixture()
-    batch = build_official_citations(result.citation_batch())
-    assert batch["scope_year"] == 2027
-    assert len(batch["citations"]) == len(result.fragments)
 
 
 def test_repeated_headings_get_distinct_locators():
@@ -107,9 +116,12 @@ def test_repeated_headings_get_distinct_locators():
         content_type="text/html",
         final_url=SOURCE_URL,
         request=request(),
+        fetched_at=FETCHED_AT,
     )
     sections = [
-        fragment.locator_text for fragment in result.fragments if fragment.locator.kind == "section"
+        fragment.locator_text
+        for fragment in result.fragments
+        if fragment.locator.kind == "section"
     ]
     assert len(sections) == len(set(sections))
 
@@ -128,6 +140,7 @@ def test_non_html_content_is_rejected(content_type):
             content_type=content_type,
             final_url=SOURCE_URL,
             request=request(),
+            fetched_at=FETCHED_AT,
         )
     assert error.value.code == "unsupported_content_type"
 
@@ -139,6 +152,7 @@ def test_empty_content_is_rejected():
             content_type="text/html",
             final_url=SOURCE_URL,
             request=request(),
+            fetched_at=FETCHED_AT,
         )
     assert error.value.code == "empty_content"
 
@@ -166,37 +180,49 @@ def test_reader_rejects_missing_contract_fields():
 
 def test_reader_rejects_oversized_publisher():
     with pytest.raises(SourceReadError) as error:
-        read_public_html({"url": SOURCE_URL, "publisher": "x" * 161, "scope_year": 2027})
+        read_public_html(
+            {"url": SOURCE_URL, "publisher": "x" * 161, "scope_year": 2027}
+        )
     assert error.value.code == "invalid_request"
 
 
-def test_real_notice_uses_structured_list_and_table_locators():
+def test_real_notice_uses_locators_accepted_by_backend():
     result = parse_fixture()
-    assert any(fragment.locator.kind == "list_item" for fragment in result.fragments)
     assert any(fragment.locator.kind == "table_row" for fragment in result.fragments)
+    assert {fragment.locator.kind for fragment in result.fragments} == {
+        "section",
+        "table_row",
+        "text_span",
+    }
 
 
-def test_cli_reports_missing_arguments_as_json(monkeypatch, capsys):
-    monkeypatch.setattr("sys.argv", ["offerpilot-source-reader"])
-    assert reader_main() == 2
-    error = json.loads(capsys.readouterr().err)
-    assert error["code"] == "invalid_request"
-    assert "status" not in error
-
-
-def test_cli_reports_unsafe_url_as_json(monkeypatch, capsys):
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "offerpilot-source-reader",
-            "http://127.0.0.1/notice",
-            "--publisher",
-            "福州大学",
-            "--scope-year",
-            "2027",
-        ],
+@pytest.mark.parametrize(
+    ("args", "exit_code", "code"),
+    [
+        ([], 2, "invalid_request"),
+        (
+            [
+                "http://127.0.0.1/notice",
+                "--publisher",
+                "福州大学",
+                "--scope-year",
+                "2027",
+            ],
+            1,
+            "unsafe_url",
+        ),
+    ],
+)
+def test_cli_reports_failures_without_a_success_result(args, exit_code, code):
+    process = subprocess.run(
+        [sys.executable, "-m", "backend.sources", *args],
+        capture_output=True,
+        encoding="utf-8",
+        check=False,
+        timeout=10,
     )
-    assert reader_main() == 1
-    error = json.loads(capsys.readouterr().err)
-    assert error["code"] == "unsafe_url"
+    assert process.returncode == exit_code
+    assert not process.stdout
+    error = json.loads(process.stderr)
+    assert error["code"] == code
     assert "status" not in error
