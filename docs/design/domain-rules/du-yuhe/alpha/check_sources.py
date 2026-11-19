@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import multiprocessing
 import re
 import ssl
-import subprocess
 import sys
 import time
 import unicodedata
@@ -13,6 +13,8 @@ from datetime import datetime, timedelta, timezone
 from http.client import HTTPException
 from html.parser import HTMLParser
 from io import BytesIO
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener, getproxies_environment
@@ -119,48 +121,57 @@ def download_once(source_id):
     return raw
 
 
-def download_worker(source_id):
+def download_worker(source_id, result):
     try:
-        raw = download_once(source_id)
-    except HTTPError as error:
-        print(error, file=sys.stderr)
-        return TEMPORARY_FAILURE if error.code in TRANSIENT_HTTP else 1
-    except URLError as error:
-        print(error, file=sys.stderr)
-        return 1 if isinstance(error.reason, ssl.SSLCertVerificationError) else TEMPORARY_FAILURE
-    except (TimeoutError, ConnectionError, HTTPException) as error:
-        print(error, file=sys.stderr)
-        return TEMPORARY_FAILURE
-    sys.stdout.buffer.write(raw)
-    return 0
+        result.write_bytes(download_once(source_id))
+    except (OSError, HTTPException, ValueError, KeyError) as error:
+        if isinstance(error, HTTPError):
+            temporary = error.code in TRANSIENT_HTTP
+        elif isinstance(error, URLError):
+            temporary = not isinstance(error.reason, ssl.SSLCertVerificationError)
+        else:
+            temporary = isinstance(error, (TimeoutError, ConnectionError, HTTPException))
+        result.write_text(str(error), encoding="utf-8")
+        sys.exit(TEMPORARY_FAILURE if temporary else 1)
+
+
+def attempt_download(source_id, result, deadline):
+    worker = multiprocessing.get_context("spawn").Process(
+        target=download_worker, args=(source_id, result),
+    )
+    worker.start()
+    try:
+        worker.join(max(0, deadline - time.monotonic()))
+        return worker.exitcode
+    finally:
+        if worker.is_alive():
+            worker.terminate()
+            worker.join()
+        worker.close()
 
 
 def download_source(source_id):
-    command = [sys.executable, "-B", "-X", "utf8", __file__, "--download-source", source_id]
     expires = time.monotonic() + SOURCE_TIMEOUT
     last_error = "已达到总时限"
     # Bound the worker from outside urllib so slow streaming cannot extend its deadline.
-    for delay in RETRY_DELAYS:
-        if expires - time.monotonic() <= delay:
-            break
-        time.sleep(delay)
-        remaining = expires - time.monotonic()
-        if remaining <= 0:
-            break
-        try:
-            attempt = subprocess.run(
-                command, capture_output=True, timeout=min(remaining, ATTEMPT_TIMEOUT),
-                check=False, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-        except subprocess.TimeoutExpired:
-            last_error = "请求或读取超时"
-            continue
-        if attempt.returncode == 0:
-            return attempt.stdout
-        error_lines = attempt.stderr.decode("utf-8", errors="replace").strip().splitlines()
-        last_error = error_lines[-1] if error_lines else f"下载进程退出码 {attempt.returncode}"
-        if attempt.returncode != TEMPORARY_FAILURE:
-            raise ValueError(last_error)
+    with TemporaryDirectory(prefix="offerpilot-source-") as directory:
+        for number, delay in enumerate(RETRY_DELAYS, start=1):
+            if expires - time.monotonic() <= delay:
+                break
+            time.sleep(delay)
+            now = time.monotonic()
+            if now >= expires:
+                break
+            result = Path(directory) / f"{number}.response"
+            exit_code = attempt_download(source_id, result, min(expires, now + ATTEMPT_TIMEOUT))
+            if exit_code is None:
+                last_error = "请求或读取超时"
+                continue
+            if exit_code == 0:
+                return result.read_bytes()
+            last_error = result.read_text(encoding="utf-8") if result.is_file() else f"下载进程退出码 {exit_code}"
+            if exit_code != TEMPORARY_FAILURE:
+                raise ValueError(last_error)
     raise ValueError(f"来源请求重试结束（{SOURCE_TIMEOUT}秒预算），{last_error}")
 
 
@@ -197,6 +208,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "--download-source":
-        sys.exit(download_worker(sys.argv[2]))
     main()
