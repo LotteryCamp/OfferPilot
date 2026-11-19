@@ -39,10 +39,10 @@ uv run pytest tests/test_alpha_acceptance.py -q
 | --- | --- | --- |
 | 1. 创建个人事项并重新读取 | `test_acceptance_main_flow_creates_tasks`；并复用 #41 create/read 测试 | 通过 |
 | 2. 读取公开来源并取得出处信息 | 主流程测试登记 source/snapshot 并校验 locator；来源读取测试在全量 38 项中通过 | 通过 |
-| 3. Agent 生成带出处和缺口的候选计划 | 当前只验证 API 接受带 citation 的候选计划；Agent 生成见 PR #23 | 阻塞 |
+| 3. Agent 生成带出处和缺口的候选计划 | Agent #23 已合入并通过 14 项单测；真实数据库端到端依赖 #41 合并后联调 | 部分：合同/单测通过，E2E 未测 |
 | 4. 确认候选计划后任务出现且可读取 | 主流程测试覆盖确认、幂等重放和任务读取 | 通过 |
 | 5. 拒绝候选计划不创建任务 | `test_acceptance_reject_does_not_create_tasks` | 通过 |
-| 6. 来源读取失败时显示失败/缺口 | 非法 URL 的 422 只覆盖请求校验；来源读取失败路径尚未覆盖，UI 完整链路见 PR #37 与前端 PR | 部分：仅 URL 校验通过；来源读取失败未测 |
+| 6. 来源读取失败时显示失败/缺口 | 非法 URL 的 422 只覆盖请求校验；来源 #37 已合入，fetch/read 失败路径和 UI 仍未覆盖，UI 见 #43 | 部分：仅 URL 校验通过；来源读取失败未测 |
 | 缺字段 | `test_acceptance_missing_required_fields` | 通过 |
 | 非法来源 URL | `test_acceptance_invalid_source_url` | 通过 |
 | 未知计划 | `test_acceptance_unknown_plan_returns_404` | 通过 |
@@ -50,12 +50,12 @@ uv run pytest tests/test_alpha_acceptance.py -q
 
 ## 缺陷/阻塞
 
-- **Agent 候选计划生成**：PR #23 未合入；场景 3 未做完整链路验证。
-- **UI 冒烟（创建 → 工作区）**：前端 PR 尚未出现；当前只到 API 级验证，UI 标记未测。
-- **来源读取失败**：非法 URL 只覆盖请求校验，fetch/read 失败路径未测；需等来源 #37 与前端模块合入后补测 API 和页面提示。
+- **Agent ↔ 后端 E2E**：Agent #23 已合入，真实 PostgreSQL 端到端待 PR #41 合并后联调；场景 3 完整链路未测。
+- **UI 冒烟（创建 → 工作区）**：前端 #43 仍为 draft，未合并；UI 冒烟未测。
+- **来源读取失败**：非法 URL 只覆盖请求校验，fetch/read 失败路径与 UI 提示未测；待 #43 与后端联调后补测。
 
 ## 结论
 
 - API 级 Alpha 核心流程、拒绝、缺字段、非法来源、未知计划、跨工作区隔离均已实际执行通过。
 - 全量后端测试 38 项通过。
-- 场景 3 和 UI 相关场景仍需等 #23 与前端 PR，不在本记录中写成已通过。
+- 场景 3 和 UI 相关场景仍需等 #41 合并与 #43 完成，不在本记录中写成已通过。
