@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
@@ -292,6 +293,10 @@ class StructuredModelAdapter:
             raise ModelInvocationError(AgentErrorCode.MODEL_ERROR, str(exc)) from exc
 
 
+def _normalize_ws(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _validate_and_enrich_citations(
     citations: list[SourceCitation],
     valid_source_ids: set[str],
@@ -305,11 +310,48 @@ def _validate_and_enrich_citations(
                 f"模型输出引用了未提供的来源版本 {cite.source_version_id}",
             )
         doc = sources_by_id[cite.source_version_id]
+
+        if cite.source_id is not None and doc.source_id is not None and cite.source_id != doc.source_id:
+            raise ModelInvocationError(
+                AgentErrorCode.VALIDATION_FAILED,
+                f"引用 {cite.source_version_id} 的 source_id 与真实来源记录不一致",
+            )
+        if cite.snapshot_id is not None and doc.snapshot_id is not None and cite.snapshot_id != doc.snapshot_id:
+            raise ModelInvocationError(
+                AgentErrorCode.VALIDATION_FAILED,
+                f"引用 {cite.source_version_id} 的 snapshot_id 与真实来源记录不一致",
+            )
+
+        norm_locator = _normalize_ws(cite.locator)
+        if doc.fragments:
+            matching_frags = [
+                frag for frag in doc.fragments if _normalize_ws(frag.locator) == norm_locator
+            ]
+            if not matching_frags:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"引用定位 '{cite.locator}' 不在来源 {doc.title} 已提取的片段中",
+                )
+            if cite.excerpt is not None:
+                norm_excerpt = _normalize_ws(cite.excerpt)
+                if not any(norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags):
+                    raise ModelInvocationError(
+                        AgentErrorCode.VALIDATION_FAILED,
+                        f"引用摘录与定位 '{cite.locator}' 对应的原文片段不符",
+                    )
+        elif cite.excerpt is not None:
+            norm_excerpt = _normalize_ws(cite.excerpt)
+            if norm_excerpt not in _normalize_ws(doc.content):
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"引用摘录不在来源 {doc.title} 原文中",
+                )
+
         enriched.append(
             cite.model_copy(
                 update={
-                    "source_id": cite.source_id or doc.source_id,
-                    "snapshot_id": cite.snapshot_id or doc.snapshot_id,
+                    "source_id": doc.source_id or cite.source_id,
+                    "snapshot_id": doc.snapshot_id or cite.snapshot_id,
                 }
             )
         )

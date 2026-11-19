@@ -274,9 +274,27 @@ def _eval_relative_deadline(
     params: dict[str, Any],
     confirmed_facts: dict[str, object],
 ) -> RequirementEvaluation:
-    received_key = str(params["received_fact"])
-    action_key = str(params["action_fact"])
-    duration_hours = float(params["duration_hours"])
+    received_key = params.get("received_fact")
+    action_key = params.get("action_fact")
+    raw_hours = params.get("duration_hours")
+    if (
+        not isinstance(received_key, str)
+        or not received_key.strip()
+        or not isinstance(action_key, str)
+        or not action_key.strip()
+        or not isinstance(raw_hours, (int, float))
+        or isinstance(raw_hours, bool)
+        or raw_hours <= 0
+    ):
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="相对时限规则缺少有效的 received_fact、action_fact 或 duration_hours 参数",
+            basis=req.basis,
+            scope=req.scope,
+        )
+    duration_hours = float(raw_hours)
 
     raw_start = confirmed_facts.get(received_key)
     if _is_missing(raw_start):
@@ -345,8 +363,22 @@ def _eval_notice_deadline(
     params: dict[str, Any],
     confirmed_facts: dict[str, object],
 ) -> RequirementEvaluation:
-    deadline_key = str(params["deadline_fact"])
-    action_key = str(params["action_fact"])
+    deadline_key = params.get("deadline_fact")
+    action_key = params.get("action_fact")
+    if (
+        not isinstance(deadline_key, str)
+        or not deadline_key.strip()
+        or not isinstance(action_key, str)
+        or not action_key.strip()
+    ):
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="通知时限规则缺少有效的 deadline_fact 或 action_fact 参数",
+            basis=req.basis,
+            scope=req.scope,
+        )
 
     raw_due = confirmed_facts.get(deadline_key)
     if _is_missing(raw_due):
@@ -414,7 +446,32 @@ def _eval_any_minimum(
     params: dict[str, Any],
     confirmed_facts: dict[str, object],
 ) -> RequirementEvaluation:
-    minimum: dict[str, float] = params.get("minimum", {})
+    raw_minimum = params.get("minimum")
+    if not isinstance(raw_minimum, dict) or not raw_minimum:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="任一最低标准规则缺少有效的 minimum 参数映射",
+            basis=req.basis,
+            scope=req.scope,
+        )
+    minimum: dict[str, float] = {}
+    for key, threshold in raw_minimum.items():
+        if (
+            not isinstance(key, str)
+            or not isinstance(threshold, (int, float))
+            or isinstance(threshold, bool)
+        ):
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.NEEDS_USER_REVIEW,
+                reason="任一最低标准规则包含非数值阈值",
+                basis=req.basis,
+                scope=req.scope,
+            )
+        minimum[key] = float(threshold)
     operator = str(params.get("operator", ">="))
     qualifier = str(params.get("qualifier", "")).strip()
     qualifier_note = f"（规则限定：{qualifier}）" if qualifier else ""
@@ -597,10 +654,14 @@ def _collect_source_issues(
             continue
         if doc.source_status != "active":
             issues.append(f"来源 {doc.title} 当前状态为 {doc.source_status}")
+        if doc.auto_check_status in ("failed", "conflict"):
+            issues.append(f"来源 {doc.title} 自动检查状态为 {doc.auto_check_status}")
         if doc.is_repost or doc.roi_status == "reposted":
             issues.append(f"来源 {doc.title} 为转载，未经官方原文核验")
         if doc.is_expired or doc.roi_status == "expired":
             issues.append(f"来源 {doc.title} 已过期")
+        if doc.roi_status == "ambiguous":
+            issues.append(f"来源 {doc.title} 适用范围或表述不明确")
         if required_attachments and doc.missing_attachments:
             relevant_missing = [a for a in doc.missing_attachments if a in required_attachments]
             if relevant_missing:
@@ -628,6 +689,17 @@ def collect_source_gaps(
                 SourceGap(
                     gap_type="expired_source",
                     description=f"来源《{doc.title}》已超过适用窗口或标记过期",
+                    source_version_id=doc.source_version_id,
+                )
+            )
+        if doc.auto_check_status in ("failed", "conflict") or doc.roi_status == "ambiguous":
+            gaps.append(
+                SourceGap(
+                    gap_type="scope_unclear",
+                    description=(
+                        f"来源《{doc.title}》状态异常"
+                        f"（auto_check={doc.auto_check_status}, roi={doc.roi_status}）"
+                    ),
                     source_version_id=doc.source_version_id,
                 )
             )

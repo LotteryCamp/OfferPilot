@@ -143,7 +143,13 @@ class PublicHtmlSourceReader:
         self._default_publisher = default_publisher
         self._default_scope_year = default_scope_year
 
-    def fetch_sources(self, urls: list[str], goal: str) -> list[SourceDocument]:
+    def fetch_sources(
+        self,
+        urls: list[str],
+        goal: str,
+        *,
+        scope_year: int | None = None,
+    ) -> list[SourceDocument]:
         """Return preloaded sources or fetch each public URL via read_public_html_fn."""
         if self._preloaded is not None:
             return list(self._preloaded)
@@ -151,13 +157,14 @@ class PublicHtmlSourceReader:
         if not urls:
             return []
 
+        effective_year = scope_year if scope_year is not None else self._default_scope_year
         reader = self._resolve_reader()
         docs: list[SourceDocument] = []
         for url in urls:
             request = {
                 "url": url,
                 "publisher": self._default_publisher,
-                "scope_year": self._default_scope_year,
+                "scope_year": effective_year,
             }
             try:
                 raw_result = reader(request)

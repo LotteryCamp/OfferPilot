@@ -1,5 +1,10 @@
 """Tests for AgentOrchestrator lifecycle, ToolGateway enforcement, and failure handling."""
 
+from __future__ import annotations
+
+from typing import Any
+from uuid import uuid4
+
 from backend.agent import (
     AgentErrorCode,
     AgentOrchestrator,
@@ -10,6 +15,7 @@ from backend.agent import (
     ExtractedRequirement,
     GatewayError,
     ObligationType,
+    PersistenceApiError,
     RequirementEvaluation,
     RunContext,
     RunStatus,
@@ -23,8 +29,16 @@ from backend.agent import (
 class InMemorySourceReader:
     def __init__(self, docs: list[SourceDocument]) -> None:
         self._docs = docs
+        self.last_scope_year: int | None = None
 
-    def fetch_sources(self, urls: list[str], goal: str) -> list[SourceDocument]:
+    def fetch_sources(
+        self,
+        urls: list[str],
+        goal: str,
+        *,
+        scope_year: int | None = None,
+    ) -> list[SourceDocument]:
+        self.last_scope_year = scope_year
         return list(self._docs)
 
 
@@ -75,9 +89,7 @@ class InMemoryWorkspaceBackend:
     def __init__(self, *, workspace_version: int = 1, consent_valid: bool = True) -> None:
         self.workspace_version = workspace_version
         self.consent_valid = consent_valid
-        self.written_tasks: list[WrittenTask] = []
         self.records: list[ExecutionRecord] = []
-        self.write_calls = 0
 
     def check_permission(self, user_id: str, matter_id: str, auth_level: AuthLevel) -> bool:
         return user_id == "u1" and matter_id == "m1"
@@ -96,30 +108,116 @@ class InMemoryWorkspaceBackend:
         expected_workspace_version: int,
         operation_id: str,
     ) -> list[WrittenTask]:
-        self.write_calls += 1
-        tasks = [
-            WrittenTask(
-                task_id=t.task_id,
-                matter_id=matter_id,
-                title=t.title,
-                obligation=t.obligation,
-                official_deadline=t.official_deadline,
-                suggested_date=t.suggested_date,
-                depends_on=t.depends_on,
-                evidence_required=t.evidence_required,
-            )
-            for t in candidate_plan.tasks
-        ]
-        self.written_tasks.extend(tasks)
-        return tasks
+        return []
 
     def record_execution(self, matter_id: str, record: ExecutionRecord) -> None:
         self.records.append(record)
 
 
+class InMemoryCandidatePersistence:
+    def __init__(self, *, fail_first_confirm_timeout: bool = False) -> None:
+        self.plans: dict[str, dict[str, Any]] = {}
+        self.decisions: dict[str, str] = {}
+        self.write_calls = 0
+        self.fail_first_confirm_timeout = fail_first_confirm_timeout
+        self._confirm_attempts = 0
+
+    def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        return [{"id": str(uuid4()), **item} for item in payload["requirements"]]
+
+    def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        plan_id = str(uuid4())
+        plan = {
+            "id": plan_id,
+            "matter_id": matter_id,
+            "status": "pending",
+            "items": payload["items"],
+            "tasks": [],
+        }
+        self.plans[plan_id] = plan
+        return plan
+
+    def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
+        if plan_id not in self.plans:
+            raise PersistenceApiError(404, "plan_not_found", error_code="plan_not_found")
+        return self.plans[plan_id]
+
+    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        self._confirm_attempts += 1
+        if self.fail_first_confirm_timeout and self._confirm_attempts == 1:
+            raise PersistenceApiError(
+                503,
+                "请求超时",
+                error_code="connection_uncertain",
+                retryable=True,
+            )
+
+        plan = self.plans[plan_id]
+        if operation_id in self.decisions:
+            return {
+                "plan_id": plan_id,
+                "status": plan["status"],
+                "decision": self.decisions[operation_id],
+                "tasks": plan["tasks"],
+                "replayed": True,
+            }
+        if plan["status"] != "pending":
+            raise PersistenceApiError(
+                409,
+                "候选计划已有终态决定",
+                error_code="plan_already_decided",
+            )
+
+        self.write_calls += 1
+        tasks = [
+            {
+                "id": str(uuid4()),
+                "matter_id": plan["matter_id"],
+                "title": item["title"],
+                "obligation_nature": item["obligation_nature"],
+                "evidence_required": "已确认" if item.get("evidence_required") else "",
+            }
+            for item in plan["items"]
+        ]
+        plan["status"] = "confirmed"
+        plan["tasks"] = tasks
+        self.decisions[operation_id] = "confirmed"
+        return {
+            "plan_id": plan_id,
+            "status": "confirmed",
+            "decision": "confirmed",
+            "tasks": tasks,
+            "replayed": False,
+        }
+
+    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        plan = self.plans[plan_id]
+        if plan["status"] != "pending":
+            raise PersistenceApiError(
+                409,
+                "候选计划已有终态决定",
+                error_code="plan_already_decided",
+            )
+        plan["status"] = "rejected"
+        self.decisions[operation_id] = "rejected"
+        return {
+            "plan_id": plan_id,
+            "status": "rejected",
+            "decision": "rejected",
+            "tasks": [],
+            "replayed": False,
+        }
+
+
+_SRC_ID = "b0000000-0000-4000-8000-000000000101"
+_SNAP_ID = "b0000000-0000-4000-8000-000000000102"
+
+
 def _sample_doc() -> SourceDocument:
     return SourceDocument(
-        source_version_id="src-2027-v1",
+        source_version_id=_SNAP_ID,
+        source_id=_SRC_ID,
+        snapshot_id=_SNAP_ID,
         title="夏令营招生简章",
         publisher="某大学计算机学院",
         content="申请者须提交个人陈述。",
@@ -131,17 +229,19 @@ def _sample_req() -> ExtractedRequirement:
         requirement_id="r1",
         title="提交个人陈述",
         obligation=ObligationType.OFFICIAL_REQUIRED,
-        basis=[SourceCitation(source_version_id="src-2027-v1", locator="第三条")],
+        basis=[SourceCitation(source_version_id=_SNAP_ID, locator="第三条")],
         required_fact_keys=["major"],
     )
 
 
 def test_happy_path_waits_for_confirmation_then_writes_idempotently() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=5)
+    persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
+        persistence=persistence,
     )
 
     ctx = RunContext(
@@ -155,27 +255,29 @@ def test_happy_path_waits_for_confirmation_then_writes_idempotently() -> None:
 
     start_res = orch.start_run(ctx)
     assert start_res.status == RunStatus.WAITING_CONFIRMATION
-    assert start_res.candidate_plan is not None
-    assert backend.written_tasks == []
+    assert start_res.persisted_plan_id is not None
+    assert persistence.write_calls == 0
 
     confirm_res = orch.confirm_plan(start_res.run_id, candidate_version=1, operation_id="op-001")
     assert confirm_res.status == RunStatus.COMPLETED
     assert len(confirm_res.written_tasks) == 1
-    assert backend.write_calls == 1
+    assert persistence.write_calls == 1
 
     # Repeated confirmation returns same result without duplicating writes
     replay_res = orch.confirm_plan(start_res.run_id, candidate_version=1, operation_id="op-001")
     assert replay_res.status == RunStatus.COMPLETED
     assert len(replay_res.written_tasks) == 1
-    assert backend.write_calls == 1
+    assert persistence.write_calls == 1
 
 
-def test_reject_plan_creates_no_tasks() -> None:
+def test_reject_plan_persists_rejected_and_cannot_override_completed() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
+        persistence=persistence,
     )
     ctx = RunContext(
         user_id="u1",
@@ -186,17 +288,30 @@ def test_reject_plan_creates_no_tasks() -> None:
         model_transfer_consent_id="consent-1",
     )
     res = orch.start_run(ctx)
-    reject_res = orch.reject_plan(res.run_id)
+    assert res.persisted_plan_id is not None
+    reject_res = orch.reject_plan(res.run_id, operation_id="op-reject-1")
     assert reject_res.status == RunStatus.CANCELLED
-    assert backend.written_tasks == []
+    assert persistence.get_candidate_plan(res.persisted_plan_id)["status"] == "rejected"
+    assert persistence.write_calls == 0
+
+    # Completed run cannot be rejected or lose its tasks
+    res2 = orch.start_run(ctx)
+    orch.confirm_plan(res2.run_id, candidate_version=1, operation_id="op-confirm-2")
+    bad_reject = orch.reject_plan(res2.run_id, operation_id="op-reject-2")
+    assert bad_reject.status == RunStatus.COMPLETED
+    assert len(bad_reject.written_tasks) == 1
+    assert bad_reject.error is not None
+    assert bad_reject.error.code == AgentErrorCode.VALIDATION_FAILED
 
 
-def test_version_change_before_confirmation_blocks_stale_write() -> None:
+def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence(fail_first_confirm_timeout=True)
     orch = AgentOrchestrator(
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
+        persistence=persistence,
     )
     ctx = RunContext(
         user_id="u1",
@@ -207,13 +322,76 @@ def test_version_change_before_confirmation_blocks_stale_write() -> None:
         model_transfer_consent_id="consent-1",
     )
     res = orch.start_run(ctx)
-    backend.workspace_version = 2
 
-    confirm_res = orch.confirm_plan(res.run_id, candidate_version=1, operation_id="op-002")
-    assert confirm_res.status == RunStatus.FAILED
-    assert confirm_res.error is not None
-    assert confirm_res.error.code == AgentErrorCode.VERSION_CONFLICT
-    assert backend.written_tasks == []
+    # First confirm times out -> remains WAITING_CONFIRMATION so retry with same operation_id works
+    first_try = orch.confirm_plan(res.run_id, candidate_version=1, operation_id="op-retry-1")
+    assert first_try.status == RunStatus.WAITING_CONFIRMATION
+    assert first_try.error is not None
+    assert first_try.error.code == AgentErrorCode.TIMEOUT
+
+    retry_ok = orch.confirm_plan(res.run_id, candidate_version=1, operation_id="op-retry-1")
+    assert retry_ok.status == RunStatus.COMPLETED
+    assert len(retry_ok.written_tasks) == 1
+
+    # Version change before confirmation blocks stale write
+    res_stale = orch.start_run(ctx)
+    backend.workspace_version = 2
+    stale_res = orch.confirm_plan(res_stale.run_id, candidate_version=1, operation_id="op-stale-1")
+    assert stale_res.status == RunStatus.FAILED
+    assert stale_res.error is not None
+    assert stale_res.error.code == AgentErrorCode.VERSION_CONFLICT
+
+
+def test_cold_start_recovery_and_missing_persistence_guard() -> None:
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    orch_no_persist = AgentOrchestrator(
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter([_sample_req()]),
+        backend=backend,
+    )
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="测试缺少持久化",
+        workspace_version=1,
+        confirmed_facts={"major": "软件工程"},
+        model_transfer_consent_id="consent-1",
+    )
+    fail_res = orch_no_persist.start_run(ctx)
+    assert fail_res.status == RunStatus.FAILED
+    assert fail_res.error is not None
+    assert fail_res.error.code == AgentErrorCode.VALIDATION_FAILED
+
+    persistence = InMemoryCandidatePersistence()
+    orch1 = AgentOrchestrator(
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter([_sample_req()]),
+        backend=backend,
+        persistence=persistence,
+    )
+    start_res = orch1.start_run(ctx)
+    plan_id = start_res.persisted_plan_id
+    assert plan_id is not None
+
+    # Simulate process restart with a fresh orchestrator instance
+    orch2 = AgentOrchestrator(
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter([_sample_req()]),
+        backend=backend,
+        persistence=persistence,
+    )
+    loaded = orch2.get_persisted_plan(plan_id)
+    assert loaded["status"] == "pending"
+    confirmed = orch2.confirm_plan(
+        plan_id,
+        candidate_version=1,
+        operation_id="op-recover-1",
+        user_id="u1",
+        matter_id="m1",
+        workspace_version=1,
+    )
+    assert confirmed.status == RunStatus.COMPLETED
+    assert len(confirmed.written_tasks) == 1
 
 
 def test_missing_consent_or_model_timeout_reports_failure() -> None:
@@ -222,6 +400,7 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
+        persistence=InMemoryCandidatePersistence(),
     )
     ctx = RunContext(
         user_id="u1",
@@ -240,6 +419,7 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()], fail_on_plan=True),
         backend=backend_ok,
+        persistence=InMemoryCandidatePersistence(),
     )
     res_timeout = orch_timeout.start_run(ctx.model_copy(update={"model_transfer_consent_id": "consent-1"}))
     assert res_timeout.status == RunStatus.FAILED
@@ -247,7 +427,7 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
     assert res_timeout.error.code == AgentErrorCode.TIMEOUT
 
 
-def test_gateway_blocks_unlisted_tool() -> None:
+def test_gateway_blocks_unlisted_tool_and_cross_scope_idempotency() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     gateway = ToolGateway(backend)
     try:
@@ -261,3 +441,43 @@ def test_gateway_blocks_unlisted_tool() -> None:
         raise AssertionError("Expected GatewayError")
     except GatewayError as exc:
         assert exc.error.code == AgentErrorCode.TOOL_NOT_ALLOWED
+
+    # First write succeeds and advances workspace version -> retry with same op_id still replays
+    res1, _ = gateway.invoke(
+        tool_name="write_personal_tasks",
+        user_id="u1",
+        matter_id="m1",
+        expected_workspace_version=1,
+        operation_id="op-shared",
+        idempotency_binding="confirm:plan-1",
+        fn=lambda: ["task-1"],
+    )
+    assert res1 == ["task-1"]
+    backend.workspace_version = 2
+
+    res_replay, rec_replay = gateway.invoke(
+        tool_name="write_personal_tasks",
+        user_id="u1",
+        matter_id="m1",
+        expected_workspace_version=1,
+        operation_id="op-shared",
+        idempotency_binding="confirm:plan-1",
+        fn=lambda: ["should-not-run"],
+    )
+    assert res_replay == ["task-1"]
+    assert rec_replay.output_summary.get("idempotent_replay") is True
+
+    # Reusing same operation_id across another matter/action is rejected
+    try:
+        gateway.invoke(
+            tool_name="reject_personal_plan",
+            user_id="u1",
+            matter_id="m1",
+            expected_workspace_version=2,
+            operation_id="op-shared",
+            idempotency_binding="reject:plan-1",
+            fn=lambda: None,
+        )
+        raise AssertionError("Expected GatewayError")
+    except GatewayError as exc:
+        assert exc.error.code == AgentErrorCode.VALIDATION_FAILED

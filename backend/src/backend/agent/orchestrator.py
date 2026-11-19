@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from backend.agent.contracts import (
+    PersistenceApiError,
     build_candidate_plan_create_payload,
     build_requirements_batch_payload,
 )
@@ -24,12 +25,14 @@ from backend.agent.schemas import (
     AgentRunResult,
     CandidatePlan,
     ExtractedRequirement,
+    ObligationType,
     RequirementEvaluation,
     RunCheckpoint,
     RunContext,
     RunStatus,
     SourceDocument,
     SourceGap,
+    WrittenTask,
 )
 from backend.agent.validators import (
     collect_source_gaps,
@@ -38,9 +41,16 @@ from backend.agent.validators import (
     validate_candidate_plan,
 )
 
+_API_OBLIGATION_TO_ENUM: dict[str, ObligationType] = {
+    "required": ObligationType.OFFICIAL_REQUIRED,
+    "advised": ObligationType.OFFICIAL_RECOMMENDED,
+    "optional": ObligationType.OPTIONAL,
+    "to_verify": ObligationType.PENDING_VERIFICATION,
+}
+
 
 class AgentOrchestrator:
-    """Coordinates source retrieval, four-state evaluation, candidate planning, and confirmed writes."""
+    """Coordinates source retrieval, four-state evaluation, candidate planning, and persisted decisions."""
 
     def __init__(
         self,
@@ -48,29 +58,49 @@ class AgentOrchestrator:
         source_reader: SourceReaderPort,
         model_adapter: ModelAdapterPort,
         backend: WorkspaceBackendPort,
-        gateway: ToolGateway | None = None,
         persistence: CandidatePersistencePort | None = None,
+        gateway: ToolGateway | None = None,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._source_reader = source_reader
         self._model_adapter = model_adapter
         self._backend = backend
-        self._gateway = gateway or ToolGateway(backend)
         self._persistence = persistence
+        self._gateway = gateway or ToolGateway(backend)
         self._clock = clock or (lambda: datetime.now(UTC))
         self._checkpoints: dict[str, RunCheckpoint] = {}
 
     def get_checkpoint(self, run_id: str) -> RunCheckpoint | None:
-        """Return saved checkpoint for an existing run."""
+        """Return saved in-memory checkpoint for an existing run."""
         return self._checkpoints.get(run_id)
 
-    def start_run(self, context: RunContext) -> AgentRunResult:
-        """Execute retrieval, extraction, four-state check, and candidate plan generation.
+    def get_persisted_plan(self, plan_id: str) -> dict[str, Any]:
+        """Read a persisted candidate plan directly from the backend persistence port."""
+        if self._persistence is None:
+            raise RuntimeError("未配置候选持久化服务，无法读取持久化计划")
+        return self._persistence.get_candidate_plan(plan_id)
 
-        Never creates formal tasks; pauses at WAITING_CONFIRMATION or WAITING_USER.
+    def start_run(self, context: RunContext) -> AgentRunResult:
+        """Execute retrieval, extraction, four-state check, candidate generation, and persistence.
+
+        Alpha normal path requires candidate persistence to succeed before returning WAITING_CONFIRMATION.
+        Never creates formal tasks prior to user confirmation.
         """
         run_id = f"run-{uuid4().hex[:12]}"
         records = []
+
+        if self._persistence is None:
+            err = AgentError(
+                code=AgentErrorCode.VALIDATION_FAILED,
+                message="未配置候选持久化服务，无法保存待确认候选计划",
+            )
+            return self._save_terminal_or_wait(
+                run_id=run_id,
+                context=context,
+                status=RunStatus.FAILED,
+                error=err,
+                records=records,
+            )
 
         if context.source_documents:
             sources = list(context.source_documents)
@@ -81,7 +111,7 @@ class AgentOrchestrator:
                     user_id=context.user_id,
                     matter_id=context.matter_id,
                     expected_workspace_version=context.workspace_version,
-                    fn=lambda: self._source_reader.fetch_sources(context.source_urls, context.goal),
+                    fn=lambda: self._fetch_sources(context),
                 )
                 records.append(rec_src)
             except GatewayError as exc:
@@ -233,39 +263,70 @@ class AgentOrchestrator:
             update={"gaps": merged_gaps, "scope_summary": merged_scope}
         )
 
-        persisted_req_ids: list[str] = []
-        persisted_plan_id: str | None = None
-        if self._persistence is not None and _can_persist_uuids(
-            requirements, candidate_plan, sources_by_id
-        ):
-            try:
-                (persisted_req_ids, persisted_plan_id), rec_persist = self._gateway.invoke(
-                    tool_name="persist_candidate_artifacts",
-                    user_id=context.user_id,
-                    matter_id=context.matter_id,
-                    expected_workspace_version=context.workspace_version,
-                    fn=lambda: self._persist_candidates(
-                        context.matter_id,
-                        requirements,
-                        evaluations,
-                        candidate_plan,
-                        sources_by_id,
-                    ),
-                )
-                records.append(rec_persist)
-            except GatewayError as exc:
-                return self._save_terminal_or_wait(
-                    run_id=run_id,
-                    context=context,
-                    status=RunStatus.FAILED,
-                    error=exc.error,
-                    records=records,
-                    sources=sources,
-                    extracted_requirements=requirements,
-                    evaluations=evaluations,
-                    gaps=merged_gaps,
-                    scope_summary=merged_scope,
-                )
+        if not _can_persist_uuids(requirements, candidate_plan, sources_by_id):
+            err = AgentError(
+                code=AgentErrorCode.VALIDATION_FAILED,
+                message="来源或快照缺少有效 UUID 标识，无法持久化待确认候选计划",
+            )
+            return self._save_terminal_or_wait(
+                run_id=run_id,
+                context=context,
+                status=RunStatus.FAILED,
+                error=err,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+            )
+
+        try:
+            (persisted_req_ids, persisted_plan_id), rec_persist = self._gateway.invoke(
+                tool_name="persist_candidate_artifacts",
+                user_id=context.user_id,
+                matter_id=context.matter_id,
+                expected_workspace_version=context.workspace_version,
+                fn=lambda: self._persist_candidates(
+                    context.matter_id,
+                    requirements,
+                    evaluations,
+                    candidate_plan,
+                    sources_by_id,
+                ),
+            )
+            records.append(rec_persist)
+        except GatewayError as exc:
+            return self._save_terminal_or_wait(
+                run_id=run_id,
+                context=context,
+                status=RunStatus.FAILED,
+                error=exc.error,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+            )
+
+        if not persisted_plan_id:
+            err = AgentError(
+                code=AgentErrorCode.VALIDATION_FAILED,
+                message="候选计划持久化未返回有效计划标识",
+            )
+            return self._save_terminal_or_wait(
+                run_id=run_id,
+                context=context,
+                status=RunStatus.FAILED,
+                error=err,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+            )
 
         checkpoint = RunCheckpoint(
             run_id=run_id,
@@ -303,52 +364,41 @@ class AgentOrchestrator:
         *,
         candidate_version: int,
         operation_id: str,
-        as_of: datetime | None = None,
+        plan_id: str | None = None,
+        user_id: str | None = None,
+        matter_id: str | None = None,
+        workspace_version: int | None = None,
     ) -> AgentRunResult:
-        """Resume a waiting run and persist formal tasks after user confirmation."""
-        cp = self._checkpoints.get(run_id)
-        if cp is None or cp.candidate_plan is None:
+        """Delegate confirmation transaction to the backend persistence port.
+
+        Supports recovery from persisted plan_id when in-memory checkpoint is absent.
+        Retains WAITING_CONFIRMATION on uncertain timeouts so retries with the same operation_id succeed.
+        """
+        cp = self._resolve_or_recover_checkpoint(
+            run_id=run_id,
+            plan_id=plan_id,
+            user_id=user_id,
+            matter_id=matter_id,
+            workspace_version=workspace_version,
+        )
+        if cp is None or cp.persisted_plan_id is None:
             err = AgentError(
                 code=AgentErrorCode.VALIDATION_FAILED,
-                message="不存在待确认的候选计划",
+                message="不存在可确认的持久化候选计划",
             )
             return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
         if cp.status == RunStatus.COMPLETED:
-            return AgentRunResult(
-                run_id=run_id,
-                status=RunStatus.COMPLETED,
-                extracted_requirements=cp.extracted_requirements,
-                evaluations=cp.evaluations,
-                gaps=cp.gaps,
-                scope_summary=cp.scope_summary,
-                candidate_plan=cp.candidate_plan,
-                persisted_requirement_ids=cp.persisted_requirement_ids,
-                persisted_plan_id=cp.persisted_plan_id,
-                written_tasks=cp.written_tasks,
-                execution_records=cp.execution_records,
-            )
+            return self._result_from_checkpoint(cp)
 
         if cp.status != RunStatus.WAITING_CONFIRMATION:
             err = AgentError(
                 code=AgentErrorCode.VALIDATION_FAILED,
                 message=f"当前运行状态为 {cp.status.value}，无法执行确认写入",
             )
-            return AgentRunResult(
-                run_id=run_id,
-                status=cp.status,
-                extracted_requirements=cp.extracted_requirements,
-                evaluations=cp.evaluations,
-                gaps=cp.gaps,
-                scope_summary=cp.scope_summary,
-                candidate_plan=cp.candidate_plan,
-                persisted_requirement_ids=cp.persisted_requirement_ids,
-                persisted_plan_id=cp.persisted_plan_id,
-                error=err,
-                execution_records=cp.execution_records,
-            )
+            return self._result_from_checkpoint(cp, error=err)
 
-        if cp.candidate_plan.candidate_version != candidate_version:
+        if cp.candidate_plan is not None and cp.candidate_plan.candidate_version != candidate_version:
             err = AgentError(
                 code=AgentErrorCode.VERSION_CONFLICT,
                 message=(
@@ -357,116 +407,107 @@ class AgentOrchestrator:
                 ),
             )
             cp.error = err
-            return AgentRunResult(
-                run_id=run_id,
-                status=RunStatus.WAITING_CONFIRMATION,
-                extracted_requirements=cp.extracted_requirements,
-                evaluations=cp.evaluations,
-                gaps=cp.gaps,
-                scope_summary=cp.scope_summary,
-                candidate_plan=cp.candidate_plan,
-                persisted_requirement_ids=cp.persisted_requirement_ids,
-                persisted_plan_id=cp.persisted_plan_id,
-                error=err,
-                execution_records=cp.execution_records,
-            )
+            return self._result_from_checkpoint(cp, error=err)
 
-        plan = cp.candidate_plan
-        expired_tasks = find_expired_plan_tasks(plan, as_of or self._clock())
-        if expired_tasks:
-            err = AgentError(
-                code=AgentErrorCode.DEADLINE_EXPIRED,
-                message=f"候选任务 {', '.join(expired_tasks)} 的官方截止时间已过，阻止生成正式任务",
-                details={"expired_task_ids": expired_tasks},
-            )
-            cp.error = err
-            return AgentRunResult(
-                run_id=run_id,
-                status=RunStatus.WAITING_CONFIRMATION,
-                extracted_requirements=cp.extracted_requirements,
-                evaluations=cp.evaluations,
-                gaps=cp.gaps,
-                scope_summary=cp.scope_summary,
-                candidate_plan=plan,
-                persisted_requirement_ids=cp.persisted_requirement_ids,
-                persisted_plan_id=cp.persisted_plan_id,
-                error=err,
-                execution_records=cp.execution_records,
-            )
+        persistence = self._persistence
+        assert persistence is not None
+        target_plan_id = cp.persisted_plan_id
+        binding = f"confirm:{target_plan_id}:{candidate_version}"
 
         try:
-            written, rec_write = self._gateway.invoke(
+            resp, rec_write = self._gateway.invoke(
                 tool_name="write_personal_tasks",
                 user_id=cp.user_id,
                 matter_id=cp.matter_id,
                 expected_workspace_version=cp.workspace_version,
                 operation_id=operation_id,
-                fn=lambda: self._backend.consume_candidate_and_write_tasks(
-                    user_id=cp.user_id,
-                    matter_id=cp.matter_id,
-                    candidate_plan=plan,
-                    expected_workspace_version=cp.workspace_version,
+                idempotency_binding=binding,
+                fn=lambda: persistence.confirm_candidate_plan(
+                    target_plan_id,
                     operation_id=operation_id,
                 ),
             )
         except GatewayError as exc:
             cp.error = exc.error
-            cp.status = RunStatus.FAILED
-            return AgentRunResult(
-                run_id=run_id,
-                status=RunStatus.FAILED,
-                extracted_requirements=cp.extracted_requirements,
-                evaluations=cp.evaluations,
-                gaps=cp.gaps,
-                scope_summary=cp.scope_summary,
-                candidate_plan=plan,
-                persisted_requirement_ids=cp.persisted_requirement_ids,
-                persisted_plan_id=cp.persisted_plan_id,
-                error=exc.error,
-                execution_records=cp.execution_records,
-            )
+            if exc.error.code != AgentErrorCode.TIMEOUT:
+                cp.status = RunStatus.FAILED
+            return self._result_from_checkpoint(cp, error=exc.error)
 
         cp.execution_records.append(rec_write)
-        cp.written_tasks = written
+        cp.written_tasks = _parse_written_tasks(resp, cp.matter_id)
         cp.status = RunStatus.COMPLETED
         cp.error = None
-        return AgentRunResult(
-            run_id=run_id,
-            status=RunStatus.COMPLETED,
-            extracted_requirements=cp.extracted_requirements,
-            evaluations=cp.evaluations,
-            gaps=cp.gaps,
-            scope_summary=cp.scope_summary,
-            candidate_plan=plan,
-            persisted_requirement_ids=cp.persisted_requirement_ids,
-            persisted_plan_id=cp.persisted_plan_id,
-            written_tasks=written,
-            execution_records=cp.execution_records,
-        )
+        return self._result_from_checkpoint(cp)
 
-    def reject_plan(self, run_id: str) -> AgentRunResult:
-        """Reject the candidate plan; never writes formal tasks (HHY-AC05)."""
-        cp = self._checkpoints.get(run_id)
-        if cp is None:
-            err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行记录不存在")
+    def reject_plan(
+        self,
+        run_id: str,
+        *,
+        operation_id: str | None = None,
+        plan_id: str | None = None,
+        user_id: str | None = None,
+        matter_id: str | None = None,
+        workspace_version: int | None = None,
+    ) -> AgentRunResult:
+        """Persist candidate rejection on the backend without creating tasks or altering completed runs."""
+        cp = self._resolve_or_recover_checkpoint(
+            run_id=run_id,
+            plan_id=plan_id,
+            user_id=user_id,
+            matter_id=matter_id,
+            workspace_version=workspace_version,
+        )
+        if cp is None or cp.persisted_plan_id is None:
+            err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行或持久化计划不存在")
             return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
+        if cp.status == RunStatus.COMPLETED:
+            err = AgentError(
+                code=AgentErrorCode.VALIDATION_FAILED,
+                message="候选计划已确认并生成正式任务，不能拒绝",
+            )
+            return self._result_from_checkpoint(cp, error=err)
+
+        if cp.status == RunStatus.CANCELLED:
+            return self._result_from_checkpoint(cp)
+
+        if cp.status != RunStatus.WAITING_CONFIRMATION:
+            err = AgentError(
+                code=AgentErrorCode.VALIDATION_FAILED,
+                message=f"当前运行状态为 {cp.status.value}，无法执行拒绝操作",
+            )
+            return self._result_from_checkpoint(cp, error=err)
+
+        persistence = self._persistence
+        assert persistence is not None
+        op_id = operation_id or str(uuid4())
+        target_plan_id = cp.persisted_plan_id
+        binding = f"reject:{target_plan_id}"
+
+        try:
+            _, rec_reject = self._gateway.invoke(
+                tool_name="reject_personal_plan",
+                user_id=cp.user_id,
+                matter_id=cp.matter_id,
+                expected_workspace_version=cp.workspace_version,
+                operation_id=op_id,
+                idempotency_binding=binding,
+                fn=lambda: persistence.reject_candidate_plan(
+                    target_plan_id,
+                    operation_id=op_id,
+                ),
+            )
+        except GatewayError as exc:
+            cp.error = exc.error
+            if exc.error.code != AgentErrorCode.TIMEOUT:
+                cp.status = RunStatus.FAILED
+            return self._result_from_checkpoint(cp, error=exc.error)
+
+        cp.execution_records.append(rec_reject)
         cp.status = RunStatus.CANCELLED
+        cp.written_tasks = []
         cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="用户已拒绝候选计划，未创建正式任务")
-        return AgentRunResult(
-            run_id=run_id,
-            status=RunStatus.CANCELLED,
-            extracted_requirements=cp.extracted_requirements,
-            evaluations=cp.evaluations,
-            gaps=cp.gaps,
-            scope_summary=cp.scope_summary,
-            candidate_plan=cp.candidate_plan,
-            persisted_requirement_ids=cp.persisted_requirement_ids,
-            persisted_plan_id=cp.persisted_plan_id,
-            written_tasks=[],
-            error=cp.error,
-            execution_records=cp.execution_records,
-        )
+        return self._result_from_checkpoint(cp)
 
     def cancel_run(self, run_id: str) -> AgentRunResult:
         """Cancel an active or waiting run without masking already-written tasks."""
@@ -476,37 +517,74 @@ class AgentOrchestrator:
             return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
         if cp.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED):
-            return AgentRunResult(
-                run_id=run_id,
-                status=cp.status,
-                extracted_requirements=cp.extracted_requirements,
-                evaluations=cp.evaluations,
-                gaps=cp.gaps,
-                scope_summary=cp.scope_summary,
-                candidate_plan=cp.candidate_plan,
-                persisted_requirement_ids=cp.persisted_requirement_ids,
-                persisted_plan_id=cp.persisted_plan_id,
-                written_tasks=cp.written_tasks,
-                error=cp.error,
-                execution_records=cp.execution_records,
-            )
+            return self._result_from_checkpoint(cp)
 
         cp.status = RunStatus.CANCELLED
         cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="运行已被用户取消")
-        return AgentRunResult(
-            run_id=run_id,
-            status=RunStatus.CANCELLED,
-            extracted_requirements=cp.extracted_requirements,
-            evaluations=cp.evaluations,
-            gaps=cp.gaps,
-            scope_summary=cp.scope_summary,
-            candidate_plan=cp.candidate_plan,
-            persisted_requirement_ids=cp.persisted_requirement_ids,
-            persisted_plan_id=cp.persisted_plan_id,
-            written_tasks=cp.written_tasks,
-            error=cp.error,
-            execution_records=cp.execution_records,
+        return self._result_from_checkpoint(cp)
+
+    def _fetch_sources(self, context: RunContext) -> list[SourceDocument]:
+        if context.scope_year is not None:
+            return self._source_reader.fetch_sources(
+                context.source_urls,
+                context.goal,
+                scope_year=context.scope_year,
+            )
+        return self._source_reader.fetch_sources(context.source_urls, context.goal)
+
+    def _resolve_or_recover_checkpoint(
+        self,
+        *,
+        run_id: str,
+        plan_id: str | None,
+        user_id: str | None,
+        matter_id: str | None,
+        workspace_version: int | None,
+    ) -> RunCheckpoint | None:
+        cp = self._checkpoints.get(run_id)
+        if cp is not None:
+            return cp
+
+        target_plan_id = plan_id or run_id
+        if self._persistence is None or not target_plan_id:
+            return None
+
+        try:
+            plan_data = self._persistence.get_candidate_plan(target_plan_id)
+        except (PersistenceApiError, KeyError, RuntimeError):
+            return None
+
+        resolved_matter_id = matter_id or str(plan_data.get("matter_id", ""))
+        resolved_user_id = user_id or "demo-user"
+        if not resolved_matter_id:
+            return None
+
+        resolved_ws_version = (
+            workspace_version
+            if workspace_version is not None
+            else self._backend.get_workspace_version(resolved_matter_id)
         )
+        backend_status = str(plan_data.get("status", "pending"))
+        if backend_status == "confirmed":
+            run_status = RunStatus.COMPLETED
+        elif backend_status == "rejected":
+            run_status = RunStatus.CANCELLED
+        elif backend_status == "expired":
+            run_status = RunStatus.FAILED
+        else:
+            run_status = RunStatus.WAITING_CONFIRMATION
+
+        recovered = RunCheckpoint(
+            run_id=run_id,
+            user_id=resolved_user_id,
+            matter_id=resolved_matter_id,
+            workspace_version=resolved_ws_version,
+            status=run_status,
+            persisted_plan_id=str(plan_data.get("id", target_plan_id)),
+            written_tasks=_parse_written_tasks(plan_data, resolved_matter_id),
+        )
+        self._checkpoints[run_id] = recovered
+        return recovered
 
     def _persist_candidates(
         self,
@@ -536,6 +614,27 @@ class AgentOrchestrator:
         raw_plan_id = plan_resp.get("id")
         plan_id = str(raw_plan_id) if raw_plan_id is not None else None
         return persisted_ids, plan_id
+
+    def _result_from_checkpoint(
+        self,
+        cp: RunCheckpoint,
+        *,
+        error: AgentError | None = None,
+    ) -> AgentRunResult:
+        return AgentRunResult(
+            run_id=cp.run_id,
+            status=cp.status,
+            extracted_requirements=cp.extracted_requirements,
+            evaluations=cp.evaluations,
+            gaps=cp.gaps,
+            scope_summary=cp.scope_summary,
+            candidate_plan=cp.candidate_plan,
+            persisted_requirement_ids=cp.persisted_requirement_ids,
+            persisted_plan_id=cp.persisted_plan_id,
+            written_tasks=cp.written_tasks,
+            error=error if error is not None else cp.error,
+            execution_records=cp.execution_records,
+        )
 
     def _save_terminal_or_wait(
         self,
@@ -578,6 +677,35 @@ class AgentOrchestrator:
         )
 
 
+def _parse_written_tasks(payload: dict[str, Any], matter_id: str) -> list[WrittenTask]:
+    raw_tasks = payload.get("tasks")
+    if not isinstance(raw_tasks, list):
+        return []
+    written: list[WrittenTask] = []
+    for item in raw_tasks:
+        if not isinstance(item, dict):
+            continue
+        raw_obligation = item.get("obligation_nature")
+        obligation = (
+            _API_OBLIGATION_TO_ENUM.get(str(raw_obligation), ObligationType.PENDING_VERIFICATION)
+            if raw_obligation is not None
+            else ObligationType.OFFICIAL_REQUIRED
+        )
+        written.append(
+            WrittenTask(
+                task_id=str(item.get("id") or item.get("task_id") or ""),
+                matter_id=str(item.get("matter_id") or matter_id),
+                title=str(item.get("title") or ""),
+                obligation=obligation,
+                official_deadline=item.get("official_deadline_at") or item.get("official_deadline"),
+                suggested_date=item.get("suggested_date"),
+                depends_on=[str(d) for d in item.get("depends_on", [])],
+                evidence_required=str(item.get("evidence_required") or ""),
+            )
+        )
+    return written
+
+
 def _can_persist_uuids(
     requirements: list[ExtractedRequirement],
     plan: CandidatePlan,
@@ -586,15 +714,15 @@ def _can_persist_uuids(
     for req in requirements:
         for cite in req.basis:
             doc = sources_by_id.get(cite.source_version_id)
-            sid = cite.source_id or (doc.source_id if doc else None)
-            snap = cite.snapshot_id or (doc.snapshot_id if doc else None)
+            sid = doc.source_id if doc else cite.source_id
+            snap = doc.snapshot_id if doc else cite.snapshot_id
             if not _is_uuid(sid) or not _is_uuid(snap):
                 return False
     for task in plan.tasks:
         for cite in task.basis:
             doc = sources_by_id.get(cite.source_version_id)
-            sid = cite.source_id or (doc.source_id if doc else None)
-            snap = cite.snapshot_id or (doc.snapshot_id if doc else None)
+            sid = doc.source_id if doc else cite.source_id
+            snap = doc.snapshot_id if doc else cite.snapshot_id
             if not _is_uuid(sid) or not _is_uuid(snap):
                 return False
     return True

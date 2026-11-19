@@ -19,7 +19,13 @@ from backend.agent.schemas import (
 class SourceReaderPort(Protocol):
     """Port for public official source reading (owned by 蔡信坡)."""
 
-    def fetch_sources(self, urls: list[str], goal: str) -> list[SourceDocument]:
+    def fetch_sources(
+        self,
+        urls: list[str],
+        goal: str,
+        *,
+        scope_year: int | None = None,
+    ) -> list[SourceDocument]:
         """Fetch official source documents with publisher, version, and attachment metadata."""
         ...
 
@@ -46,7 +52,7 @@ class ModelAdapterPort(Protocol):
 
 
 class CandidatePersistencePort(Protocol):
-    """Port for persisting candidate requirements and pending plans (PR #41)."""
+    """Port for persisting, reading, and deciding candidate plans (PR #41)."""
 
     def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         """Persist extracted requirements + evidence and return created records."""
@@ -54,6 +60,18 @@ class CandidatePersistencePort(Protocol):
 
     def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Persist pending candidate plan + items + item sources and return plan detail."""
+        ...
+
+    def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
+        """Fetch a persisted candidate plan detail by plan_id."""
+        ...
+
+    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        """Confirm a persisted candidate plan idempotently on the backend."""
+        ...
+
+    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        """Reject a persisted candidate plan idempotently on the backend."""
         ...
 
 

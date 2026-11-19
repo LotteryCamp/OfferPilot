@@ -24,12 +24,14 @@ from backend.agent import (
     ExtractedRequirement,
     ExtractedRequirementDraft,
     ObligationType,
+    PersistenceApiError,
     PublicHtmlSourceReader,
     RequirementExtractionPayload,
     RunContext,
     RunStatus,
     SourceCitation,
     SourceDocument,
+    SourceFragmentRecord,
     SourceGap,
     SourceReadUnavailableError,
     StructuredModelAdapter,
@@ -37,6 +39,7 @@ from backend.agent import (
     build_candidate_plan_create_payload,
     build_requirements_batch_payload,
     evaluate_requirements,
+    find_expired_plan_tasks,
     source_document_from_backend_record,
     source_document_from_public_result,
 )
@@ -61,7 +64,6 @@ class InMemoryWorkspaceBackend:
     def __init__(self, *, workspace_version: int = 1, consent_valid: bool = True) -> None:
         self.workspace_version = workspace_version
         self.consent_valid = consent_valid
-        self.written_tasks: list[WrittenTask] = []
         self.records: list[ExecutionRecord] = []
 
     def check_permission(self, user_id: str, matter_id: str, auth_level: AuthLevel) -> bool:
@@ -81,30 +83,19 @@ class InMemoryWorkspaceBackend:
         expected_workspace_version: int,
         operation_id: str,
     ) -> list[WrittenTask]:
-        tasks = [
-            WrittenTask(
-                task_id=t.task_id,
-                matter_id=matter_id,
-                title=t.title,
-                obligation=t.obligation,
-                official_deadline=t.official_deadline_at or t.official_deadline,
-                suggested_date=t.suggested_date,
-                depends_on=t.depends_on,
-                evidence_required=t.evidence_required,
-            )
-            for t in candidate_plan.tasks
-        ]
-        self.written_tasks.extend(tasks)
-        return tasks
+        return []
 
     def record_execution(self, matter_id: str, record: ExecutionRecord) -> None:
         self.records.append(record)
 
 
 class InMemoryPersistence:
-    def __init__(self) -> None:
+    def __init__(self, *, clock_fn: Any = None) -> None:
         self.requirement_payloads: list[dict[str, Any]] = []
         self.plan_payloads: list[dict[str, Any]] = []
+        self.plans: dict[str, dict[str, Any]] = {}
+        self.written_tasks: list[dict[str, Any]] = []
+        self._clock_fn = clock_fn
 
     def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         self.requirement_payloads.append(payload)
@@ -112,7 +103,45 @@ class InMemoryPersistence:
 
     def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         self.plan_payloads.append(payload)
-        return {"id": str(uuid4()), "status": "pending", **payload}
+        plan_id = str(uuid4())
+        plan = {
+            "id": plan_id,
+            "matter_id": matter_id,
+            "status": "pending",
+            "items": payload["items"],
+            "tasks": [],
+        }
+        self.plans[plan_id] = plan
+        return plan
+
+    def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
+        return self.plans[plan_id]
+
+    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        plan = self.plans[plan_id]
+        if self._clock_fn is not None:
+            now: datetime = self._clock_fn()
+            for item in plan["items"]:
+                raw_at = item.get("official_deadline_at")
+                if raw_at and datetime.fromisoformat(raw_at) < now:
+                    raise PersistenceApiError(
+                        409,
+                        "候选计划包含已过的官方期限",
+                        error_code="official_deadline_passed",
+                    )
+        tasks = [
+            {"id": str(uuid4()), "matter_id": plan["matter_id"], "title": item["title"]}
+            for item in plan["items"]
+        ]
+        plan["status"] = "confirmed"
+        plan["tasks"] = tasks
+        self.written_tasks.extend(tasks)
+        return {"plan_id": plan_id, "status": "confirmed", "tasks": tasks}
+
+    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        plan = self.plans[plan_id]
+        plan["status"] = "rejected"
+        return {"plan_id": plan_id, "status": "rejected", "tasks": []}
 
 
 def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
@@ -135,6 +164,14 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
         published_date=date(2026, 9, 8),
         content=FX_S4_EXCERPT,
         content_hash=FX_S4_SHA256,
+        fragments=[
+            SourceFragmentRecord(locator_kind="section", locator="第（5）项", quote=FX_S4_EXCERPT),
+            SourceFragmentRecord(
+                locator_kind="section",
+                locator="第（5）项括号补充",
+                quote="符合推免条件但放弃的同学需要提供放弃推免资格承诺书，本人签字按手印",
+            ),
+        ],
     )
 
     def replay_call_model[T: BaseModel](
@@ -245,15 +282,17 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
         return response_model.model_validate(plan_payload.model_dump())
 
     backend = InMemoryWorkspaceBackend(workspace_version=1)
-    persistence = InMemoryPersistence()
     replay_clock = datetime(2026, 9, 9, 9, 0, tzinfo=SHANGHAI)
+    prod_clock = datetime(2026, 11, 18, 8, 0, tzinfo=SHANGHAI)
+    current_clock = [replay_clock]
+    persistence = InMemoryPersistence(clock_fn=lambda: current_clock[0])
 
     orch = AgentOrchestrator(
         source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
         model_adapter=StructuredModelAdapter(replay_call_model),
         backend=backend,
         persistence=persistence,
-        clock=lambda: replay_clock,
+        clock=lambda: current_clock[0],
     )
 
     ctx = RunContext(
@@ -270,7 +309,7 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
 
     result = orch.start_run(ctx)
     assert result.status == RunStatus.WAITING_CONFIRMATION
-    assert backend.written_tasks == []
+    assert persistence.written_tasks == []
     assert result.persisted_plan_id is not None
     assert len(result.persisted_requirement_ids) == 2
     assert any(g.gap_type == "missing_basis" for g in result.gaps)
@@ -283,36 +322,98 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
     assert t2.official_deadline_at is None
     assert t2.official_deadline_date == date(2026, 9, 10)
 
-    # Verify PR #41 persisted payloads
+    # Verify PR #41 persisted payloads preserve evidence_required description in detail
     assert len(persistence.requirement_payloads) == 1
     assert len(persistence.plan_payloads) == 1
     req_batch = persistence.requirement_payloads[0]["requirements"]
     assert all(FIELD_KEY_RE.fullmatch(item["field_key"]) for item in req_batch)
     plan_items = persistence.plan_payloads[0]["items"]
     assert plan_items[0]["obligation_nature"] == "required"
+    assert "所需证据：已准备申请表、科研/竞赛证明与成绩单" in plan_items[0]["detail"]
     assert plan_items[1]["obligation_nature"] == "optional"
     assert plan_items[1]["official_deadline_at"] is None
     assert plan_items[1]["official_deadline_date"] == "2026-09-10"
 
-    # Production clock (2026-11-18) must refuse confirmation with DEADLINE_EXPIRED
-    prod_clock = datetime(2026, 11, 18, 8, 0, tzinfo=SHANGHAI)
+    # Production clock (2026-11-18) must refuse confirmation via backend with DEADLINE_EXPIRED
+    current_clock[0] = prod_clock
+    assert find_expired_plan_tasks(result.candidate_plan, prod_clock) == ["T-01", "T-02"]
     expired_confirm = orch.confirm_plan(
         result.run_id,
         candidate_version=1,
         operation_id="op-expired-01",
-        as_of=prod_clock,
     )
-    assert expired_confirm.status == RunStatus.WAITING_CONFIRMATION
+    assert expired_confirm.status == RunStatus.FAILED
     assert expired_confirm.error is not None
     assert expired_confirm.error.code == AgentErrorCode.DEADLINE_EXPIRED
-    assert backend.written_tasks == []
+    assert persistence.written_tasks == []
 
     # Production clock start_run flags expired_source gap
     prod_run = orch.start_run(ctx.model_copy(update={"as_of": prod_clock}))
     assert any(g.gap_type == "expired_source" for g in prod_run.gaps)
 
 
-def test_a14_and_a03_failures_never_create_fake_success() -> None:
+def test_p1_citation_rejects_fictional_locator_excerpt_or_mismatched_uuid() -> None:
+    source_uuid = "b0000000-0000-4000-8000-000000000001"
+    snapshot_uuid = "b0000000-0000-4000-8000-000000000002"
+    doc = SourceDocument(
+        source_version_id=snapshot_uuid,
+        source_id=source_uuid,
+        snapshot_id=snapshot_uuid,
+        title="官方通知",
+        publisher="某校",
+        content=FX_S4_EXCERPT,
+        fragments=[
+            SourceFragmentRecord(locator_kind="section", locator="第（5）项", quote=FX_S4_EXCERPT)
+        ],
+    )
+
+    bad_cases = [
+        # Fictional locator not in fragments
+        SourceCitation(source_version_id=snapshot_uuid, locator="第九十九条", excerpt="于2026年9月10日下午15:00前提交"),
+        # Fictional excerpt not in quote
+        SourceCitation(source_version_id=snapshot_uuid, locator="第（5）项", excerpt="虚构的保研名额保证"),
+        # Mismatched snapshot_id UUID
+        SourceCitation(
+            source_version_id=snapshot_uuid,
+            source_id=source_uuid,
+            snapshot_id="b0000000-0000-4000-8000-999999999999",
+            locator="第（5）项",
+            excerpt="于2026年9月10日下午15:00前提交",
+        ),
+    ]
+
+    for bad_cite in bad_cases:
+        def bad_model[T: BaseModel](
+            instruction: str,
+            text: str,
+            response_model: type[T],
+            cite: SourceCitation = bad_cite,
+        ) -> T:
+            payload = RequirementExtractionPayload(
+                requirements=[
+                    ExtractedRequirementDraft(
+                        requirement_id="R-BAD",
+                        title="测试引用",
+                        obligation=ObligationType.OFFICIAL_REQUIRED,
+                        basis=[cite],
+                    )
+                ]
+            )
+            return response_model.model_validate(payload.model_dump())
+
+        orch = AgentOrchestrator(
+            source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
+            model_adapter=StructuredModelAdapter(bad_model),
+            backend=InMemoryWorkspaceBackend(),
+            persistence=InMemoryPersistence(),
+        )
+        res = orch.start_run(RunContext(user_id="u1", matter_id="m1", goal="测试引用校验", workspace_version=1))
+        assert res.status == RunStatus.FAILED
+        assert res.error is not None
+        assert res.error.code == AgentErrorCode.VALIDATION_FAILED
+
+
+def test_a14_and_a03_failures_and_scope_year_forwarding() -> None:
     snapshot_uuid = "b0000000-0000-4000-8000-000000000002"
     doc = SourceDocument(
         source_version_id=snapshot_uuid,
@@ -337,65 +438,36 @@ def test_a14_and_a03_failures_never_create_fake_success() -> None:
             raise SimulatedModelError(code, f"模拟失败: {code}")
 
         persistence = InMemoryPersistence()
-        backend = InMemoryWorkspaceBackend()
         orch = AgentOrchestrator(
             source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
             model_adapter=StructuredModelAdapter(fail_model),
-            backend=backend,
+            backend=InMemoryWorkspaceBackend(),
             persistence=persistence,
         )
         res = orch.start_run(
-            RunContext(
-                user_id="u1",
-                matter_id="m1",
-                goal="测试失败路径",
-                workspace_version=1,
-            )
+            RunContext(user_id="u1", matter_id="m1", goal="测试失败路径", workspace_version=1)
         )
         assert res.status == RunStatus.FAILED
         assert res.error is not None
         assert res.error.code == expected_code
         assert persistence.plan_payloads == []
-        assert backend.written_tasks == []
+        assert persistence.written_tasks == []
 
-    # Hallucinated source_version_id must fail validation
-    def hallucinate_model[T: BaseModel](
-        instruction: str,
-        text: str,
-        response_model: type[T],
-    ) -> T:
-        payload = RequirementExtractionPayload(
-            requirements=[
-                ExtractedRequirementDraft(
-                    requirement_id="R-HALLUCINATED",
-                    title="编造出处",
-                    obligation=ObligationType.OFFICIAL_REQUIRED,
-                    basis=[SourceCitation(source_version_id="non-existent-id", locator="第一条")],
-                )
-            ]
-        )
-        return response_model.model_validate(payload.model_dump())
+    # A-03 + scope_year pass-through check
+    captured_requests: list[dict[str, Any]] = []
 
-    orch_halluc = AgentOrchestrator(
-        source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
-        model_adapter=StructuredModelAdapter(hallucinate_model),
-        backend=InMemoryWorkspaceBackend(),
-    )
-    res_halluc = orch_halluc.start_run(
-        RunContext(user_id="u1", matter_id="m1", goal="测试引用校验", workspace_version=1)
-    )
-    assert res_halluc.status == RunStatus.FAILED
-    assert res_halluc.error is not None
-    assert res_halluc.error.code == AgentErrorCode.VALIDATION_FAILED
-
-    # A-03: source read failure returns SOURCE_UNAVAILABLE
     def fail_reader(req: dict[str, Any]) -> Any:
+        captured_requests.append(req)
         raise SourceReadUnavailableError("network_error", "source could not be reached")
+
+    def dummy_model[T: BaseModel](instruction: str, text: str, response_model: type[T]) -> T:
+        return response_model.model_validate({})
 
     orch_src_fail = AgentOrchestrator(
         source_reader=PublicHtmlSourceReader(read_public_html_fn=fail_reader),
-        model_adapter=StructuredModelAdapter(hallucinate_model),
+        model_adapter=StructuredModelAdapter(dummy_model),
         backend=InMemoryWorkspaceBackend(),
+        persistence=InMemoryPersistence(),
     )
     res_src = orch_src_fail.start_run(
         RunContext(
@@ -403,15 +475,17 @@ def test_a14_and_a03_failures_never_create_fake_success() -> None:
             matter_id="m1",
             goal="测试来源读取失败",
             workspace_version=1,
+            scope_year=2026,
             source_urls=["https://math.fzu.edu.cn/info/1171/10393.htm"],
         )
     )
+    assert captured_requests[0]["scope_year"] == 2026
     assert res_src.status == RunStatus.FAILED
     assert res_src.error is not None
     assert res_src.error.code == AgentErrorCode.SOURCE_UNAVAILABLE
 
 
-def test_pr24_domain_probe_fixes() -> None:
+def test_pr24_domain_probe_fixes_and_p2_malformed_params() -> None:
     s5_doc = SourceDocument(
         source_version_id="S5-v1",
         title="福大经管学院推免通知",
@@ -425,7 +499,54 @@ def test_pr24_domain_probe_fixes() -> None:
         publisher="东南大学信息科学与工程学院",
         content="英语要求：原则上四级>=500或六级>=425或托福>=80或雅思>=6。",
     )
-    sources = {"S5-v1": s5_doc, "S6-v1": s6_doc}
+    failed_doc = SourceDocument(
+        source_version_id="S-FAIL",
+        title="校验失败通知",
+        publisher="某校",
+        content="内容",
+        auto_check_status="failed",
+    )
+    ambiguous_doc = SourceDocument(
+        source_version_id="S-AMB",
+        title="范围不明通知",
+        publisher="某校",
+        content="内容",
+        roi_status="ambiguous",
+    )
+    sources = {"S5-v1": s5_doc, "S6-v1": s6_doc, "S-FAIL": failed_doc, "S-AMB": ambiguous_doc}
+
+    # P2: failed / ambiguous source statuses must yield NEEDS_USER_REVIEW, never MATCHED
+    req_fail = ExtractedRequirement(
+        requirement_id="R-FAIL",
+        title="失败来源条款",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="S-FAIL", locator="第一条")],
+    )
+    req_amb = ExtractedRequirement(
+        requirement_id="R-AMB",
+        title="歧义来源条款",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="S-AMB", locator="第一条")],
+    )
+    ev_src_bad, err_src_bad = evaluate_requirements([req_fail, req_amb], sources, {})
+    assert err_src_bad is not None
+    assert err_src_bad.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+    assert ev_src_bad[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert ev_src_bad[1].status == EvaluationStatus.NEEDS_USER_REVIEW
+
+    # P2: empty/malformed relative_deadline parameters must not raise KeyError
+    req_bad_rel = ExtractedRequirement(
+        requirement_id="R-BAD-REL",
+        title="参数缺失的相对时限",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="S5-v1", locator="一（四）")],
+        rule_kind="relative_deadline",
+        rule_parameters={},
+    )
+    ev_bad_rel, err_bad_rel = evaluate_requirements([req_bad_rel], sources, {})
+    assert err_bad_rel is not None
+    assert err_bad_rel.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+    assert ev_bad_rel[0].status == EvaluationStatus.NEEDS_USER_REVIEW
 
     # Issue 1 (A17, A21, A22): any_minimum
     req_eng = ExtractedRequirement(
@@ -453,7 +574,7 @@ def test_pr24_domain_probe_fixes() -> None:
     assert ev_a22[0].status == EvaluationStatus.MISSING_INFO
     assert ev_a22[0].missing_fields == ["cet6", "toefl", "ielts"]
 
-    # Issue 2 (A12, A13, A14): relative_deadline + strict fixed_deadline
+    # Issue 2 (A12, A13, A14): relative_deadline
     req_rel = ExtractedRequirement(
         requirement_id="GR-05",
         title="24小时内确认复试",
@@ -600,3 +721,4 @@ def test_source_bridges_and_pr41_contract_payloads() -> None:
     plan_payload = build_candidate_plan_create_payload(plan, sources_map, {"R-1": str(uuid4())})
     assert plan_payload["items"][0]["sources"][0]["locator_kind"] == "section"
     assert plan_payload["items"][0]["official_deadline_date"] == "2026-09-10"
+    assert "所需证据：电子版PDF" in plan_payload["items"][0]["detail"]

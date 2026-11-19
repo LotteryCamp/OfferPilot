@@ -79,8 +79,14 @@ def _resolve_citation_uuids(
     sources_by_id: dict[str, SourceDocument],
 ) -> tuple[str, str]:
     doc = sources_by_id.get(cite.source_version_id)
-    source_id = cite.source_id or (doc.source_id if doc else None)
-    snapshot_id = cite.snapshot_id or (doc.snapshot_id if doc else None)
+    if doc is None:
+        raise ValueError(f"引用 {cite.source_version_id} 不在当前已加载来源中")
+    if cite.source_id is not None and doc.source_id is not None and cite.source_id != doc.source_id:
+        raise ValueError(f"引用 {cite.source_version_id} 的 source_id 与真实来源记录不一致")
+    if cite.snapshot_id is not None and doc.snapshot_id is not None and cite.snapshot_id != doc.snapshot_id:
+        raise ValueError(f"引用 {cite.source_version_id} 的 snapshot_id 与真实来源记录不一致")
+    source_id = doc.source_id or cite.source_id
+    snapshot_id = doc.snapshot_id or cite.snapshot_id
     if not source_id or not snapshot_id:
         raise ValueError(f"引用 {cite.source_version_id} 缺少 UUID 格式的 source_id 或 snapshot_id")
     UUID(source_id)
@@ -209,11 +215,14 @@ def build_candidate_plan_create_payload(
             UUID(candidate_uuid)
             mapped_req_id = candidate_uuid
 
+        evidence_note = f"所需证据：{task.evidence_required}"
+        detail_text = f"{task.detail}\n{evidence_note}" if task.detail else evidence_note
+
         items_payload.append(
             {
                 "client_item_id": task.task_id[:80],
                 "title": task.title[:160],
-                "detail": task.detail,
+                "detail": detail_text,
                 "obligation_nature": to_api_obligation(task.obligation),
                 "official_deadline_date": deadline_date.isoformat() if deadline_date else None,
                 "official_deadline_at": _format_iso_dt(deadline_at),
@@ -233,15 +242,24 @@ def _format_iso_dt(value: datetime | None) -> str | None:
 
 
 class PersistenceApiError(RuntimeError):
-    """Raised when persisting candidate requirements or plans to the backend API fails."""
+    """Raised when persisting or deciding candidate plans via the backend API fails."""
 
-    def __init__(self, status_code: int, message: str) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        message: str,
+        *,
+        error_code: str | None = None,
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.error_code = error_code
+        self.retryable = retryable
 
 
 class HttpCandidatePersistenceClient:
-    """HTTP client targeting PR #41 backend candidate endpoints; never invokes /confirm."""
+    """HTTP client targeting PR #41 single-user demo backend candidate & decision endpoints."""
 
     def __init__(self, base_url: str, *, timeout_seconds: float = 10.0) -> None:
         self._base_url = base_url.rstrip("/")
@@ -249,21 +267,62 @@ class HttpCandidatePersistenceClient:
 
     def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
         """Persist extracted requirements via POST /api/v1/matters/{matter_id}/requirements."""
-        data = self._post_json(f"{self._base_url}/api/v1/matters/{matter_id}/requirements", payload)
+        data = self._request_json(
+            "POST",
+            f"{self._base_url}/api/v1/matters/{matter_id}/requirements",
+            payload=payload,
+        )
         return list(data.get("requirements", []))
 
     def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Persist pending candidate plan via POST /api/v1/matters/{matter_id}/candidate-plans."""
-        data = self._post_json(f"{self._base_url}/api/v1/matters/{matter_id}/candidate-plans", payload)
+        data = self._request_json(
+            "POST",
+            f"{self._base_url}/api/v1/matters/{matter_id}/candidate-plans",
+            payload=payload,
+        )
         return dict(data.get("plan", data))
 
-    def _post_json(self, url: str, payload: dict[str, Any]) -> dict[str, Any]:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
+        """Read persisted candidate plan via GET /api/v1/candidate-plans/{plan_id}."""
+        data = self._request_json("GET", f"{self._base_url}/api/v1/candidate-plans/{plan_id}")
+        return dict(data.get("plan", data))
+
+    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        """Confirm a persisted candidate plan via POST /api/v1/candidate-plans/{plan_id}/confirm."""
+        return self._request_json(
+            "POST",
+            f"{self._base_url}/api/v1/candidate-plans/{plan_id}/confirm",
+            headers={"Idempotency-Key": operation_id},
+        )
+
+    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+        """Reject a persisted candidate plan via POST /api/v1/candidate-plans/{plan_id}/reject."""
+        return self._request_json(
+            "POST",
+            f"{self._base_url}/api/v1/candidate-plans/{plan_id}/reject",
+            headers={"Idempotency-Key": operation_id},
+        )
+
+    def _request_json(
+        self,
+        method: str,
+        url: str,
+        *,
+        payload: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        req_headers = dict(headers or {})
+        body: bytes | None = None
+        if payload is not None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            req_headers["Content-Type"] = "application/json"
+
         request = urllib.request.Request(
             url,
             data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
+            headers=req_headers,
+            method=method,
         )
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:
@@ -271,6 +330,27 @@ class HttpCandidatePersistenceClient:
                 return json.loads(raw)
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise PersistenceApiError(exc.code, f"后端接口返回 HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise PersistenceApiError(503, f"无法连接后端接口: {exc.reason}") from exc
+            error_code: str | None = None
+            message = f"后端接口返回 HTTP {exc.code}: {detail}"
+            try:
+                parsed = json.loads(detail)
+                err_obj = parsed.get("error")
+                if isinstance(err_obj, dict):
+                    error_code = err_obj.get("code")
+                    if isinstance(err_obj.get("message"), str):
+                        message = err_obj["message"]
+            except ValueError:
+                pass
+            raise PersistenceApiError(
+                exc.code,
+                message,
+                error_code=error_code,
+                retryable=exc.code >= 500,
+            ) from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise PersistenceApiError(
+                503,
+                f"后端接口请求超时或连接中断: {exc}",
+                error_code="connection_uncertain",
+                retryable=True,
+            ) from exc
