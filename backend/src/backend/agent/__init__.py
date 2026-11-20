@@ -9,6 +9,7 @@ from backend.agent.contracts import (
     normalize_field_key,
     to_api_extract_status,
     to_api_obligation,
+    to_api_self_check_conclusion,
 )
 from backend.agent.gateway import ALLOWED_TOOLS, GatewayError, ToolGateway
 from backend.agent.model_bridge import (
@@ -119,5 +120,6 @@ __all__ = [
     "source_document_from_public_result",
     "to_api_extract_status",
     "to_api_obligation",
+    "to_api_self_check_conclusion",
     "validate_candidate_plan",
 ]

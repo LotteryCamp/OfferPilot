@@ -24,6 +24,7 @@ GRANT SELECT ON ops.source, ops.snapshot, ops.evidence TO offerpilot_app;
 
 -- 事项聚合：应用只做常规增改；删除由管理任务执行。
 GRANT SELECT, INSERT, UPDATE ON core.matter, core.requirement TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core.requirement_self_check TO offerpilot_app;
 GRANT SELECT, INSERT, UPDATE, DELETE
     ON core.candidate_plan, core.candidate_plan_item, core.candidate_plan_item_source
     TO offerpilot_app;

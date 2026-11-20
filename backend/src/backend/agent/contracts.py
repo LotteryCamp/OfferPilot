@@ -20,6 +20,7 @@ from backend.agent.schemas import (
     RequirementEvaluation,
     SourceCitation,
     SourceDocument,
+    SourceGap,
 )
 
 ApiObligationNature = Literal["required", "advised", "optional", "to_verify"]
@@ -35,11 +36,13 @@ _OBLIGATION_TO_API: dict[ObligationType, ApiObligationNature] = {
     ObligationType.PENDING_VERIFICATION: "to_verify",
 }
 
-_STATUS_TO_API: dict[EvaluationStatus, ApiExtractStatus] = {
-    EvaluationStatus.MATCHED: "checked",
-    EvaluationStatus.NOT_MATCHED: "checked",
-    EvaluationStatus.MISSING_INFO: "to_review",
-    EvaluationStatus.NEEDS_USER_REVIEW: "to_review",
+ApiSelfCheckConclusion = Literal["matched", "not_matched", "missing_info", "needs_user_review"]
+
+_CONCLUSION_TO_API: dict[EvaluationStatus, ApiSelfCheckConclusion] = {
+    EvaluationStatus.MATCHED: "matched",
+    EvaluationStatus.NOT_MATCHED: "not_matched",
+    EvaluationStatus.MISSING_INFO: "missing_info",
+    EvaluationStatus.NEEDS_USER_REVIEW: "needs_user_review",
 }
 
 
@@ -48,9 +51,27 @@ def to_api_obligation(obligation: ObligationType) -> ApiObligationNature:
     return _OBLIGATION_TO_API[obligation]
 
 
-def to_api_extract_status(status: EvaluationStatus) -> ApiExtractStatus:
-    """Convert internal EvaluationStatus to PR #41 API extract_status enum."""
-    return _STATUS_TO_API[status]
+def to_api_self_check_conclusion(status: EvaluationStatus) -> ApiSelfCheckConclusion:
+    """Convert the four-state self-check conclusion to its stored API code."""
+    return _CONCLUSION_TO_API[status]
+
+
+def to_api_extract_status(
+    req: ExtractedRequirement,
+    evaluation: RequirementEvaluation | None,
+) -> ApiExtractStatus:
+    """Derive the extraction state of a requirement record.
+
+    extract_status describes how far the extracted record has been verified, and is kept
+    apart from the self-check conclusion: ``to_review`` marks an ambiguous clause or an
+    unresolved review doubt, ``checked`` means the agreed self-check ran without such a doubt,
+    and ``extracted`` means no self-check ran.
+    """
+    if evaluation is None:
+        return "to_review" if req.is_ambiguous else "extracted"
+    if req.is_ambiguous or evaluation.status == EvaluationStatus.NEEDS_USER_REVIEW:
+        return "to_review"
+    return "checked"
 
 
 def normalize_api_locator_kind(kind: LocatorKind) -> ApiLocatorKind:
@@ -117,12 +138,50 @@ def _format_value_text(
     return stripped
 
 
+def _build_self_check_payload(
+    req: ExtractedRequirement,
+    evaluation: RequirementEvaluation,
+    gaps: list[SourceGap],
+    sources_by_id: dict[str, SourceDocument],
+) -> dict[str, Any]:
+    gap_items: list[dict[str, Any]] = []
+    cited_versions = {cite.source_version_id for cite in req.basis}
+    for gap in gaps:
+        if gap.related_requirement_ids:
+            if req.requirement_id not in gap.related_requirement_ids:
+                continue
+        elif gap.source_version_id not in cited_versions:
+            continue
+        doc = sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
+        gap_items.append(
+            {
+                "gap_type": gap.gap_type,
+                "description": gap.description,
+                "locator": gap.locator,
+                "source_id": doc.source_id if doc is not None else None,
+                "snapshot_id": doc.snapshot_id if doc is not None else None,
+            }
+        )
+    return {
+        "conclusion": to_api_self_check_conclusion(evaluation.status),
+        "reason": evaluation.reason,
+        "missing_fields": list(evaluation.missing_fields),
+        "computed_deadline_at": _format_iso_dt(evaluation.computed_deadline),
+        "gaps": gap_items,
+    }
+
+
 def build_requirements_batch_payload(
     requirements: list[ExtractedRequirement],
     evaluations: list[RequirementEvaluation],
     sources_by_id: dict[str, SourceDocument],
+    gaps: list[SourceGap] | None = None,
 ) -> dict[str, Any]:
-    """Build exact POST /api/v1/matters/{matter_id}/requirements request body."""
+    """Build exact POST /api/v1/matters/{matter_id}/requirements request body.
+
+    Each item carries ``extract_status`` for the extraction state and a separate
+    ``self_check`` object for the four-state conclusion, reason, missing facts and gaps.
+    """
     eval_by_req = {ev.requirement_id: ev for ev in evaluations}
     payload_items: list[dict[str, Any]] = []
 
@@ -147,8 +206,9 @@ def build_requirements_batch_payload(
             raise ValueError(f"要求 {req.requirement_id} 缺少有效的快照证据")
 
         ev = eval_by_req.get(req.requirement_id)
-        extract_status: ApiExtractStatus = (
-            to_api_extract_status(ev.status) if ev is not None else "extracted"
+        extract_status = to_api_extract_status(req, ev)
+        self_check = (
+            _build_self_check_payload(req, ev, gaps or [], sources_by_id) if ev is not None else None
         )
         value_text = req.value_text
         if value_text is None and req.official_deadline is not None:
@@ -167,6 +227,7 @@ def build_requirements_batch_payload(
                 "confidence": req.confidence,
                 "snapshot_id": primary_snapshot_id,
                 "evidence": evidence_list,
+                "self_check": self_check,
             }
         )
 
