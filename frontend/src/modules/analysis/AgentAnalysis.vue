@@ -247,7 +247,9 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
       >
     </div>
     <p v-if="blockedReason && !busy && !checking" class="muted">{{ blockedReason }}</p>
-    <p v-if="busy" role="status">正在等待分析返回，请勿重复提交。离开页面不会停止后台运行。</p>
+    <p v-if="busy" role="status">
+      正在等待完整分析流程返回，真实模型可能需要数分钟，请勿重复提交。离开页面不会停止后台运行。
+    </p>
     <p v-if="error" class="error-text" role="alert" data-testid="analysis-error">{{ error }}</p>
     <section
       v-if="run"
