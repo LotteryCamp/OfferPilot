@@ -1,6 +1,6 @@
 # 个人事项工作区集成约定
 
-本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`f7c2800`）](https://github.com/LotteryCamp/OfferPilot/blob/f7c2800038e98e5af356e314ea7de061ce38558e/docs/backend/api.md)，运行持久化及恢复依赖该分支的数据库迁移 `0010_persistence_recovery.sql`。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
+本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`16a647a`）](https://github.com/LotteryCamp/OfferPilot/blob/16a647a5ff61fee327a262f40f7c0435a81a86bc/docs/backend/api.md)，排名事实与候选依据隔离依赖截至 `0012_core_fact_matter.sql` 的数据库迁移。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
 
 ## 责任与文件边界
 
