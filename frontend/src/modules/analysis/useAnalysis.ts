@@ -57,13 +57,13 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
   }
 
   async function start(sourceId: string, input: Omit<AnalysisInput, 'operation_id'>) {
-    if (busy.value || checking.value || !storageReady.value) return
+    if (busy.value || checking.value || !storageReady.value) return null
     if (
       !canStartAnotherRun(
         run.value?.status ?? (attempt.value?.status === '不可查询' ? null : attempt.value?.status),
       )
     )
-      return
+      return null
     const context = matterId()
     const ticket = generation
     error.value = ''
@@ -79,7 +79,7 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
     } catch {
       storageReady.value = false
       error.value = '浏览器无法保存运行标识，尚未发起分析。请检查会话存储设置。'
-      return
+      return null
     }
     run.value = null
     busy.value = true
@@ -90,12 +90,14 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
         { ...input, operation_id: current.operationId },
         controller.signal,
       )
-      if (ticket !== generation) return
+      if (ticket !== generation) return null
       run.value = result
       remember({ ...current, runId: result.run_id, status: result.status })
       onRead()
+      return result
     } catch (cause) {
       if (ticket === generation) error.value = analysisError(cause)
+      return null
     } finally {
       if (ticket === generation) busy.value = false
     }

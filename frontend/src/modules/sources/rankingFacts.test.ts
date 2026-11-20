@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertSavedRanking,
+  assertRankingScope,
+  sameRankingVersion,
   rankingFact,
   rankingReadResponse,
   rankingSaveInput,
@@ -9,6 +11,7 @@ import {
 
 const saved = {
   id: '90000000-0000-4000-8000-000000000001',
+  matter_id: 'a0000000-0000-4000-8000-000000000001',
   fact_type: 'gpa.rank',
   value: { position: 18, cohort_size: 120, percentile: 15 },
   value_text: '18/120',
@@ -24,6 +27,24 @@ const saved = {
 }
 
 describe('后端成绩排名协议', () => {
+  it('当前记录与历史记录均须属于请求事项', () => {
+    const fact = rankingFact.parse(saved)
+    expect(() => assertRankingScope([fact], saved.matter_id)).not.toThrow()
+    expect(() => assertRankingScope([fact], crypto.randomUUID())).toThrow()
+    expect(() =>
+      assertRankingScope([fact, { ...fact, matter_id: crypto.randomUUID() }], saved.matter_id),
+    ).toThrow()
+  })
+  it('重读须匹配事实ID、事项、版本和内容指纹', () => {
+    const fact = rankingFact.parse(saved)
+    expect(sameRankingVersion(fact, { ...fact })).toBe(true)
+    expect(sameRankingVersion(fact, { ...fact, version_no: 2 })).toBe(false)
+    expect(sameRankingVersion(fact, { ...fact, id: crypto.randomUUID() })).toBe(false)
+    expect(sameRankingVersion(fact, { ...fact, matter_id: crypto.randomUUID() })).toBe(false)
+    expect(sameRankingVersion(fact, { ...fact, value_hash: 'b'.repeat(64) })).toBe(false)
+    expect(sameRankingVersion(null, fact)).toBe(false)
+    expect(sameRankingVersion(null, null)).toBe(true)
+  })
   it('将前15%按百分数读取，不接受与名次不符的小数比例', () => {
     expect(rankingFact.parse(saved).value.percentile).toBe(15)
     expect(

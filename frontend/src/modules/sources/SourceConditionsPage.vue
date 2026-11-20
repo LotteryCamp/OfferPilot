@@ -25,6 +25,8 @@ const matterId = computed(() => normalizeMatterId(props.matterId))
 const selectedSourceId = ref('')
 const selectedSnapshotId = ref('')
 const lastReadSource = ref<SourceReadResult | null>(null)
+const analysisPanel = ref<InstanceType<typeof AgentAnalysis> | null>(null)
+const rankingPanel = ref<InstanceType<typeof RankingSupplement> | null>(null)
 const selectedSource = computed(() =>
   sources.value.find((item) => item.id === selectedSourceId.value),
 )
@@ -97,6 +99,11 @@ function sourceChanged() {
   emit('changed')
 }
 
+async function recheckRanking(sourceId: string | null) {
+  if (!sourceId || analysisSource.value?.id !== sourceId) return null
+  return (await analysisPanel.value?.start(sourceId)) ?? null
+}
+
 function selectSource(id: string) {
   lastReadSource.value = null
   selectedSourceId.value = id
@@ -143,8 +150,22 @@ function openEvidence(sourceId: string, snapshotId: string) {
     </ElAlert>
 
     <SourceImport :matter="matter" :analyzed-snapshots="analyzedSnapshots" @read="sourceRead" />
-    <AgentAnalysis :matter="matter" :source="analysisSource" @changed="sourceChanged" />
-    <RankingSupplement :matter-id="matterId" />
+    <AgentAnalysis
+      ref="analysisPanel"
+      :matter="matter"
+      :source="analysisSource"
+      :ranking-saving="rankingPanel?.writing ?? false"
+      @changed="sourceChanged"
+    />
+    <RankingSupplement
+      ref="rankingPanel"
+      :matter-id="matterId"
+      :source-id="analysisSource?.id ?? null"
+      :analysis-busy="analysisPanel?.busy ?? false"
+      :recheck-unavailable="analysisPanel?.blockedReason ?? '分析入口正在准备，请稍后重试。'"
+      :recheck="recheckRanking"
+      @changed="sourceChanged"
+    />
 
     <div v-if="error" role="alert" class="read-error panel">
       <strong>读取未完成</strong>

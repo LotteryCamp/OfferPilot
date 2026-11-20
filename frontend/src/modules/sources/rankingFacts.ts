@@ -21,6 +21,7 @@ const rankValue = z
 
 export const rankingFact = z.object({
   id: z.uuid(),
+  matter_id: z.uuid(),
   fact_type: z.literal('gpa.rank'),
   value: rankValue,
   value_text: z.string(),
@@ -74,6 +75,20 @@ export const rankingSaveResponse = z.object({
 })
 export type RankingFact = z.infer<typeof rankingFact>
 export type RankingSaveInput = z.infer<typeof rankingSaveInput>
+
+export function assertRankingScope(facts: RankingFact[], matterId: string) {
+  if (facts.some((fact) => fact.matter_id !== matterId))
+    throw new Error('排名记录与当前事项不一致，已停止展示和提交。')
+}
+
+export function sameRankingVersion(a: RankingFact | null, b: RankingFact | null) {
+  return a === null || b === null
+    ? a === b
+    : a.matter_id === b.matter_id &&
+        a.id === b.id &&
+        a.version_no === b.version_no &&
+        a.value_hash === b.value_hash
+}
 
 export function assertSavedRanking(fact: RankingFact, input: RankingSaveInput) {
   if (
