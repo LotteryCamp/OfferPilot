@@ -9,17 +9,21 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
 </script>
 
 <template>
-  <section class="panel requirements">
+  <section class="panel requirements" data-testid="requirements" :data-snapshot-id="snapshot.id">
     <div class="section-heading">
       <h2>本版本的要求</h2>
       <span class="muted">{{ snapshot.requirements.length }} 条</span>
     </div>
-    <ElEmpty
-      v-if="!snapshot.requirements.length"
-      description="此版本暂无关联要求"
-      :image-size="72"
-    />
-    <article v-for="rule in snapshot.requirements" :key="rule.id" class="requirement-card">
+    <ElEmpty v-if="!snapshot.requirements.length" description="已读取，待分析" :image-size="72">
+      <p class="muted">此快照尚无关联要求，可先查看原文。</p>
+    </ElEmpty>
+    <article
+      v-for="rule in snapshot.requirements"
+      :key="rule.id"
+      class="requirement-card"
+      data-testid="requirement-card"
+      :data-requirement-id="rule.id"
+    >
       <h3>{{ rule.label }}</h3>
       <div class="tags">
         <ElTag type="info" effect="plain">{{
@@ -35,6 +39,8 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
       <section
         v-if="rule.self_check"
         class="self-check"
+        data-testid="self-check"
+        :data-conclusion="rule.self_check.conclusion"
         :aria-label="`${rule.label}的辅助自查结果`"
       >
         <div class="section-heading">

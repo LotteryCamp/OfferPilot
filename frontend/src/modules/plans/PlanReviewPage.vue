@@ -54,13 +54,15 @@ function itemName(id: string) {
     <h2>事项标识无效</h2>
     <RouterLink to="/matters">返回事项工作台</RouterLink>
   </section>
-  <div v-else class="business-module plan-page">
+  <div v-else class="business-module plan-page" data-testid="plan-page">
     <div class="page-heading">
       <div>
         <h2>审阅候选计划</h2>
         <p class="muted">核对范围、任务性质、时间与来源依据。</p>
       </div>
-      <ElButton :loading="loading" :disabled="submitting" @click="reload">重新读取</ElButton>
+      <ElButton data-testid="plan-refresh" :loading="loading" :disabled="submitting" @click="reload"
+        >重新读取</ElButton
+      >
     </div>
     <ElAlert
       type="info"
@@ -183,7 +185,12 @@ function itemName(id: string) {
             </div>
           </article>
         </section>
-        <section v-if="plan.status === 'confirmed'" class="panel">
+        <section
+          v-if="plan.status === 'confirmed'"
+          class="panel"
+          data-testid="plan-tasks"
+          :data-plan-id="plan.id"
+        >
           <div class="section-heading">
             <h2>本计划的个人任务</h2>
             <ElButton :disabled="submitting" :loading="loading" @click="reload">刷新任务</ElButton>
@@ -225,7 +232,13 @@ function itemName(id: string) {
         </section>
       </div>
       <aside v-if="plan" class="source-content">
-        <section class="panel decision-panel" aria-label="计划决定">
+        <section
+          class="panel decision-panel"
+          aria-label="计划决定"
+          data-testid="plan-decision"
+          :data-plan-id="plan.id"
+          :data-plan-status="plan.status"
+        >
           <h2>你的决定</h2>
           <p v-if="decisionError" role="alert" class="error-text">{{ decisionError }}</p>
           <template v-if="plan.status === 'pending'">
@@ -241,6 +254,7 @@ function itemName(id: string) {
             >
             <div class="decision-buttons">
               <ElButton
+                data-testid="plan-confirm"
                 type="primary"
                 :loading="submitting && (!attempt || attempt.action === 'confirm')"
                 :disabled="!canDecide || (!!attempt && attempt.action !== 'confirm')"
@@ -248,6 +262,7 @@ function itemName(id: string) {
                 >{{ attempt?.action === 'confirm' ? '重试确认' : '确认采用并创建任务' }}</ElButton
               >
               <ElButton
+                data-testid="plan-reject"
                 :loading="submitting && attempt?.action === 'reject'"
                 :disabled="!canDecide || (!!attempt && attempt.action !== 'reject')"
                 @click="review.decide('reject')"

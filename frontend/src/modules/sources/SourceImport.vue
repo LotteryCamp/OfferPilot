@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import axios from 'axios'
 import { z } from 'zod'
 import { ElButton, ElInput } from 'element-plus'
@@ -8,7 +8,7 @@ import type { SourceReadResult } from './contracts'
 import { readPublicSource } from './api'
 import { displayDate, safeSourceUrl } from './presentation'
 
-const props = defineProps<{ matter: Matter }>()
+const props = defineProps<{ matter: Matter; analyzedSnapshots: ReadonlySet<string> }>()
 const emit = defineEmits<{ read: [] }>()
 const url = ref('')
 const publisher = ref('')
@@ -16,6 +16,11 @@ const scope = ref('')
 const submitting = ref(false)
 const error = ref('')
 const result = ref<SourceReadResult | null>(null)
+const hasAnalysis = computed(
+  () =>
+    result.value !== null &&
+    props.analyzedSnapshots.has(`${result.value.source.id}/${result.value.snapshot.id}`),
+)
 let request: AbortController | undefined
 let sequence = 0
 
@@ -90,7 +95,7 @@ async function submit() {
 </script>
 
 <template>
-  <details class="panel source-import">
+  <details class="panel source-import" data-testid="source-import">
     <summary>读取公开通知</summary>
     <p class="muted">
       支持公开 HTML 通知页面。读取后可查看原文及出处，相关要求生成后会出现在来源列表。
@@ -123,6 +128,7 @@ async function submit() {
       <p class="muted">适用年度：{{ matter.scope_year ?? '未填写，暂时无法读取来源' }}</p>
       <p v-if="error" class="error-text" role="alert">{{ error }}</p>
       <ElButton
+        data-testid="source-read-submit"
         native-type="submit"
         type="primary"
         :loading="submitting"
@@ -130,8 +136,22 @@ async function submit() {
         >读取通知</ElButton
       >
     </form>
-    <section v-if="result" class="import-result" aria-label="本次来源读取结果">
-      <p role="status"><strong>已读取通知</strong> · 快照 v{{ result.snapshot.version_no }}</p>
+    <section
+      v-if="result"
+      class="import-result"
+      aria-label="本次来源读取结果"
+      data-testid="source-read-result"
+      :data-source-id="result.source.id"
+      :data-snapshot-id="result.snapshot.id"
+    >
+      <p role="status">
+        <strong>{{ hasAnalysis ? '已读取通知' : '已读取，待分析' }}</strong> · 快照 v{{
+          result.snapshot.version_no
+        }}
+      </p>
+      <p v-if="!hasAnalysis" class="muted">
+        关联列表尚未返回本快照的要求。原文读取已完成，分析与自查结果需后续生成。
+      </p>
       <h3>{{ result.snapshot.title || '来源未提供标题' }}</h3>
       <p>
         {{ result.source.publisher }} · {{ result.source.scope_year }} 年 ·

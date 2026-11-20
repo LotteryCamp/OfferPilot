@@ -42,6 +42,16 @@ const requirementCount = computed(() =>
 const displayedSelfCheckCount = computed(
   () => selectedSnapshot.value?.requirements.filter((rule) => rule.self_check).length ?? 0,
 )
+const analyzedSnapshots = computed(
+  () =>
+    new Set(
+      sources.value.flatMap((source) =>
+        source.snapshots
+          .filter((snapshot) => snapshot.requirements.length > 0)
+          .map((snapshot) => `${source.id}/${snapshot.id}`),
+      ),
+    ),
+)
 
 watch(
   matterId,
@@ -95,7 +105,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
     <p>请从已有事项进入，或重新输入有效的事项标识。</p>
     <RouterLink to="/matters">返回事项工作台</RouterLink>
   </section>
-  <div v-else class="business-module source-page">
+  <div v-else class="business-module source-page" data-testid="sources-page">
     <div class="page-heading">
       <div>
         <h2>来源与条件</h2>
@@ -105,7 +115,9 @@ function openEvidence(sourceId: string, snapshotId: string) {
         <RouterLink :to="{ name: 'matter-plan', params: { matterId } }" class="secondary-link"
           >审阅候选计划 →</RouterLink
         >
-        <ElButton :loading="loading" @click="reload">刷新资料</ElButton>
+        <ElButton data-testid="sources-refresh" :loading="loading" @click="reload"
+          >刷新资料</ElButton
+        >
       </div>
     </div>
 
@@ -113,7 +125,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
       机器提取和程序检查仅表示处理状态。请结合原文及适用范围核对。
     </ElAlert>
 
-    <SourceImport :matter="matter" @read="sourceRead" />
+    <SourceImport :matter="matter" :analyzed-snapshots="analyzedSnapshots" @read="sourceRead" />
     <RankingSupplement :matter-id="matterId" />
 
     <div v-if="error" role="alert" class="read-error panel">
@@ -163,6 +175,8 @@ function openEvidence(sourceId: string, snapshotId: string) {
               :key="item.id"
               type="button"
               class="source-card"
+              data-testid="source-card"
+              :data-source-id="item.id"
               :class="{ selected: item.id === selectedSourceId }"
               :aria-pressed="item.id === selectedSourceId"
               @click="selectedSourceId = item.id"
