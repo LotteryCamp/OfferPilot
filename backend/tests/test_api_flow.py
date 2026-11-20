@@ -79,6 +79,7 @@ def test_source_requirement_and_plan_read(client: TestClient) -> None:
         source_body["snapshots"][0]["requirements"][0]["evidence"][0]["locator"]
         == "第（5）项"
     )
+    assert source_body["snapshots"][0]["requirements"][0]["self_check"] is None
 
     detail = client.get(f"/api/v1/candidate-plans/{plan['plan']['id']}")
     assert detail.status_code == 200, detail.text
@@ -197,6 +198,76 @@ def test_critical_basis_gap_blocks_confirm(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "basis_unresolved"
     detail = client.get(f"/api/v1/candidate-plans/{plan['plan']['id']}").json()
     assert detail["plan"]["status"] == "pending"
+
+
+def test_missing_basis_gap_blocks_confirm(client: TestClient) -> None:
+    matter_id = _create_matter(client)
+    source = _create_source(client, matter_id)
+    requirement = _create_requirement(
+        client,
+        matter_id,
+        source,
+        self_check={
+            "conclusion": "missing_info",
+            "reason": "缺少来源依据",
+            "missing_fields": [],
+            "gaps": [
+                {
+                    "gap_type": "missing_basis",
+                    "description": "缺少来源依据",
+                    "locator": "第（5）项",
+                    "source_id": source["source"]["id"],
+                    "snapshot_id": source["snapshot"]["id"],
+                }
+            ],
+        },
+    )
+    plan = _create_plan(client, matter_id, source, requirement)
+
+    response = client.post(
+        f"/api/v1/candidate-plans/{plan['plan']['id']}/confirm",
+        headers={"Idempotency-Key": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1"},
+    )
+    assert response.status_code == 409, response.text
+    error = response.json()["error"]
+    assert error["code"] == "basis_unresolved"
+    assert error["details"]["gaps"][0]["gap_type"] == "missing_basis"
+    detail = client.get(f"/api/v1/candidate-plans/{plan['plan']['id']}").json()
+    assert detail["plan"]["status"] == "pending"
+
+
+def test_missing_personal_fact_allows_confirm(client: TestClient) -> None:
+    matter_id = _create_matter(client)
+    source = _create_source(client, matter_id)
+    requirement = _create_requirement(
+        client,
+        matter_id,
+        source,
+        self_check={
+            "conclusion": "missing_info",
+            "reason": "待补充英语水平",
+            "missing_fields": ["cet6"],
+            "gaps": [
+                {
+                    "gap_type": "missing_personal_fact",
+                    "description": "待补充英语水平",
+                    "locator": "第（5）项",
+                    "source_id": source["source"]["id"],
+                    "snapshot_id": source["snapshot"]["id"],
+                }
+            ],
+        },
+    )
+    plan = _create_plan(client, matter_id, source, requirement)
+
+    response = client.post(
+        f"/api/v1/candidate-plans/{plan['plan']['id']}/confirm",
+        headers={"Idempotency-Key": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "confirmed"
+    assert len(body["tasks"]) == 2
 
 
 def test_source_doubt_blocks_confirm(client: TestClient) -> None:
@@ -437,6 +508,13 @@ def test_read_public_source_registers_snapshot_for_citation(
             },
         )
         assert requirement.status_code == 201, requirement.text
+        created_requirement = requirement.json()["requirements"][0]
+        assert created_requirement["self_check"]["conclusion"] == "needs_user_review"
+        assert created_requirement["self_check"]["missing_fields"] == []
+        assert (
+            created_requirement["self_check"]["computed_deadline_at"]
+            == "2026-09-10T07:00:00+00:00"
+        )
 
         sources = client.get(f"/api/v1/matters/{matter_id}/sources").json()["sources"]
         assert len(sources) == 1

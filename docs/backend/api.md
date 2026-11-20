@@ -856,6 +856,8 @@ sequenceDiagram
 | 8 | 依据来源是否可用 | `409 source_unavailable` |
 | 9 | 写入确认决定、计划状态与全部任务 | 同一数据库事务提交 |
 
+关键依据缺口包括 `missing_basis`、`repost_only`、`expired_source`、`scope_unclear`、`ambiguous_clause`、`read_failed`；`missing_personal_fact` 与 `missing_attachment` 不阻塞确认。来源状态非 `active`、自动检查为 `failed`、`conflict`、`roi_status` 非 `original`、适用期结束或快照非当前版本时，确认返回 `409 source_unavailable`。
+
 确认成功后：
 
 - 计划状态为 `confirmed`，写入 `confirmed_at`、`confirmed_by` 和 `op_id`。
