@@ -87,6 +87,7 @@ def _replay_call_model(state: _ReplayState):
                         basis=[
                             SourceCitation(
                                 source_version_id=source_version_id,
+                                locator_kind=fragment.locator.kind,
                                 locator=fragment.locator_text,
                                 excerpt="2026年9月10日下午15:00前",
                             )
@@ -117,6 +118,7 @@ def _replay_call_model(state: _ReplayState):
                     basis=[
                         SourceCitation(
                             source_version_id=source_version_id,
+                            locator_kind=fragment.locator.kind,
                             locator=fragment.locator_text,
                             excerpt="2026年9月10日下午15:00前",
                         )
