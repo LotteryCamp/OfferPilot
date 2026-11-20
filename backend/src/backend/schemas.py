@@ -135,6 +135,31 @@ class EvidenceInput(RequestModel):
     quote: str | None = None
 
 
+class SelfCheckGapInput(RequestModel):
+    gap_type: Literal[
+        "missing_attachment",
+        "missing_basis",
+        "missing_personal_fact",
+        "repost_only",
+        "expired_source",
+        "scope_unclear",
+        "ambiguous_clause",
+        "read_failed",
+    ]
+    description: str = Field(min_length=1)
+    locator: str | None = Field(default=None, max_length=300)
+    source_id: UUID | None = None
+    snapshot_id: UUID | None = None
+
+
+class RequirementSelfCheckInput(RequestModel):
+    conclusion: Literal["matched", "not_matched", "missing_info", "needs_user_review"]
+    reason: str = Field(min_length=1)
+    missing_fields: list[str] = Field(default_factory=list)
+    computed_deadline_at: AwareDatetime | None = None
+    gaps: list[SelfCheckGapInput] = Field(default_factory=list)
+
+
 class RequirementInput(RequestModel):
     field_key: str = Field(pattern=FIELD_KEY_PATTERN)
     label: str = Field(min_length=1, max_length=120)
@@ -150,6 +175,7 @@ class RequirementInput(RequestModel):
     confidence: Decimal | None = Field(default=None, ge=0, le=1)
     snapshot_id: UUID
     evidence: list[EvidenceInput] = Field(min_length=1)
+    self_check: RequirementSelfCheckInput | None = None
 
     @model_validator(mode="after")
     def check_value(self) -> RequirementInput:

@@ -72,7 +72,7 @@
 
 ## 响应示例
 
-要求读取接口在每条要求中返回同样结构的 `self_check`，并附带 `id` 与 `evidence`：
+要求读取接口在每条要求中返回同样结构的 `self_check`，并附带 `id` 与 `evidence`。事项来源链接口 `GET /api/v1/matters/{matter_id}/sources` 的每条要求都包含该字段；没有自查结果时为 `null`。
 
 ```json
 {

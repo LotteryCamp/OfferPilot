@@ -41,6 +41,7 @@ from backend.agent.validators import (
     find_expired_plan_tasks,
     validate_candidate_plan,
 )
+from backend.basis import CRITICAL_BASIS_GAP_TYPES
 
 _API_OBLIGATION_TO_ENUM: dict[str, ObligationType] = {
     "required": ObligationType.OFFICIAL_REQUIRED,
@@ -48,6 +49,7 @@ _API_OBLIGATION_TO_ENUM: dict[str, ObligationType] = {
     "optional": ObligationType.OPTIONAL,
     "to_verify": ObligationType.PENDING_VERIFICATION,
 }
+_NON_TERMINAL_CONFIRM_ERRORS = frozenset({"basis_unresolved", "source_unavailable"})
 
 
 class AgentOrchestrator:
@@ -105,7 +107,9 @@ class AgentOrchestrator:
             raise RuntimeError("未配置候选持久化服务，无法读取持久化计划")
         return self._persistence.get_candidate_plan(plan_id)
 
-    def start_run(self, context: RunContext) -> AgentRunResult:
+    def start_run(
+        self, context: RunContext, *, run_id: str | None = None
+    ) -> AgentRunResult:
         """Execute retrieval, extraction, four-state check, candidate generation, and persistence.
 
         Alpha normal path requires candidate persistence to succeed before returning WAITING_CONFIRMATION.
@@ -118,7 +122,7 @@ class AgentOrchestrator:
             if cached_result is not None:
                 return cached_result
 
-        run_id = f"run-{uuid4().hex[:12]}"
+        run_id = run_id or f"run-{uuid4().hex[:12]}"
         records = []
         requires_transfer_consent = bool(context.confirmed_facts or context.scope_attrs)
 
@@ -528,10 +532,7 @@ class AgentOrchestrator:
                 return self._result_from_checkpoint(cp, error=err)
 
             critical_gaps = [
-                g
-                for g in cp.gaps
-                if g.gap_type
-                in ("missing_basis", "repost_only", "expired_source", "read_failed")
+                g for g in cp.gaps if g.gap_type in CRITICAL_BASIS_GAP_TYPES
             ]
             unusable_sources = [
                 s
@@ -570,7 +571,11 @@ class AgentOrchestrator:
             )
         except GatewayError as exc:
             cp.error = exc.error
-            if exc.error.code != AgentErrorCode.TIMEOUT:
+            backend_code = str(exc.error.details.get("backend_code", ""))
+            if (
+                exc.error.code != AgentErrorCode.TIMEOUT
+                and backend_code not in _NON_TERMINAL_CONFIRM_ERRORS
+            ):
                 cp.status = RunStatus.FAILED
             return self._result_from_checkpoint(cp, error=exc.error)
 

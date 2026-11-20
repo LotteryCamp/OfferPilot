@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
-from backend.basis import build_basis_input, compute_basis_version
+from backend.basis import (
+    CRITICAL_BASIS_GAP_TYPES,
+    build_basis_input,
+    compute_basis_version,
+    is_source_basis_usable,
+)
 from backend.config import Settings
 from backend.errors import ApiError
 from backend.schemas import CandidatePlanCreate, CandidatePlanItemInput
@@ -28,6 +33,7 @@ from backend.tables import (
     candidate_plan_item_source,
     matter,
     requirement,
+    requirement_self_check,
     snapshot,
     source,
     task,
@@ -280,9 +286,9 @@ def lock_basis_sources(session: Session, matter_id: UUID, plan_id: UUID) -> None
         )
 
 
-def current_basis_is_available(
-    session: Session, matter_id: UUID, plan_id: UUID
-) -> bool:
+def current_basis_source_issues(
+    session: Session, matter_id: UUID, plan_id: UUID, *, today: date
+) -> list[str]:
     used_snapshot_ids = (
         select(requirement.c.snapshot_id)
         .where(
@@ -299,11 +305,63 @@ def current_basis_is_available(
         )
     )
     rows = session.execute(
-        select(source.c.status, snapshot.c.is_current)
+        select(
+            source.c.id.label("source_id"),
+            source.c.status,
+            source.c.auto_check_status,
+            source.c.roi_status,
+            source.c.valid_to,
+            snapshot.c.is_current,
+        )
         .join(snapshot, snapshot.c.source_id == source.c.id)
         .where(snapshot.c.id.in_(used_snapshot_ids))
-    ).all()
-    return all(status == "active" and is_current for status, is_current in rows)
+    ).mappings()
+    issues: list[str] = []
+    for row in rows:
+        if not is_source_basis_usable(
+            status=row["status"],
+            auto_check_status=row["auto_check_status"],
+            roi_status=row["roi_status"],
+            is_current=row["is_current"],
+            valid_to=row["valid_to"],
+            today=today,
+        ):
+            issues.append(uuid_text(row["source_id"]) or "")
+    return sorted({source_id for source_id in issues if source_id})
+
+
+def current_basis_gap_issues(session: Session, matter_id: UUID) -> list[dict[str, Any]]:
+    rows = session.execute(
+        select(requirement_self_check.c.gaps)
+        .join(
+            requirement,
+            requirement.c.id == requirement_self_check.c.requirement_id,
+        )
+        .where(
+            requirement.c.matter_id == matter_id,
+            requirement.c.extract_status != "rejected",
+        )
+    ).scalars()
+    issues: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for gaps in rows:
+        for gap in gaps or []:
+            gap_type = str(gap.get("gap_type", ""))
+            if gap_type not in CRITICAL_BASIS_GAP_TYPES:
+                continue
+            description = str(gap.get("description", ""))
+            key = (gap_type, description)
+            if key in seen:
+                continue
+            seen.add(key)
+            issues.append(
+                {
+                    "gap_type": gap_type,
+                    "description": description,
+                    "locator": gap.get("locator"),
+                }
+            )
+    return issues
 
 
 def _validate_requirements(
@@ -476,6 +534,7 @@ def _plan_detail(session: Session, plan_id: UUID, workspace_id: UUID) -> dict[st
         row["requirement_id"] for row in item_rows if row["requirement_id"] is not None
     }
     requirements_by_id: dict[UUID, dict[str, Any]] = {}
+    self_check_by_requirement: dict[UUID, dict[str, Any]] = {}
     if requirement_ids:
         for row in session.execute(
             select(requirement).where(requirement.c.id.in_(requirement_ids))
@@ -487,6 +546,20 @@ def _plan_detail(session: Session, plan_id: UUID, workspace_id: UUID) -> dict[st
                 "obligation_nature": row["obligation_nature"],
                 "extract_status": row["extract_status"],
             }
+        for row in session.execute(
+            select(requirement_self_check).where(
+                requirement_self_check.c.requirement_id.in_(requirement_ids)
+            )
+        ).mappings():
+            self_check_by_requirement[row["requirement_id"]] = {
+                "conclusion": row["conclusion"],
+                "reason": row["reason"],
+                "missing_fields": list(row["missing_fields"] or []),
+                "computed_deadline_at": iso(row["computed_deadline_at"]),
+                "gaps": list(row["gaps"] or []),
+            }
+        for requirement_id, summary in requirements_by_id.items():
+            summary["self_check"] = self_check_by_requirement.get(requirement_id)
 
     decision_row = (
         session.execute(

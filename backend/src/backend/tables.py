@@ -230,6 +230,42 @@ requirement = Table(
     schema="core",
 )
 
+requirement_self_check = Table(
+    "requirement_self_check",
+    metadata,
+    Column("requirement_id", UUID_TYPE, primary_key=True),
+    Column("conclusion", String(24), nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("missing_fields", ARRAY(Text), nullable=False),
+    Column("computed_deadline_at", TIMESTAMPTZ),
+    Column("gaps", JSONB, nullable=False),
+    Column("evaluated_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
+matter_source = Table(
+    "matter_source",
+    metadata,
+    Column("matter_id", UUID_TYPE, primary_key=True),
+    Column("snapshot_id", UUID_TYPE, primary_key=True),
+    Column("linked_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
+agent_run = Table(
+    "agent_run",
+    metadata,
+    Column("run_id", String(64), primary_key=True),
+    Column("matter_id", UUID_TYPE, nullable=False),
+    Column("user_id", UUID_TYPE, nullable=False),
+    Column("status", String(24), nullable=False),
+    Column("operation_id", String(200)),
+    Column("checkpoint", JSONB(none_as_null=True)),
+    Column("created_at", TIMESTAMPTZ, nullable=False),
+    Column("updated_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
 evidence = Table(
     "evidence",
     metadata,

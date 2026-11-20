@@ -166,6 +166,56 @@ def test_confirm_is_idempotent_and_tasks_trace_sources(
     assert matter["latest_plan"]["status"] == "confirmed"
 
 
+def test_critical_basis_gap_blocks_confirm(client: TestClient) -> None:
+    matter_id = _create_matter(client)
+    source = _create_source(client, matter_id)
+    requirement = _create_requirement(
+        client,
+        matter_id,
+        source,
+        self_check={
+            "conclusion": "needs_user_review",
+            "reason": "材料范围表述需核对",
+            "gaps": [
+                {
+                    "gap_type": "ambiguous_clause",
+                    "description": "材料范围表述需核对",
+                    "locator": "第（5）项",
+                    "source_id": source["source"]["id"],
+                    "snapshot_id": source["snapshot"]["id"],
+                }
+            ],
+        },
+    )
+    plan = _create_plan(client, matter_id, source, requirement)
+
+    response = client.post(
+        f"/api/v1/candidate-plans/{plan['plan']['id']}/confirm",
+        headers={"Idempotency-Key": "55555555-5555-7555-8555-555555555555"},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "basis_unresolved"
+    detail = client.get(f"/api/v1/candidate-plans/{plan['plan']['id']}").json()
+    assert detail["plan"]["status"] == "pending"
+
+
+def test_source_doubt_blocks_confirm(client: TestClient) -> None:
+    matter_id = _create_matter(client)
+    payload = _source_payload()
+    payload["auto_check_status"] = "conflict"
+    source = client.post(f"/api/v1/matters/{matter_id}/sources", json=payload).json()
+    requirement = _create_requirement(client, matter_id, source)
+    plan = _create_plan(client, matter_id, source, requirement)
+
+    response = client.post(
+        f"/api/v1/candidate-plans/{plan['plan']['id']}/confirm",
+        headers={"Idempotency-Key": "66666666-6666-7666-8666-666666666666"},
+    )
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "source_unavailable"
+    assert response.json()["error"]["details"]["source_ids"] == [source["source"]["id"]]
+
+
 def test_basis_change_expires_plan(
     client: TestClient, admin: psycopg.Connection
 ) -> None:
@@ -341,6 +391,13 @@ def test_read_public_source_registers_snapshot_for_citation(
         assert replay.json()["created"] == {"source": False, "snapshot": False}
         assert replay.json()["snapshot"]["id"] == body["snapshot"]["id"]
 
+        linked = client.get(f"/api/v1/matters/{matter_id}/sources")
+        assert linked.status_code == 200, linked.text
+        linked_sources = linked.json()["sources"]
+        assert len(linked_sources) == 1
+        assert linked_sources[0]["id"] == body["source"]["id"]
+        assert linked_sources[0]["snapshots"][0]["requirements"] == []
+
         requirement = client.post(
             f"/api/v1/matters/{matter_id}/requirements",
             json={
@@ -360,6 +417,21 @@ def test_read_public_source_registers_snapshot_for_citation(
                                 "quote": excerpt["quote"],
                             }
                         ],
+                        "self_check": {
+                            "conclusion": "needs_user_review",
+                            "reason": "原文表述需结合申请材料确认",
+                            "missing_fields": [],
+                            "computed_deadline_at": "2026-09-10T15:00:00+08:00",
+                            "gaps": [
+                                {
+                                    "gap_type": "ambiguous_clause",
+                                    "description": "材料范围表述需核对",
+                                    "locator": excerpt["locator"],
+                                    "source_id": body["source"]["id"],
+                                    "snapshot_id": body["snapshot"]["id"],
+                                }
+                            ],
+                        },
                     }
                 ]
             },
@@ -372,6 +444,12 @@ def test_read_public_source_registers_snapshot_for_citation(
             sources[0]["snapshots"][0]["requirements"][0]["evidence"][0]["locator"]
             == excerpt["locator"]
         )
+        self_check = sources[0]["snapshots"][0]["requirements"][0]["self_check"]
+        assert self_check["conclusion"] == "needs_user_review"
+        assert self_check["reason"] == "原文表述需结合申请材料确认"
+        assert self_check["missing_fields"] == []
+        assert self_check["computed_deadline_at"] == "2026-09-10T07:00:00+00:00"
+        assert self_check["gaps"][0]["gap_type"] == "ambiguous_clause"
     finally:
         app.dependency_overrides.clear()
 
@@ -452,33 +530,38 @@ def _create_source(client: TestClient, matter_id: str) -> dict:
     return response.json()
 
 
-def _create_requirement(client: TestClient, matter_id: str, source: dict) -> dict:
+def _create_requirement(
+    client: TestClient,
+    matter_id: str,
+    source: dict,
+    *,
+    self_check: dict[str, Any] | None = None,
+) -> dict:
+    item: dict[str, Any] = {
+        "field_key": "application.deadline",
+        "label": "提交申请与材料截止",
+        "obligation_nature": "required",
+        "extract_status": "checked",
+        "scope": "2027 届、本院",
+        "value_text": "2026-09-10T15:00:00+08:00",
+        "value_type": "text",
+        "confidence": 0.9,
+        "snapshot_id": source["snapshot"]["id"],
+        "evidence": [
+            {
+                "source_id": source["source"]["id"],
+                "snapshot_id": source["snapshot"]["id"],
+                "locator_kind": "section",
+                "locator": "第（5）项",
+                "quote": FX_TEXT,
+            }
+        ],
+    }
+    if self_check is not None:
+        item["self_check"] = self_check
     response = client.post(
         f"/api/v1/matters/{matter_id}/requirements",
-        json={
-            "requirements": [
-                {
-                    "field_key": "application.deadline",
-                    "label": "提交申请与材料截止",
-                    "obligation_nature": "required",
-                    "extract_status": "checked",
-                    "scope": "2027 届、本院",
-                    "value_text": "2026-09-10T15:00:00+08:00",
-                    "value_type": "text",
-                    "confidence": 0.9,
-                    "snapshot_id": source["snapshot"]["id"],
-                    "evidence": [
-                        {
-                            "source_id": source["source"]["id"],
-                            "snapshot_id": source["snapshot"]["id"],
-                            "locator_kind": "section",
-                            "locator": "第（5）项",
-                            "quote": FX_TEXT,
-                        }
-                    ],
-                }
-            ]
-        },
+        json={"requirements": [item]},
     )
     assert response.status_code == 201, response.text
     return response.json()["requirements"][0]

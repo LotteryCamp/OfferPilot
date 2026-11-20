@@ -10,6 +10,7 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from sqlalchemy import func, insert, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from backend.config import Settings
@@ -34,8 +35,10 @@ from backend.tables import (
     candidate_plan_item,
     candidate_plan_item_source,
     evidence,
+    matter_source,
     matter_type,
     requirement,
+    requirement_self_check,
     snapshot,
     source,
 )
@@ -263,6 +266,12 @@ def register_source(
                 .one()
             )
 
+        _link_matter_source(
+            session,
+            matter_id=matter_id,
+            snapshot_id=snapshot_row["id"],
+            now=now,
+        )
         return {
             "source": _serialize_source({**source_row, "source_id": source_row["id"]}),
             "snapshot": _serialize_snapshot(
@@ -273,6 +282,20 @@ def register_source(
                 "snapshot": snapshot_created,
             },
         }
+
+
+def _link_matter_source(
+    session: Session,
+    *,
+    matter_id: UUID,
+    snapshot_id: UUID,
+    now: datetime,
+) -> None:
+    session.execute(
+        pg_insert(matter_source)
+        .values(matter_id=matter_id, snapshot_id=snapshot_id, linked_at=now)
+        .on_conflict_do_nothing(index_elements=["matter_id", "snapshot_id"])
+    )
 
 
 def read_and_register_source(
@@ -345,6 +368,7 @@ def list_matter_sources(
         )
         requirement_ids = [row["id"] for row in requirement_rows]
         evidence_by_requirement: dict[UUID, list[dict[str, Any]]] = defaultdict(list)
+        self_check_by_requirement: dict[UUID, dict[str, Any]] = {}
         if requirement_ids:
             evidence_rows = session.execute(
                 select(evidence)
@@ -358,8 +382,23 @@ def list_matter_sources(
                 evidence_by_requirement[row["target_id"]].append(
                     _serialize_evidence(row)
                 )
+            for row in session.execute(
+                select(requirement_self_check).where(
+                    requirement_self_check.c.requirement_id.in_(requirement_ids)
+                )
+            ).mappings():
+                self_check_by_requirement[row["requirement_id"]] = (
+                    _serialize_self_check(row)
+                )
 
         snapshot_ids = {row["snapshot_id"] for row in requirement_rows}
+        snapshot_ids.update(
+            session.execute(
+                select(matter_source.c.snapshot_id).where(
+                    matter_source.c.matter_id == matter_id
+                )
+            ).scalars()
+        )
         plan_snapshot_ids = session.execute(
             select(candidate_plan_item_source.c.snapshot_id)
             .join(
@@ -420,6 +459,7 @@ def list_matter_sources(
                 {
                     **_serialize_requirement(row),
                     "evidence": evidence_by_requirement[row["id"]],
+                    "self_check": self_check_by_requirement.get(row["id"]),
                 }
             )
 
@@ -526,6 +566,16 @@ def _serialize_requirement(row: Any) -> dict[str, Any]:
         "checked_at": iso(row["checked_at"]),
         "created_at": iso(row["created_at"]),
         "updated_at": iso(row["updated_at"]),
+    }
+
+
+def _serialize_self_check(row: Any) -> dict[str, Any]:
+    return {
+        "conclusion": row["conclusion"],
+        "reason": row["reason"],
+        "missing_fields": list(row["missing_fields"] or []),
+        "computed_deadline_at": iso(row["computed_deadline_at"]),
+        "gaps": list(row["gaps"] or []),
     }
 
 

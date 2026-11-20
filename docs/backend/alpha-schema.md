@@ -19,7 +19,7 @@
 
 ## 2. 表与视图
 
-### 2.1 业务表（14 张）
+### 2.1 业务表（16 张）
 
 | 表 | 用途 | 关键约束 |
 | :--- | :--- | :--- |
@@ -28,6 +28,8 @@
 | `core.matter_type` | 事项类型 | `type_code` 唯一，内置 `pre_recommend`、`competition` |
 | `core.template_version` | 模板版本 | 类型与版本号唯一；事项引用具体版本 |
 | `core.matter` | 个人事项 | 模板版本必填；年度 2020—2100；归档时间与状态一致 |
+| `core.matter_source` | 事项来源关联 | 来源读取或登记成功后立即关联；事项与快照唯一 |
+| `core.agent_run` | Agent 运行 | 状态与检查点持久化；重启前未完成运行标记为中断 |
 | `ops.source` | 公开来源 | URL 唯一；生命周期与自动检查状态分列 |
 | `ops.snapshot` | 来源快照 | 同源版本唯一；同源内容哈希唯一；只增不改 |
 | `ops.evidence` | 要求证据 | 四元组唯一；来源、快照、要求三者一致 |
@@ -147,7 +149,8 @@ erDiagram
 ## 5. 行级安全
 
 启用 RLS 的表：`matter`、`requirement`、`candidate_plan`、`candidate_plan_item`、
-`candidate_plan_item_source`、`candidate_plan_decision`、`task`、`requirement_self_check`。
+`candidate_plan_item_source`、`candidate_plan_decision`、`task`、`requirement_self_check`、
+`matter_source`、`agent_run`。
 
 策略条件：
 

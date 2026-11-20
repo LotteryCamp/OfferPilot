@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -20,6 +21,8 @@ from backend.routers import agent_runs, matters, plans, sources, tasks
 from backend.routers.deps import SessionDep
 from backend.services.agent_runs import AgentRunService
 from backend.services.sources import SourceReader, read_public_html
+
+logger = logging.getLogger(__name__)
 
 
 def create_app(
@@ -40,6 +43,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
+        try:
+            app.state.agent_runs.mark_interrupted_runs()
+        except Exception:
+            logger.warning("无法标记重启前的 Agent 运行", exc_info=True)
         yield
         engine.dispose()
 

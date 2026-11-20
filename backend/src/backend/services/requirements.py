@@ -18,7 +18,13 @@ from backend.services.common import (
     require_matter,
     transaction,
 )
-from backend.tables import evidence, requirement, snapshot, source
+from backend.tables import (
+    evidence,
+    requirement,
+    requirement_self_check,
+    snapshot,
+    source,
+)
 
 
 def create_requirements(
@@ -115,6 +121,19 @@ def _create_requirement(
         )
     )
 
+    if item.self_check is not None:
+        session.execute(
+            insert(requirement_self_check).values(
+                requirement_id=requirement_id,
+                conclusion=item.self_check.conclusion,
+                reason=item.self_check.reason,
+                missing_fields=item.self_check.missing_fields,
+                computed_deadline_at=item.self_check.computed_deadline_at,
+                gaps=[gap.model_dump(mode="json") for gap in item.self_check.gaps],
+                evaluated_at=now,
+            )
+        )
+
     evidence_payload = []
     for evidence_item in item.evidence:
         evidence_id = uuid4()
@@ -166,6 +185,14 @@ def _create_requirement(
         "created_at": iso(now),
         "updated_at": iso(now),
         "evidence": evidence_payload,
+        "self_check": (
+            {
+                **item.self_check.model_dump(mode="json"),
+                "computed_deadline_at": iso(item.self_check.computed_deadline_at),
+            }
+            if item.self_check is not None
+            else None
+        ),
     }
 
 

@@ -41,9 +41,9 @@ except SourceReadError as error:
 
 ## 事项接入和引用
 
-1. 前端在已确认归属的事项下调用 [业务接口](api.md) `POST /api/v1/matters/{matter_id}/sources/read`，请求体包含 `url`、`publisher`、`scope_year` 和可选的 `scope`、`title`。业务接口读取公开 HTML 页面，保存共享来源、快照和原文片段，并返回 `source`、`snapshot`、`created` 与 `document`。
+1. 前端在已确认归属的事项下调用 [业务接口](api.md) `POST /api/v1/matters/{matter_id}/sources/read`，请求体包含 `url`、`publisher`、`scope_year` 和可选的 `scope`、`title`。业务接口读取公开 HTML 页面，保存共享来源、快照和原文片段，立即关联当前事项，并返回 `source`、`snapshot`、`created` 与 `document`。
 2. `document` 是 Agent 输入，包含登记后的来源与快照标识、版本号、获取时间、来源状态和原文片段。Agent 用它生成要求与出处。
-3. Agent 将生成的要求和出处交给同一事项的 `POST /api/v1/matters/{matter_id}/requirements`。业务接口通过要求与快照建立事项关联，要求保存后可用 `GET /api/v1/matters/{matter_id}/sources` 回看。
+3. Agent 将生成的要求和出处交给同一事项的 `POST /api/v1/matters/{matter_id}/requirements`。要求保存后与来源快照一并出现在 `GET /api/v1/matters/{matter_id}/sources`；尚未生成要求时，已读取来源同样可以回看，其要求列表为空。
 
 需要分别控制读取与登记两个阶段时，可以直接调用本模块：用 `source_registration_payload(result)` 生成 `POST /api/v1/matters/{matter_id}/sources` 的请求体，登记成功后用 `source_document_from_registration(response)` 生成 Agent 输入。登记返回的来源标识、快照标识和版本号优先于读取阶段的临时结果。
 

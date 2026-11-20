@@ -48,11 +48,12 @@ def admin(database_urls: tuple[str, str]) -> Iterator[psycopg.Connection]:
     try:
         connection.execute(
             """
-            TRUNCATE core.task, core.candidate_plan_decision,
+            TRUNCATE core.agent_run, core.matter_source, core.task,
+                     core.candidate_plan_decision,
                      core.candidate_plan_item_source, core.candidate_plan_item,
-                     core.candidate_plan, core.requirement, ops.evidence,
-                     ops.snapshot, ops.source, core.matter, core.workspace,
-                     core.app_user
+                     core.candidate_plan, core.requirement_self_check,
+                     core.requirement, ops.evidence, ops.snapshot, ops.source,
+                     core.matter, core.workspace, core.app_user
             CASCADE
             """
         )

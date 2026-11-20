@@ -18,7 +18,8 @@ from backend.errors import ApiError
 from backend.services.common import iso, serialize_task_row, transaction, uuid_text
 from backend.services.plans import (
     collect_basis_input,
-    current_basis_is_available,
+    current_basis_gap_issues,
+    current_basis_source_issues,
     lock_basis_sources,
 )
 from backend.tables import (
@@ -214,12 +215,28 @@ def _confirm(
             expired=True,
             current_basis_version=current_hash,
         )
-    if not current_basis_is_available(session, matter_id, plan_id):
+    gap_issues = current_basis_gap_issues(session, matter_id)
+    if gap_issues:
+        raise ApiError(
+            409,
+            "basis_unresolved",
+            "候选计划存在未解决的关键依据疑点",
+            next_step="核对来源与要求中的缺口后重新生成候选计划",
+            details={"gaps": gap_issues},
+        )
+    unavailable_source_ids = current_basis_source_issues(
+        session,
+        matter_id,
+        plan_id,
+        today=now.astimezone(ZoneInfo(settings.demo_timezone)).date(),
+    )
+    if unavailable_source_ids:
         raise ApiError(
             409,
             "source_unavailable",
             "候选计划引用的来源当前不可用",
             next_step="重新检索并登记当前快照后生成新候选",
+            details={"source_ids": unavailable_source_ids},
         )
 
     session.execute(

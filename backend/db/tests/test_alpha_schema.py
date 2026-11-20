@@ -133,7 +133,8 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute("RESET app.current_workspace_id")
         self.conn.execute(
             """
-            TRUNCATE core.task, core.candidate_plan_item, core.candidate_plan,
+            TRUNCATE core.agent_run, core.matter_source, core.task,
+                     core.candidate_plan_item, core.candidate_plan,
                      core.requirement, core.matter, core.workspace, core.app_user,
                      ops.evidence, ops.snapshot, ops.source
             CASCADE
@@ -299,8 +300,10 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.matter_type",
             "core.template_version",
             "core.matter",
+            "core.matter_source",
             "core.requirement",
             "core.requirement_self_check",
+            "core.agent_run",
             "core.candidate_plan",
             "core.candidate_plan_item",
             "core.candidate_plan_item_source",

@@ -13,6 +13,39 @@ from uuid import UUID
 BASIS_CONTRACT_VERSION = "alpha-1"
 PLAN_STRATEGY_VERSION = "alpha-1"
 
+CRITICAL_BASIS_GAP_TYPES = frozenset(
+    {
+        "missing_basis",
+        "repost_only",
+        "expired_source",
+        "scope_unclear",
+        "ambiguous_clause",
+        "read_failed",
+    }
+)
+
+
+def has_critical_basis_gap(gaps: Iterable[Mapping[str, Any]]) -> bool:
+    return any(gap.get("gap_type") in CRITICAL_BASIS_GAP_TYPES for gap in gaps)
+
+
+def is_source_basis_usable(
+    *,
+    status: str,
+    auto_check_status: str,
+    roi_status: str,
+    is_current: bool,
+    valid_to: date | None,
+    today: date,
+) -> bool:
+    return (
+        status == "active"
+        and is_current
+        and auto_check_status not in ("failed", "conflict")
+        and roi_status == "original"
+        and (valid_to is None or today <= valid_to)
+    )
+
 
 def canonical_json(value: Any) -> str:
     """Return deterministic compact UTF-8 JSON for hashing."""

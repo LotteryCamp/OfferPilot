@@ -68,6 +68,7 @@ class RunStatus(StrEnum):
     COMPLETED = "已完成"
     FAILED = "失败"
     CANCELLED = "已取消"
+    INTERRUPTED = "已中断"
 
 
 class AuthLevel(StrEnum):
@@ -94,6 +95,7 @@ class AgentErrorCode(StrEnum):
     TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED"
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"
+    RUN_INTERRUPTED = "RUN_INTERRUPTED"
 
 
 class AgentError(BaseModel):

@@ -218,6 +218,157 @@ def test_agent_run_reject_creates_no_tasks(agent_client: TestClient) -> None:
     assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
+def test_agent_run_reads_and_confirms_after_restart(
+    agent_client: TestClient,
+    database_urls: tuple[str, str],
+    clock,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "restart-operation-1",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认"
+
+    app_url, _ = database_urls
+    restarted_app = create_app(
+        Settings(
+            database_url=app_url,
+            demo_user_id=USER_ID,
+            demo_workspace_id=WORKSPACE_ID,
+            demo_timezone="Asia/Shanghai",
+        ),
+        clock=clock,
+    )
+    with TestClient(restarted_app) as restarted:
+        fetched = restarted.get(f"/api/v1/agent-runs/{run['run_id']}")
+        assert fetched.status_code == 200, fetched.text
+        fetched_run = fetched.json()["run"]
+        assert fetched_run["status"] == "等待确认"
+        assert fetched_run["persisted_plan_id"] == run["persisted_plan_id"]
+
+        confirmed = restarted.post(
+            f"/api/v1/agent-runs/{run['run_id']}/confirm",
+            json={"candidate_version": 1},
+            headers={"Idempotency-Key": "77777777-7777-7777-8777-777777777777"},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        assert confirmed.json()["run"]["status"] == "已完成"
+        assert confirmed.json()["run"]["candidate_plan"] is not None
+        assert confirmed.json()["run"]["extracted_requirements"]
+
+        refetched = restarted.get(f"/api/v1/agent-runs/{run['run_id']}")
+        assert refetched.status_code == 200, refetched.text
+        final_run = refetched.json()["run"]
+        assert final_run["status"] == "已完成"
+        assert final_run["candidate_plan"]["candidate_version"] == 1
+        assert final_run["evaluations"]
+
+
+def test_interrupted_run_is_reported_and_can_restart(
+    agent_client: TestClient,
+    admin: psycopg.Connection,
+    database_urls: tuple[str, str],
+    clock,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    admin.execute(
+        """
+        INSERT INTO core.agent_run
+            (run_id, matter_id, user_id, status, operation_id)
+        VALUES ('run-interrupted', %s, %s, 'interrupted', 'retry-after-interrupt')
+        """,
+        (UUID(matter_id), USER_ID),
+    )
+
+    app_url, _ = database_urls
+    restarted_app = create_app(
+        Settings(
+            database_url=app_url,
+            demo_user_id=USER_ID,
+            demo_workspace_id=WORKSPACE_ID,
+            demo_timezone="Asia/Shanghai",
+        ),
+        clock=clock,
+    )
+    with TestClient(restarted_app) as restarted:
+        fetched = restarted.get("/api/v1/agent-runs/run-interrupted")
+        assert fetched.status_code == 200, fetched.text
+        interrupted = fetched.json()["run"]
+        assert interrupted["status"] == "已中断"
+        assert interrupted["error"]["code"] == "RUN_INTERRUPTED"
+        assert interrupted["error"]["details"]["retryable"] is True
+
+    retried = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "retry-after-interrupt",
+        },
+    )
+    assert retried.status_code == 200, retried.text
+    retried_run = retried.json()["run"]
+    assert retried_run["run_id"] != "run-interrupted"
+    assert retried_run["status"] == "等待确认"
+
+
+def test_blocked_candidate_stays_pending_after_restart(
+    agent_client: TestClient,
+    admin: psycopg.Connection,
+    database_urls: tuple[str, str],
+    clock,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "restart-block-operation-1",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认"
+
+    admin.execute("UPDATE ops.source SET auto_check_status = 'conflict'")
+
+    app_url, _ = database_urls
+    restarted_app = create_app(
+        Settings(
+            database_url=app_url,
+            demo_user_id=USER_ID,
+            demo_workspace_id=WORKSPACE_ID,
+            demo_timezone="Asia/Shanghai",
+        ),
+        clock=clock,
+    )
+    with TestClient(restarted_app) as restarted:
+        confirmed = restarted.post(
+            f"/api/v1/agent-runs/{run['run_id']}/confirm",
+            json={"candidate_version": 1},
+            headers={"Idempotency-Key": "88888888-8888-7888-8888-888888888888"},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        blocked = confirmed.json()["run"]
+        assert blocked["status"] == "等待确认"
+        assert blocked["error"]["details"]["backend_code"] == "source_unavailable"
+
+        plan = restarted.get(f"/api/v1/candidate-plans/{run['persisted_plan_id']}")
+        assert plan.status_code == 200, plan.text
+        assert plan.json()["plan"]["status"] == "pending"
+
+
 def test_unknown_run_returns_not_found(agent_client: TestClient) -> None:
     response = agent_client.get("/api/v1/agent-runs/run-missing")
     assert response.status_code == 404

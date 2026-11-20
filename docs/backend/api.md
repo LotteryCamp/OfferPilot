@@ -402,7 +402,7 @@ sequenceDiagram
 
 `GET /api/v1/matters/{matter_id}/sources`
 
-返回与当前事项关联的来源。关联路径为：来源快照被该事项的候选要求引用，或来源快照被该事项候选计划项引用。已登记但尚未被要求或计划项引用的来源不出现在结果中。
+返回与当前事项关联的来源。来源读取或登记成功后立即关联当前事项；候选要求或候选计划项引用快照也会建立关联。已读取但尚未生成要求或计划的来源会出现在结果中，其快照 `requirements` 为空，表示“已读取，待分析”。
 
 ```json
 {
@@ -475,7 +475,7 @@ sequenceDiagram
 }
 ```
 
-每个来源返回其全部快照版本，`is_current` 标识当前版本；要求嵌套在对应快照下，证据嵌套在要求下。候选要求没有独立的列表接口，读取入口为来源链。
+每个来源返回其全部快照版本，`is_current` 标识当前版本；要求嵌套在对应快照下，证据与 `self_check` 嵌套在要求下。候选要求没有独立的列表接口，读取入口为来源链。`self_check` 的结构与保存协议见 [要求自查结果保存协议](requirement-self-check.md)。
 
 ### 4.4 写入候选要求
 
@@ -852,8 +852,9 @@ sequenceDiagram
 | 4 | 计划状态是否可决定 | `409 plan_expired` 或 `409 plan_not_pending` |
 | 5 | 官方期限是否已过 | `409 official_deadline_passed`，计划保持原状态 |
 | 6 | 当前依据指纹是否与生成时一致 | `409 basis_changed`，计划转为 `expired` 并写入 `expired_at` |
-| 7 | 依据来源是否可用 | `409 source_unavailable` |
-| 8 | 写入确认决定、计划状态与全部任务 | 同一数据库事务提交 |
+| 7 | 候选要求是否存在未解决的关键依据缺口 | `409 basis_unresolved` |
+| 8 | 依据来源是否可用 | `409 source_unavailable` |
+| 9 | 写入确认决定、计划状态与全部任务 | 同一数据库事务提交 |
 
 确认成功后：
 
@@ -953,7 +954,7 @@ sequenceDiagram
 
 Agent 运行位于后端业务服务之后，以“运行”为单位完成来源读取与登记、结构化要求提取、四态自查和候选计划持久化。运行只生成待确认候选，不创建正式任务；用户确认后才写入任务。
 
-运行检查点保存在业务服务进程内。候选要求、候选计划、计划项和决定持久化在数据库中；进程重启后可以通过候选计划接口继续读取和决定已持久化候选。
+运行状态与检查点持久化在数据库中。候选要求、候选计划、计划项和决定同样持久化；进程重启后可以继续读取已保存的来源、自查结果和候选，并对仍有效的待确认候选确认或拒绝。服务启动时把重启前未完成的运行标记为 `已中断`，不恢复原运行；用户可重新发起。
 
 ### 7.1 创建运行
 
@@ -1038,6 +1039,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `已完成` | 用户已确认，正式任务已写入 |
 | `失败` | 运行失败，`error` 给出错误码与说明 |
 | `已取消` | 用户拒绝候选或取消运行 |
+| `已中断` | 服务重启导致运行未完成；原运行不会继续，用户需重新发起 |
 
 运行成功进入 `等待确认` 时：
 
@@ -1059,12 +1061,13 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `VALIDATION_FAILED` | 候选不符合接口或领域约束 |
 | `VERSION_CONFLICT` | 工作区版本已变化 |
 | `DEADLINE_EXPIRED` | 候选任务对应的官方期限已过 |
+| `RUN_INTERRUPTED` | 运行在服务重启时中断 |
 
 ### 7.2 读取运行
 
 `GET /api/v1/agent-runs/{run_id}`
 
-响应结构同创建运行的 `run` 对象。运行不存在或不在当前进程中时返回 `404 agent_run_not_found`。
+响应结构同创建运行的 `run` 对象。运行不存在时返回 `404 agent_run_not_found`。运行状态与检查点从数据库读取；`已中断` 运行的 `error.code` 为 `RUN_INTERRUPTED`，`details.retryable` 为 `true`。
 
 ### 7.3 确认运行
 
@@ -1086,6 +1089,8 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 ```
 
 `plan_id` 可省略，省略时使用运行检查点绑定的候选计划。确认沿用 5.4 的事务语义：重算依据指纹、检查官方期限与来源可用性，再写入决定与任务。
+
+候选存在未解决的关键依据缺口或来源不可用时，响应 `200` 且 `run.status` 保持 `等待确认`，`run.error.details.backend_code` 为 `basis_unresolved` 或 `source_unavailable`；候选计划保持 `pending`，修正依据后可再次确认。依据指纹变化时计划转为 `expired`，运行进入 `失败`。
 
 响应 `200`：
 
@@ -1165,7 +1170,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 候选计划 | `status` | `draft`、`pending`、`confirmed`、`rejected`、`expired` |
 | 计划决定 | `decision` | `confirmed`、`rejected` |
 | 任务 | `status` | `pending`、`ready`、`in_progress`、`blocked`、`done`、`cancelled` |
-| Agent 运行 | `status` | `运行中`、`等待用户`、`等待确认`、`已完成`、`失败`、`已取消` |
+| Agent 运行 | `status` | `运行中`、`等待用户`、`等待确认`、`已完成`、`失败`、`已取消`、`已中断` |
 
 本接口创建的事项为 `draft`，创建的候选计划为 `pending`，确认后创建的任务为 `pending`。
 
@@ -1176,7 +1181,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 400 | `invalid_idempotency_key` | `Idempotency-Key` 不是 UUID |
 | 404 | `matter_not_found` | 事项不存在或不属于当前工作区 |
 | 404 | `plan_not_found` | 候选计划不存在或不属于当前工作区 |
-| 404 | `agent_run_not_found` | Agent 运行不存在或不在当前进程中 |
+| 404 | `agent_run_not_found` | Agent 运行不存在或不属于当前工作区 |
 | 409 | `source_conflict` | 同一 URL 的来源元数据不一致，或来源标识冲突 |
 | 409 | `snapshot_conflict` | 快照标识或内容归属冲突 |
 | 409 | `operation_conflict` | 幂等键已用于其他计划或决定 |
@@ -1185,6 +1190,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 409 | `plan_not_pending` | 候选计划不在待确认状态 |
 | 409 | `official_deadline_passed` | 候选计划包含已过的官方期限 |
 | 409 | `basis_changed` | 依据指纹变化，候选计划已转为过期 |
+| 409 | `basis_unresolved` | 候选计划存在未解决的关键依据缺口 |
 | 409 / 422 | `source_unavailable` | 来源当前不可用；确认阶段返回 409，要求与计划写入阶段返回 422 |
 | 409 | `data_conflict` | 数据库约束冲突 |
 | 409 | `template_version_missing` | 事项类型没有已发布的模板版本 |
@@ -1210,10 +1216,13 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | `core.matter_type`、`core.matter` | 事项类型与事项 |
 | `ops.source`、`ops.snapshot` | 来源与版本化快照 |
 | `core.requirement`、`ops.evidence` | 候选要求与原文证据 |
+| `core.requirement_self_check` | 四态自查结论、原因、缺失信息与缺口 |
+| `core.matter_source` | 事项与已读取来源快照的关联 |
 | `core.candidate_plan`、`core.candidate_plan_item` | 候选计划与计划项 |
 | `core.candidate_plan_item_source` | 计划项出处 |
 | `core.candidate_plan_decision` | 确认与拒绝决定 |
 | `core.task` | 个人任务 |
+| `core.agent_run` | Agent 运行状态与检查点 |
 | `core.v_matter_overview`、`core.v_plan_detail` | 事项与计划读取视图 |
 
 数据库须启用行级安全，API 使用非所有者角色 `offerpilot_app` 连接。表所有者会绕过行级安全，不应用于 API 连接。
@@ -1223,7 +1232,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 - 无登录与账户切换，所有请求使用固定演示身份。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
 - 来源读取只访问公开 HTML 页面；不解析 PDF 与附件、不生成材料、不执行外部提交。
-- Agent 运行检查点保存在进程内；进程重启后通过候选计划接口继续处理已持久化候选。
+- Agent 运行检查点持久化；服务重启时未完成的运行标记为 `已中断`，不恢复原运行。
 - 不提供跨设备、多用户共享与权限管理。
 - 官方期限只按调用方提供的计划项字段判断；接口不推断未给出的时刻。
 
