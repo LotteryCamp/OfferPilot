@@ -1059,3 +1059,85 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
         assert "missing_fields" not in sent_ev
         assert sent_ev["basis"][0]["locator"] == "提交申请表"
     assert "550" not in json.dumps(sent, ensure_ascii=False)
+
+
+def test_model_payload_includes_source_fragments_for_exact_locators() -> None:
+    snap_id = str(uuid4())
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=str(uuid4()),
+        snapshot_id=snap_id,
+        title="推免工作办法",
+        publisher="福州大学数统学院",
+        content="（3）成绩排名前 30%。",
+        fragments=[
+            SourceFragmentRecord(
+                locator_kind="section",
+                locator="正文第3段",
+                quote="（3）成绩排名前 30%。",
+            )
+        ],
+    )
+    captured: list[dict[str, Any]] = []
+
+    def capture_model(instruction: str, text: str, response_model: type[Any]) -> Any:
+        captured.append(json.loads(text))
+        if response_model is RequirementExtractionPayload:
+            return response_model.model_validate(
+                {
+                    "requirements": [
+                        {
+                            "requirement_id": "r1",
+                            "title": "成绩排名要求",
+                            "obligation": "官方必需",
+                            "basis": [
+                                {
+                                    "source_version_id": snap_id,
+                                    "locator": "正文第3段",
+                                    "excerpt": "成绩排名前 30%",
+                                }
+                            ],
+                        }
+                    ],
+                    "gaps": [],
+                    "scope_summary": {},
+                }
+            )
+        return response_model.model_validate(
+            {
+                "tasks": [
+                    {
+                        "task_id": "t1",
+                        "title": "核对排名",
+                        "basis": [
+                            {
+                                "source_version_id": snap_id,
+                                "locator": "正文第3段",
+                                "excerpt": "成绩排名前 30%",
+                            }
+                        ],
+                        "obligation": "官方必需",
+                        "evidence_required": "成绩排名证明",
+                    }
+                ],
+                "gaps": [],
+                "scope_summary": {},
+            }
+        )
+
+    adapter = StructuredModelAdapter(capture_model)
+    reqs, _, _ = adapter.extract_requirements_with_metadata("整理推免要求", [doc])
+    evals, _ = evaluate_requirements(reqs, {snap_id: doc}, {})
+    adapter.generate_candidate_plan(
+        RunContext(
+            user_id="u1",
+            matter_id="m1",
+            goal="整理推免要求",
+            workspace_version=1,
+        ),
+        [doc],
+        evals,
+    )
+    assert len(captured) == 2
+    assert captured[0]["sources"][0]["fragments"][0]["locator"] == "正文第3段"
+    assert captured[1]["sources"][0]["fragments"][0]["locator"] == "正文第3段"

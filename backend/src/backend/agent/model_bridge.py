@@ -132,6 +132,8 @@ class CandidatePlanDraftPayload(BaseModel):
 _EXTRACTION_INSTRUCTION = (
     "你是 OfferPilot 推免信息抽取助手。严格依据传入的官方来源原文提取要求与适用范围：\n"
     "1. 每条要求必须保留可回溯的 source_version_id 与 locator，禁止编造来源版本或条文。\n"
+    "   当来源对象包含非空 fragments 列表时，basis[*].locator 必须原样复制对应片段的 fragments[*].locator，"
+    "locator_kind 必须取自该片段的 locator_kind，excerpt 必须是该片段 quote 的连续原文字串，严禁自行改写或简写 locator。\n"
     "2. 原文仅给出日期时只填 date 值；给出精确时刻时才填带时区的时间戳，不得虚构时刻。\n"
     "3. 不同条件或适用人群（如申请推荐与放弃推荐）须拆开标注 scope。\n"
     "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定。"
@@ -139,7 +141,9 @@ _EXTRACTION_INSTRUCTION = (
 
 _PLANNING_INSTRUCTION = (
     "你是 OfferPilot 候选计划生成助手。仅根据已核实来源和条件自查结果生成待用户确认的候选任务：\n"
-    "1. 每条候选任务必须包含来自输入 sources 的 source_version_id 与 locator。\n"
+    "1. 每条候选任务必须包含来自输入 sources 的 source_version_id 与 locator。"
+    "当来源对象包含非空 fragments 列表时，basis[*].locator 必须原样复制对应片段的 fragments[*].locator（或沿用 evaluations.basis 中的 locator），"
+    "locator_kind 必须匹配该片段，excerpt 必须是对应片段 quote 的连续原文字串，严禁自行改写。\n"
     "2. 官方日期存入 official_deadline_date，仅原文给出时刻时填写 official_deadline_at（带时区），"
     "个人建议准备日存入 suggested_date，不高于官方期限。\n"
     "3. 依赖关系 depends_on 只能引用本计划内的 task_id 且不得成环。\n"
@@ -208,6 +212,14 @@ class StructuredModelAdapter:
                     "scope": s.scope,
                     "content": s.content,
                     "missing_attachments": s.missing_attachments,
+                    "fragments": [
+                        {
+                            "locator_kind": f.locator_kind,
+                            "locator": f.locator,
+                            "quote": f.quote,
+                        }
+                        for f in s.fragments
+                    ],
                 }
                 for s in sources
             ],
@@ -267,6 +279,14 @@ class StructuredModelAdapter:
                     "publisher": s.publisher,
                     "year": s.year,
                     "scope": s.scope,
+                    "fragments": [
+                        {
+                            "locator_kind": f.locator_kind,
+                            "locator": f.locator,
+                            "quote": f.quote,
+                        }
+                        for f in s.fragments
+                    ],
                 }
                 for s in sources
             ],
