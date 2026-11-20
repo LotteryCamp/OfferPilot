@@ -67,6 +67,7 @@ def test_model_adapter_reports_request_failure(
 
         try:
             monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+            monkeypatch.setenv("OFFERPILOT_MODEL_TIMEOUT_SECONDS", "5")
             monkeypatch.setenv("OFFERPILOT_MODEL_API_KEY", "local-test-token")
             monkeypatch.setenv(
                 "OFFERPILOT_MODEL_API_URL", f"http://127.0.0.1:{server.server_port}/v1"
