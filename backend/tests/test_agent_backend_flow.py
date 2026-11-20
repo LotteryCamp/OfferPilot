@@ -414,14 +414,14 @@ def test_agent_run_records_confirmed_rank_fact(
 ) -> None:
     state = cast(FastAPI, agent_client.app).state.replay_state
     state.requirement_field_key = "gpa.rank"
+    matter_id = _create_matter(agent_client)
     saved = agent_client.put(
-        "/api/v1/facts/gpa.rank",
+        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
         json={"value": {"position": 5, "cohort_size": 120}},
     )
     assert saved.status_code == 200, saved.text
     fact = saved.json()["fact"]
 
-    matter_id = _create_matter(agent_client)
     created = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
         json={
@@ -456,17 +456,17 @@ def test_agent_run_rejects_fact_version_change(
 ) -> None:
     state = cast(FastAPI, agent_client.app).state.replay_state
     state.requirement_field_key = "gpa.rank"
+    matter_id = _create_matter(agent_client)
     saved = agent_client.put(
-        "/api/v1/facts/gpa.rank",
+        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
         json={"value": {"position": 5, "cohort_size": 120}},
     )
     assert saved.status_code == 200, saved.text
-    matter_id = _create_matter(agent_client)
 
     def change_fact() -> None:
         state.before_candidate_plan = None
         changed = agent_client.put(
-            "/api/v1/facts/gpa.rank",
+            f"/api/v1/matters/{matter_id}/facts/gpa.rank",
             json={"value": {"position": 8, "cohort_size": 120}},
         )
         assert changed.status_code == 200, changed.text
@@ -495,6 +495,111 @@ def test_agent_run_rejects_fact_version_change(
     ).fetchone()
     assert plan_count is not None
     assert plan_count[0] == 0
+
+
+def test_agent_run_reads_facts_only_from_current_matter(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = cast(FastAPI, agent_client.app).state.replay_state
+    state.requirement_field_key = "gpa.rank"
+    matter_a = _create_matter(agent_client)
+    saved = agent_client.put(
+        f"/api/v1/matters/{matter_a}/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+    matter_b = _create_matter(agent_client)
+
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_b}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
+            "operation_id": "other-matter-fact",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认", run["error"]
+
+    plan_row = admin.execute(
+        "SELECT basis_input FROM core.candidate_plan WHERE id = %s",
+        (UUID(run["persisted_plan_id"]),),
+    ).fetchone()
+    assert plan_row is not None
+    assert plan_row[0]["confirmed_facts"] == [
+        {
+            "fact_type": "gpa.rank",
+            "fact_id": None,
+            "version_no": None,
+            "value_hash": None,
+        }
+    ]
+
+
+def test_agent_run_rejects_managed_fact_payload(agent_client: TestClient) -> None:
+    matter_id = _create_matter(agent_client)
+    response = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "confirmed_facts": {"gpa.rank": {"percentile": 4.2}},
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
+            "operation_id": "managed-fact-payload",
+        },
+    )
+    assert response.status_code == 422, response.text
+    error = response.json()["error"]
+    assert error["code"] == "managed_fact_type"
+    assert error["details"] == {"fact_types": ["gpa.rank"]}
+
+
+def test_agent_run_ignores_other_matter_fact_version_change(
+    agent_client: TestClient,
+) -> None:
+    state = cast(FastAPI, agent_client.app).state.replay_state
+    state.requirement_field_key = "gpa.rank"
+    matter_a = _create_matter(agent_client)
+    saved = agent_client.put(
+        f"/api/v1/matters/{matter_a}/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+    matter_b = _create_matter(agent_client)
+    saved = agent_client.put(
+        f"/api/v1/matters/{matter_b}/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+
+    def change_other_matter() -> None:
+        state.before_candidate_plan = None
+        changed = agent_client.put(
+            f"/api/v1/matters/{matter_a}/facts/gpa.rank",
+            json={"value": {"position": 8, "cohort_size": 120}},
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["fact"]["version_no"] == 2
+
+    state.before_candidate_plan = change_other_matter
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_b}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
+            "operation_id": "other-matter-version-change",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认", run["error"]
+    assert run["persisted_plan_id"] is not None
 
 
 def _create_matter(client: TestClient) -> str:

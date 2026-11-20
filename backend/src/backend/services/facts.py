@@ -21,10 +21,9 @@ from backend.fact_types import (
     supported_fact_types,
 )
 from backend.schemas import FactSaveRequest
-from backend.services.common import iso, transaction, uuid_text
+from backend.services.common import iso, require_matter, transaction, uuid_text
 from backend.tables import (
     candidate_plan,
-    matter,
     requirement,
     requirement_self_check,
 )
@@ -36,12 +35,14 @@ from backend.tables import (
 def save_fact(
     session: Session,
     settings: Settings,
+    matter_id: UUID,
     fact_type: str,
     body: FactSaveRequest,
     *,
     now: datetime,
 ) -> dict[str, Any]:
     with transaction(session, settings):
+        require_matter(session, settings, matter_id)
         spec = _require_spec(fact_type)
         value_json = _normalize_value(spec, body.value)
         rendered = spec.render(value_json)
@@ -57,12 +58,16 @@ def save_fact(
         session.execute(
             select(
                 func.pg_advisory_xact_lock(
-                    func.hashtext(f"offerpilot:fact:{owner_id}:{fact_type}")
+                    func.hashtext(f"offerpilot:fact:{owner_id}:{matter_id}:{fact_type}")
                 )
             )
         )
         current = _load_current(
-            session, owner_id=owner_id, fact_type=fact_type, for_update=True
+            session,
+            owner_id=owner_id,
+            matter_id=matter_id,
+            fact_type=fact_type,
+            for_update=True,
         )
         if current is not None and current["value_hash"] == value_hash:
             return {
@@ -70,13 +75,13 @@ def save_fact(
                 "created": False,
                 "affected_plans": _affected_plans(
                     session,
-                    settings,
+                    matter_id=matter_id,
                     fact_type=fact_type,
                     current_version=current["version_no"],
                 ),
             }
 
-        next_version = _next_version(session, owner_id, fact_type)
+        next_version = _next_version(session, owner_id, matter_id, fact_type)
         fact_id = uuid4()
         if current is not None:
             session.execute(
@@ -88,6 +93,7 @@ def save_fact(
             insert(fact_table).values(
                 id=fact_id,
                 owner_id=owner_id,
+                matter_id=matter_id,
                 fact_type=fact_type,
                 value_text=rendered.value_text,
                 value_json=value_json,
@@ -104,7 +110,11 @@ def save_fact(
         )
         session.flush()
         created = _load_current(
-            session, owner_id=owner_id, fact_type=fact_type, for_update=False
+            session,
+            owner_id=owner_id,
+            matter_id=matter_id,
+            fact_type=fact_type,
+            for_update=False,
         )
         assert created is not None
         return {
@@ -112,20 +122,22 @@ def save_fact(
             "created": True,
             "affected_plans": _affected_plans(
                 session,
-                settings,
+                matter_id=matter_id,
                 fact_type=fact_type,
                 current_version=next_version,
             ),
         }
 
 
-def list_facts(session: Session, settings: Settings) -> dict[str, Any]:
+def list_facts(session: Session, settings: Settings, matter_id: UUID) -> dict[str, Any]:
     with transaction(session, settings):
+        require_matter(session, settings, matter_id)
         rows = (
             session.execute(
                 select(fact_table)
                 .where(
                     fact_table.c.owner_id == settings.demo_user_id,
+                    fact_table.c.matter_id == matter_id,
                     fact_table.c.confirm_status == "confirmed",
                 )
                 .order_by(fact_table.c.fact_type)
@@ -136,12 +148,16 @@ def list_facts(session: Session, settings: Settings) -> dict[str, Any]:
         return {"facts": [_serialize_fact(row) for row in rows]}
 
 
-def get_fact(session: Session, settings: Settings, fact_type: str) -> dict[str, Any]:
+def get_fact(
+    session: Session, settings: Settings, matter_id: UUID, fact_type: str
+) -> dict[str, Any]:
     with transaction(session, settings):
+        require_matter(session, settings, matter_id)
         _require_spec(fact_type)
         current = _load_current(
             session,
             owner_id=settings.demo_user_id,
+            matter_id=matter_id,
             fact_type=fact_type,
             for_update=False,
         )
@@ -150,6 +166,7 @@ def get_fact(session: Session, settings: Settings, fact_type: str) -> dict[str, 
                 select(fact_table)
                 .where(
                     fact_table.c.owner_id == settings.demo_user_id,
+                    fact_table.c.matter_id == matter_id,
                     fact_table.c.fact_type == fact_type,
                 )
                 .order_by(fact_table.c.version_no.desc())
@@ -195,11 +212,11 @@ def relevant_fact_types(session: Session, matter_id: UUID) -> list[str]:
 
 def current_fact_map(
     session: Session,
-    owner_id: UUID,
+    matter_id: UUID,
     fact_types: Iterable[str] | None = None,
 ) -> dict[str, Mapping[str, Any]]:
     statement = select(fact_table).where(
-        fact_table.c.owner_id == owner_id,
+        fact_table.c.matter_id == matter_id,
         fact_table.c.confirm_status == "confirmed",
     )
     if fact_types is not None:
@@ -213,10 +230,10 @@ def current_fact_map(
 
 def current_fact_entries(
     session: Session,
-    owner_id: UUID,
+    matter_id: UUID,
     fact_types: Iterable[str],
 ) -> list[dict[str, Any]]:
-    current = current_fact_map(session, owner_id, fact_types)
+    current = current_fact_map(session, matter_id, fact_types)
     entries: list[dict[str, Any]] = []
     for fact_type in sorted(set(fact_types)):
         row = current.get(fact_type)
@@ -233,10 +250,10 @@ def current_fact_entries(
 
 def agent_fact_values(
     session: Session,
-    owner_id: UUID,
+    matter_id: UUID,
     fact_types: Iterable[str],
 ) -> dict[str, Any]:
-    current = current_fact_map(session, owner_id, fact_types)
+    current = current_fact_map(session, matter_id, fact_types)
     values: dict[str, Any] = {}
     for fact_type, row in current.items():
         spec = get_fact_type(fact_type)
@@ -250,10 +267,10 @@ def agent_fact_values(
 
 def expected_fact_versions(
     session: Session,
-    owner_id: UUID,
+    matter_id: UUID,
     fact_types: Iterable[str],
 ) -> dict[str, int | None]:
-    current = current_fact_map(session, owner_id, fact_types)
+    current = current_fact_map(session, matter_id, fact_types)
     return {
         fact_type: (current[fact_type]["version_no"] if fact_type in current else None)
         for fact_type in sorted(set(fact_types))
@@ -262,12 +279,12 @@ def expected_fact_versions(
 
 def assert_fact_versions(
     session: Session,
-    owner_id: UUID,
+    matter_id: UUID,
     expected: Mapping[str, int | None] | None,
 ) -> None:
     if not expected:
         return
-    current = current_fact_map(session, owner_id, expected)
+    current = current_fact_map(session, matter_id, expected)
     stale: list[dict[str, Any]] = []
     for fact_type, expected_version in sorted(expected.items()):
         row = current.get(fact_type)
@@ -296,32 +313,32 @@ def assert_fact_versions(
 def plan_basis_state(
     session: Session,
     plan_row: Mapping[str, Any],
-    owner_id: UUID,
 ) -> tuple[str, list[dict[str, Any]]]:
-    relevant = set(relevant_fact_types(session, plan_row["matter_id"]))
-    current = current_fact_map(session, owner_id, relevant)
+    matter_id = plan_row["matter_id"]
+    relevant = set(relevant_fact_types(session, matter_id))
+    current = current_fact_map(session, matter_id, relevant)
     return _basis_state(plan_row, relevant, current)
 
 
 def plan_basis_states(
     session: Session,
     plans: Iterable[Mapping[str, Any]],
-    owner_id: UUID,
 ) -> dict[UUID, tuple[str, list[dict[str, Any]]]]:
     plan_list = list(plans)
     relevant_by_matter: dict[UUID, set[str]] = {}
-    all_types: set[str] = set()
+    current_by_matter: dict[UUID, dict[str, Mapping[str, Any]]] = {}
     for plan in plan_list:
         matter_id = plan["matter_id"]
         if matter_id not in relevant_by_matter:
             relevant_by_matter[matter_id] = set(relevant_fact_types(session, matter_id))
-        all_types.update(relevant_by_matter[matter_id])
-    current = current_fact_map(session, owner_id, all_types)
+            current_by_matter[matter_id] = current_fact_map(
+                session, matter_id, relevant_by_matter[matter_id]
+            )
     return {
         plan["id"]: _basis_state(
             plan,
             relevant_by_matter.get(plan["matter_id"], set()),
-            current,
+            current_by_matter.get(plan["matter_id"], {}),
         )
         for plan in plan_list
     }
@@ -330,10 +347,10 @@ def plan_basis_states(
 def stale_facts_for_plan(
     session: Session,
     plan_row: Mapping[str, Any],
-    owner_id: UUID,
 ) -> list[dict[str, Any]]:
-    relevant = set(relevant_fact_types(session, plan_row["matter_id"]))
-    current = current_fact_map(session, owner_id, relevant)
+    matter_id = plan_row["matter_id"]
+    relevant = set(relevant_fact_types(session, matter_id))
+    current = current_fact_map(session, matter_id, relevant)
     _, stale = _basis_state(plan_row, relevant, current)
     return stale
 
@@ -381,8 +398,8 @@ def _stored_fact_entries(basis_input: Any) -> dict[str, Mapping[str, Any]]:
 
 def _affected_plans(
     session: Session,
-    settings: Settings,
     *,
+    matter_id: UUID,
     fact_type: str,
     current_version: int,
 ) -> list[dict[str, Any]]:
@@ -394,17 +411,16 @@ def _affected_plans(
                 candidate_plan.c.version_no,
                 candidate_plan.c.basis_input,
             )
-            .join(matter, matter.c.id == candidate_plan.c.matter_id)
             .where(
+                candidate_plan.c.matter_id == matter_id,
                 candidate_plan.c.status == "pending",
-                matter.c.workspace_id == settings.demo_workspace_id,
             )
-            .order_by(candidate_plan.c.matter_id, candidate_plan.c.version_no.desc())
+            .order_by(candidate_plan.c.version_no.desc())
         )
         .mappings()
         .all()
     )
-    relevant_by_matter: dict[UUID, set[str]] = {}
+    relevant: set[str] | None = None
     affected: list[dict[str, Any]] = []
     for plan in plan_rows:
         entries = _stored_fact_entries(plan["basis_input"])
@@ -413,12 +429,9 @@ def _affected_plans(
             if stored_version == current_version:
                 continue
         else:
-            matter_id = plan["matter_id"]
-            if matter_id not in relevant_by_matter:
-                relevant_by_matter[matter_id] = set(
-                    relevant_fact_types(session, matter_id)
-                )
-            if fact_type not in relevant_by_matter[matter_id]:
+            if relevant is None:
+                relevant = set(relevant_fact_types(session, matter_id))
+            if fact_type not in relevant:
                 continue
             stored_version = None
         affected.append(
@@ -487,11 +500,13 @@ def _load_current(
     session: Session,
     *,
     owner_id: UUID,
+    matter_id: UUID,
     fact_type: str,
     for_update: bool,
 ) -> Mapping[str, Any] | None:
     statement = select(fact_table).where(
         fact_table.c.owner_id == owner_id,
+        fact_table.c.matter_id == matter_id,
         fact_table.c.fact_type == fact_type,
         fact_table.c.confirm_status == "confirmed",
     )
@@ -500,10 +515,13 @@ def _load_current(
     return session.execute(statement).mappings().first()
 
 
-def _next_version(session: Session, owner_id: UUID, fact_type: str) -> int:
+def _next_version(
+    session: Session, owner_id: UUID, matter_id: UUID, fact_type: str
+) -> int:
     current_max = session.execute(
         select(func.max(fact_table.c.version_no)).where(
             fact_table.c.owner_id == owner_id,
+            fact_table.c.matter_id == matter_id,
             fact_table.c.fact_type == fact_type,
         )
     ).scalar_one_or_none()
@@ -513,6 +531,7 @@ def _next_version(session: Session, owner_id: UUID, fact_type: str) -> int:
 def _serialize_fact(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "id": uuid_text(row["id"]),
+        "matter_id": uuid_text(row["matter_id"]),
         "fact_type": row["fact_type"],
         "value": row["value_json"],
         "value_text": row["value_text"],

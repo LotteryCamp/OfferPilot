@@ -40,7 +40,6 @@ from backend.tables import (
     source,
     task,
     v_plan_detail,
-    workspace,
 )
 
 
@@ -55,9 +54,7 @@ def create_plan(
 ) -> dict[str, Any]:
     with transaction(session, settings):
         require_matter(session, settings, matter_id, for_update=True)
-        fact_service.assert_fact_versions(
-            session, settings.demo_user_id, expected_fact_versions
-        )
+        fact_service.assert_fact_versions(session, matter_id, expected_fact_versions)
         _validate_requirements(session, matter_id, body.items)
         _validate_sources(session, body.items)
 
@@ -144,7 +141,6 @@ def create_plan(
             session,
             plan_id,
             settings.demo_workspace_id,
-            settings.demo_user_id,
         )
 
 
@@ -174,7 +170,7 @@ def list_plans(session: Session, settings: Settings, matter_id: UUID) -> dict[st
             .mappings()
             .all()
         )
-        states = fact_service.plan_basis_states(session, rows, settings.demo_user_id)
+        states = fact_service.plan_basis_states(session, rows)
         plans = []
         for row in rows:
             basis_status, stale_facts = states[row["id"]]
@@ -214,7 +210,6 @@ def get_plan(session: Session, settings: Settings, plan_id: UUID) -> dict[str, A
             session,
             plan_id,
             settings.demo_workspace_id,
-            settings.demo_user_id,
         )
 
 
@@ -242,7 +237,7 @@ def basis_states_for_plan_ids(
         .mappings()
         .all()
     )
-    return fact_service.plan_basis_states(session, rows, settings.demo_user_id)
+    return fact_service.plan_basis_states(session, rows)
 
 
 def collect_basis_input(
@@ -251,9 +246,6 @@ def collect_basis_input(
     matter_row = (
         session.execute(select(matter).where(matter.c.id == matter_id)).mappings().one()
     )
-    owner_id = session.execute(
-        select(workspace.c.owner_id).where(workspace.c.id == matter_row["workspace_id"])
-    ).scalar_one()
     requirement_rows = (
         session.execute(
             select(requirement)
@@ -301,7 +293,7 @@ def collect_basis_input(
     )
     relevant_fact_types = fact_service.relevant_fact_types(session, matter_id)
     fact_rows = fact_service.current_fact_entries(
-        session, owner_id, relevant_fact_types
+        session, matter_id, relevant_fact_types
     )
     return build_basis_input(
         matter_row=matter_row,
@@ -506,7 +498,6 @@ def _plan_detail(
     session: Session,
     plan_id: UUID,
     workspace_id: UUID,
-    owner_id: UUID,
 ) -> dict[str, Any]:
     plan_row = (
         session.execute(
@@ -527,9 +518,7 @@ def _plan_detail(
             "未找到当前工作区中的候选计划",
             next_step="刷新候选计划列表后重试",
         )
-    basis_status, stale_facts = fact_service.plan_basis_state(
-        session, plan_row, owner_id
-    )
+    basis_status, stale_facts = fact_service.plan_basis_state(session, plan_row)
     matter_row = (
         session.execute(select(matter).where(matter.c.id == plan_row["matter_id"]))
         .mappings()

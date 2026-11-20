@@ -35,7 +35,7 @@
 | `ops.evidence` | 要求证据 | 四元组唯一；来源、快照、要求三者一致 |
 | `core.requirement` | 候选要求 | 必须绑定快照；`checked` 与检查时间一致 |
 | `core.requirement_self_check` | 要求自查结果 | 每个要求至多一条；四态结论、原因、缺失信息、缺口与 `extract_status` 分开保存 |
-| `core.fact` | 个人事实版本 | 同用户同类型只有一条 `confirmed`；版本号唯一且递增；状态与时间一致 |
+| `core.fact` | 个人事实版本 | 同用户同事项同类型只有一条 `confirmed`；版本号在事项内唯一且递增；状态与时间一致 |
 | `core.candidate_plan` | 候选计划 | 同事项版本唯一；`op_id` 唯一；依据哈希与完整输入持久化 |
 | `core.candidate_plan_item` | 候选计划项 | 同计划顺序唯一；依赖项必须在同一计划内 |
 | `core.candidate_plan_item_source` | 计划项来源定位 | 计划项、快照、定位唯一；来源与快照一致 |
@@ -59,7 +59,7 @@
 ```mermaid
 erDiagram
     app_user ||--|| workspace : owns
-    app_user ||--o{ fact : confirms
+    app_user ||--o{ fact : owns
     workspace ||--o{ matter : contains
     matter_type ||--o{ template_version : versions
     matter_type ||--o{ matter : classifies
@@ -67,6 +67,7 @@ erDiagram
     matter ||--o{ requirement : extracts
     matter ||--o{ candidate_plan : generates
     matter ||--o{ task : has
+    matter ||--o{ fact : scopes
     source ||--o{ snapshot : versions
     snapshot ||--o{ requirement : anchors
     requirement ||--o{ evidence : cited_by
@@ -80,6 +81,7 @@ erDiagram
 
 - `app_user.id` → `workspace.owner_id`
 - `app_user.id` → `fact.owner_id`
+- `matter.id` → `fact.matter_id`
 - `workspace.id` → `matter.workspace_id`
 - `matter.id` → `requirement.matter_id`
 - `matter.id` → `candidate_plan.matter_id`
@@ -137,6 +139,7 @@ erDiagram
 | 字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `owner_id` | uuid | 事实所属用户 |
+| `matter_id` | uuid | 事实所属事项；未归属历史为 `null` |
 | `fact_type` | varchar(48) | 事实类型；Alpha 为 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
 | `value_text` | text | 服务端生成的展示文本 |
 | `value_json` | jsonb | 按类型规范化的值对象 |
@@ -145,13 +148,14 @@ erDiagram
 | `valid_from` | date | 值生效日期；不参与事实身份 |
 | `trust_level` | varchar(16) | 固定为 `self` |
 | `confirm_status` | fact_status | 接口写入 `confirmed` 与 `superseded` |
-| `version_no` | integer | 同用户同类型内递增，从 1 开始 |
+| `version_no` | integer | 同用户、同事项、同类型内递增，从 1 开始 |
 | `confirmed_at` | timestamptz | `confirmed` 与 `superseded` 非空 |
 | `superseded_at` | timestamptz | 仅 `superseded` 非空 |
 
-`uq_fact_current` 是 `(owner_id, fact_type)` 上的部分唯一索引，条件为
-`confirm_status = 'confirmed'`，保证每个用户、每种事实只有一条当前确认记录。
-`uq_fact_type_version` 保证同一用户、同一类型的版本号唯一。
+`uq_fact_current` 是 `(owner_id, matter_id, fact_type)` 上的部分唯一索引，条件为
+`confirm_status = 'confirmed'` 且 `matter_id IS NOT NULL`，保证每个用户、每个事项、每种事实只有一条当前确认记录。
+`uq_fact_type_version` 保证同一用户、同一事项、同一类型的版本号唯一。
+迁移 `0012` 之前的用户级记录保留 `matter_id = NULL`，属于未归属历史，不参与任何事项读取与 Agent 运行。
 
 ## 4. 状态与时间
 
@@ -183,12 +187,16 @@ erDiagram
 workspace_id = current_setting('app.current_workspace_id', true)::uuid
 ```
 
-`fact` 按用户归属过滤，条件为工作区所有者：
+`fact` 按事项归属过滤，条件为事项位于当前工作区，且事实所有者等于工作区所有者：
 
 ```sql
-owner_id = (
-    SELECT w.owner_id FROM core.workspace w
-    WHERE w.id = current_setting('app.current_workspace_id', true)::uuid
+EXISTS (
+    SELECT 1
+    FROM core.matter m
+    JOIN core.workspace w ON w.id = m.workspace_id
+    WHERE m.id = fact.matter_id
+      AND m.workspace_id = current_setting('app.current_workspace_id', true)::uuid
+      AND w.owner_id = fact.owner_id
 )
 ```
 
@@ -217,6 +225,7 @@ Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS �
 | `0009` | 要求自查结果表及其 RLS 策略 |
 | `0010` | 事项来源关联、Agent 运行检查点及其 RLS 策略 |
 | `0011` | 个人事实表、当前版本唯一索引及其 RLS 策略 |
+| `0012` | 个人事实事项归属、事项内版本与当前记录唯一索引、RLS 策略调整 |
 
 ### 6.2 执行规则
 

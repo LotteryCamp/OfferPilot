@@ -216,9 +216,7 @@ def _confirm(
             decision=None,
             expired=True,
             current_basis_version=current_hash,
-            stale_facts=fact_service.stale_facts_for_plan(
-                session, plan_row, settings.demo_user_id
-            ),
+            stale_facts=fact_service.stale_facts_for_plan(session, plan_row),
         )
     gap_issues = current_basis_gap_issues(session, matter_id)
     if gap_issues:

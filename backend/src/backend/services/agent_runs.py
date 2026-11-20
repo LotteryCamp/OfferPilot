@@ -175,6 +175,18 @@ class AgentRunService:
                 next_step="核对运行与事项的适用年度",
             )
 
+        managed_fact_types = sorted(
+            set(body.confirmed_facts) & set(supported_fact_types())
+        )
+        if managed_fact_types:
+            raise ApiError(
+                422,
+                "managed_fact_type",
+                "已登记事实类型由当前事项的事实档案提供",
+                next_step="在事项事实接口保存该类型的值后重新发起运行",
+                details={"fact_types": managed_fact_types},
+            )
+
         if (body.confirmed_facts or matter_row["scope_attrs"]) and not (
             body.model_transfer_consent_id and body.model_transfer_consent_id.strip()
         ):
@@ -185,9 +197,7 @@ class AgentRunService:
                 next_step="完成模型传输授权后提交同意标识",
             )
 
-        expected_fact_versions, agent_facts = self._load_fact_context(
-            matter_id, body.confirmed_facts
-        )
+        expected_fact_versions, agent_facts = self._load_fact_context(matter_id)
         confirmed_facts = dict(body.confirmed_facts)
         confirmed_facts.update(agent_facts)
 
@@ -432,17 +442,15 @@ class AgentRunService:
         )
 
     def _load_fact_context(
-        self, matter_id: UUID, body_facts: dict[str, Any]
+        self, matter_id: UUID
     ) -> tuple[dict[str, int | None], dict[str, Any]]:
         with self._session_factory() as session, transaction(session, self._settings):
             relevant = fact_service.relevant_fact_types(session, matter_id)
-            fact_types = set(relevant) | set(body_facts) | set(supported_fact_types())
+            fact_types = set(relevant) | set(supported_fact_types())
             versions = fact_service.expected_fact_versions(
-                session, self._settings.demo_user_id, fact_types
+                session, matter_id, fact_types
             )
-            values = fact_service.agent_fact_values(
-                session, self._settings.demo_user_id, fact_types
-            )
+            values = fact_service.agent_fact_values(session, matter_id, fact_types)
         return versions, values
 
     def _create_run(

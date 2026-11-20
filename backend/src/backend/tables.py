@@ -257,6 +257,7 @@ fact = Table(
     metadata,
     Column("id", UUID_TYPE, primary_key=True),
     Column("owner_id", UUID_TYPE, nullable=False),
+    Column("matter_id", UUID_TYPE),
     Column("fact_type", String(48), nullable=False),
     Column("value_text", Text, nullable=False),
     Column("value_json", JSONB, nullable=False),

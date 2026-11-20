@@ -6,7 +6,7 @@
 | 数据格式 | JSON，UTF-8 |
 | 适用范围 | Alpha 单用户本地演示 |
 | 业务契约 | [`docs/development/alpha-scope-contract.md`](../development/alpha-scope-contract.md) |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0011` |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0012` |
 
 ## 1. 范围
 
@@ -14,13 +14,13 @@
 
 - 创建个人事项，读取事项列表与事项详情。
 - 读取公开 HTML 来源或登记调用方提供的正文与快照，按事项读取来源链。
-- 保存与读取个人事实（GPA、成绩排名、英语水平、证书与竞赛），维护事实版本。
+- 按事项保存与读取个人事实（GPA、成绩排名、英语水平、证书与竞赛），维护事项内事实版本。
 - 创建 Agent 运行，由后端完成来源读取、要求提取、条件自查与候选计划持久化。
 - 持久化候选要求、候选计划、计划项及计划项出处。
 - 读取候选计划，由用户确认或拒绝。
 - 确认后生成个人任务，读取任务及其来源定位。
 
-个人事实的保存、读取、版本规则、类型注册表与候选失效语义见[个人事实接口](facts.md)（迁移 `0011`）。
+个人事实按事项保存与读取，版本规则、类型注册表与候选失效语义见[个人事实接口](facts.md)（迁移 `0012`）。
 
 来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划可以直接写入，也可以由 Agent 运行读取公开来源后生成并持久化。
 
@@ -44,7 +44,7 @@ Alpha 当前没有登录能力，接口使用固定演示身份：
 | 演示用户 | `OFFERPILOT_DEMO_USER_ID` | `00000000-0000-7000-8000-000000000001` |
 | 演示工作区 | `OFFERPILOT_DEMO_WORKSPACE_ID` | `00000000-0000-7000-8000-000000000002` |
 
-每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实按工作区所有者过滤。事项、候选计划与任务的读取同时校验事项归属。
+每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实按当前事项过滤，并要求事项位于当前工作区且事实所有者等于工作区所有者。事项、个人事实、候选计划与任务的读取同时校验事项归属。
 
 固定身份仅用于本地演示。它不等同于多用户认证，也不构成跨账户安全边界。演示用户或工作区不存在时，接口返回 `500 demo_identity_missing`。
 
@@ -109,9 +109,9 @@ sequenceDiagram
     API->>DB: 写入 core.matter
     API-->>Client: 事项
 
-    Client->>API: PUT /facts/gpa.rank
-    API->>DB: 写入 core.fact 新版本
-    API->>DB: 查询依赖旧版本的待确认候选
+    Client->>API: PUT /matters/{id}/facts/gpa.rank
+    API->>DB: 写入当前事项的 core.fact 新版本
+    API->>DB: 查询当前事项依赖旧版本的待确认候选
     API-->>Client: 事实版本与受影响计划
 
     Client->>API: POST /matters/{id}/agent-runs
@@ -985,11 +985,11 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `publisher` | string | 否 | 1—160 字符，默认 `官方公开来源` |
 | `scope` | string | 否 | 最长 200 字符 |
 | `scope_year` | integer | 否 | 2020—2100，须与事项年度一致；省略时使用事项年度 |
-| `confirmed_facts` | object | 否 | 运行级个人事实，默认空对象；已注册事实以 `core.fact` 当前确认版本为准 |
+| `confirmed_facts` | object | 否 | 运行级个人事实，默认空对象；只接受未注册键，已注册类型必须通过当前事项的事实接口保存 |
 | `model_transfer_consent_id` | string | 否 | 最长 200 字符；携带 `confirmed_facts` 或事项含 `scope_attrs` 时必须提供有效同意，否则返回 `422 model_transfer_consent_required` 且不创建运行 |
 | `operation_id` | string | 否 | 1—200 字符；同一事项重复提交时返回首次运行结果 |
 
-已注册个人事实由后端从 `core.fact` 读取当前确认版本并写入候选依据；运行级 `confirmed_facts` 不形成事实版本，不进入依据指纹。事实版本与运行依据的对应规则见[个人事实接口](facts.md)。
+已注册个人事实由后端从当前事项的 `core.fact` 读取当前确认版本并写入候选依据。请求的 `confirmed_facts` 含已注册类型时返回 `422 managed_fact_type`，不创建运行；未注册键作为运行级事实使用，不形成事实版本，不进入依据指纹。事实版本与运行依据的对应规则见[个人事实接口](facts.md)。
 
 请求示例：
 
@@ -1166,7 +1166,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 事项 | 标识、类型、模板版本、适用年度、适用范围属性、更新时间 |
 | 要求 | 当前事项下全部未拒绝要求的标识、快照、字段、义务性质、提取状态、范围、规范值、置信度和更新时间 |
 | 来源 | 上述要求及计划项所引用快照所属来源的标识、生命周期状态、快照版本、内容哈希、当前标记和获取时间 |
-| 已确认事实 | 事项相关事实键对应的当前确认版本：`fact_type`、`fact_id`、`version_no`、`value_hash`；无确认值时保留显式空值 |
+| 已确认事实 | 当前事项相关事实键对应的当前确认版本：`fact_type`、`fact_id`、`version_no`、`value_hash`；无确认值时保留显式空值 |
 
 确认时在锁定工作区事务、候选计划和依据来源后重新采集同一输入并计算指纹。指纹不一致时：
 
@@ -1203,7 +1203,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | HTTP 状态 | `code` | 含义 |
 | :--- | :--- | :--- |
 | 400 | `invalid_idempotency_key` | `Idempotency-Key` 不是 UUID |
-| 404 | `matter_not_found` | 事项不存在或不属于当前工作区 |
+| 404 | `matter_not_found` | 事项不存在或不属于当前工作区；事项、事实、来源与任务接口均拒绝 |
 | 404 | `plan_not_found` | 候选计划不存在或不属于当前工作区 |
 | 404 | `agent_run_not_found` | Agent 运行不存在或不属于当前工作区 |
 | 409 | `source_conflict` | 同一 URL 的来源元数据不一致，或来源标识冲突 |
@@ -1230,6 +1230,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 422 | `unknown_source_snapshot` | 计划项引用的来源与快照不存在或彼此不匹配 |
 | 422 | `unsupported_fact_type` | 事实类型未注册 |
 | 422 | `invalid_fact_value` | 事实值写法或范围不合法；`details.issues` 列出原因 |
+| 422 | `managed_fact_type` | Agent 运行的 `confirmed_facts` 包含已注册事实类型；`details.fact_types` 列出冲突键 |
 | 500 | `demo_identity_missing` | 演示用户或工作区不存在 |
 | 500 | `internal_error` | 未预期的服务错误 |
 
@@ -1244,7 +1245,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | `ops.source`、`ops.snapshot` | 来源与版本化快照 |
 | `core.requirement`、`ops.evidence` | 候选要求与原文证据 |
 | `core.requirement_self_check` | 四态自查结论、原因、缺失信息与缺口 |
-| `core.fact` | 当前确认事实、历史版本与事实版本摘要 |
+| `core.fact` | 按事项归属的当前确认事实、历史版本与事实版本摘要 |
 | `core.matter_source` | 事项与已读取来源快照的关联 |
 | `core.candidate_plan`、`core.candidate_plan_item` | 候选计划与计划项 |
 | `core.candidate_plan_item_source` | 计划项出处 |
@@ -1259,7 +1260,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 
 - 无登录与账户切换，所有请求使用固定演示身份。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
-- 个人事实接口注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`，不提供同类型多实例、草稿、撤回、删除与个人材料引用。
+- 个人事实接口按事项注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`，不提供同类型多实例、跨事项共享、草稿、撤回、删除与个人材料引用。
 - 来源读取只访问公开 HTML 页面；不解析 PDF 与附件、不生成材料、不执行外部提交。
 - Agent 运行检查点持久化；服务重启时未完成的运行标记为 `已中断`，不恢复原运行。
 - 不提供跨设备、多用户共享与权限管理。

@@ -38,6 +38,7 @@ TEST_ROLE = "offerpilot_schema_test_app"
 USER_A = UUID("11111111-1111-7111-8111-111111111111")
 WS_A = UUID("11111111-1111-7111-8111-111111111112")
 MATTER_A = UUID("11111111-1111-7111-8111-111111111113")
+MATTER_A2 = UUID("11111111-1111-7111-8111-111111111114")
 USER_B = UUID("22222222-2222-7222-8222-222222222221")
 WS_B = UUID("22222222-2222-7222-8222-222222222222")
 MATTER_B = UUID("22222222-2222-7222-8222-222222222223")
@@ -862,15 +863,23 @@ class AlphaSchemaTest(unittest.TestCase):
 
     def test_14_fact_current_version_and_rls(self) -> None:
         self.make_identity(USER_A, WS_A, MATTER_A, "A 的事项")
+        self.conn.execute(
+            "INSERT INTO core.matter"
+            " (id, workspace_id, type_code, template_version_id, goal, status,"
+            "  scope_year, scope_attrs)"
+            " VALUES (%s, %s, 'pre_recommend', %s, 'A 的第二事项', 'active', 2027, '{}')",
+            (MATTER_A2, WS_A, TEMPLATE_PRE),
+        )
         self.make_identity(USER_B, WS_B, MATTER_B, "B 的事项")
         self.conn.execute(
             "INSERT INTO core.fact"
-            " (id, owner_id, fact_type, value_text, value_json, value_hash,"
+            " (id, owner_id, matter_id, fact_type, value_text, value_json, value_hash,"
             "  confirm_status, version_no, confirmed_at)"
-            " VALUES (%s, %s, 'gpa.rank', '5/120', %s, %s, 'confirmed', 1, %s)",
+            " VALUES (%s, %s, %s, 'gpa.rank', '5/120', %s, %s, 'confirmed', 1, %s)",
             (
                 FACT_A1,
                 USER_A,
+                MATTER_A,
                 '{"position": 5, "cohort_size": 120, "percentile": 4.1667}',
                 HASH,
                 FIXED_FETCHED,
@@ -878,74 +887,94 @@ class AlphaSchemaTest(unittest.TestCase):
         )
         self.conn.commit()
 
-        with self.assertRaises(errors.UniqueViolation):
-            self.conn.execute(
-                "INSERT INTO core.fact"
-                " (owner_id, fact_type, value_text, value_hash,"
-                "  confirm_status, version_no, confirmed_at)"
-                " VALUES (%s, 'gpa.rank', '8/120', %s, 'confirmed', 2, %s)",
-                (USER_A, HASH_2, FIXED_FETCHED),
-            )
-        self.conn.rollback()
-
-        with self.assertRaises(errors.UniqueViolation):
-            self.conn.execute(
-                "INSERT INTO core.fact"
-                " (owner_id, fact_type, value_text, value_hash,"
-                "  confirm_status, version_no, confirmed_at)"
-                " VALUES (%s, 'gpa.rank', '5/120', %s, 'confirmed', 1, %s)",
-                (USER_A, HASH, FIXED_FETCHED),
-            )
-        self.conn.rollback()
-
-        with self.assertRaises(errors.CheckViolation):
-            self.conn.execute(
-                "INSERT INTO core.fact"
-                " (owner_id, fact_type, value_text, value_hash,"
-                "  confirm_status, version_no)"
-                " VALUES (%s, 'gpa.rank', '5/120', %s, 'confirmed', 2)",
-                (USER_A, HASH_2),
-            )
-        self.conn.rollback()
-
-        with self.assertRaises(errors.CheckViolation):
-            self.conn.execute(
-                "INSERT INTO core.fact"
-                " (id, owner_id, fact_type, value_text, value_hash,"
-                "  confirm_status, version_no, confirmed_at)"
-                " VALUES (%s, %s, 'gpa.rank', '5/120', %s, 'superseded', 2, %s)",
-                (FACT_A2, USER_A, HASH_2, FIXED_FETCHED),
-            )
-        self.conn.rollback()
-
-        with self.assertRaises(errors.CheckViolation):
-            self.conn.execute(
-                "INSERT INTO core.fact"
-                " (id, owner_id, fact_type, value_text, value_hash,"
-                "  confirm_status, version_no, confirmed_at)"
-                " VALUES (%s, %s, 'gpa.rank', '5/120', 'not-a-hash',"
-                " 'confirmed', 2, %s)",
-                (FACT_A2, USER_A, FIXED_FETCHED),
-            )
-        self.conn.rollback()
+        self.conn.execute(
+            "INSERT INTO core.fact"
+            " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+            "  confirm_status, version_no, confirmed_at)"
+            " VALUES (%s, %s, %s, 'gpa.rank', '6/120', %s, 'confirmed', 1, %s)",
+            (FACT_A2, USER_A, MATTER_A2, HASH_2, FIXED_FETCHED),
+        )
+        self.conn.commit()
 
         self.conn.execute(
             "INSERT INTO core.fact"
-            " (id, owner_id, fact_type, value_text, value_hash,"
+            " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
             "  confirm_status, version_no, confirmed_at)"
-            " VALUES (%s, %s, 'gpa.rank', '8/120', %s, 'confirmed', 1, %s)",
-            (FACT_B1, USER_B, HASH_2, FIXED_FETCHED),
+            " VALUES (%s, %s, %s, 'gpa.rank', '8/120', %s, 'confirmed', 1, %s)",
+            (FACT_B1, USER_B, MATTER_B, HASH_2, FIXED_FETCHED),
         )
         self.conn.commit()
+
+        with self.assertRaises(errors.UniqueViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, 'gpa.rank', '8/120', %s, 'confirmed', 2, %s)",
+                (USER_A, MATTER_A, HASH_2, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.UniqueViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at, superseded_at)"
+                " VALUES (%s, %s, 'gpa.rank', '5/120', %s, 'superseded', 1, %s, %s)",
+                (USER_A, MATTER_A, HASH_2, FIXED_FETCHED, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no)"
+                " VALUES (%s, %s, 'gpa.rank', '5/120', %s, 'confirmed', 2)",
+                (USER_A, MATTER_A, HASH_2),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, %s, 'gpa.rank', '5/120', %s, 'superseded', 2, %s)",
+                (
+                    UUID("66666666-6666-7666-8666-666666666664"),
+                    USER_A,
+                    MATTER_A,
+                    HASH_2,
+                    FIXED_FETCHED,
+                ),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, %s, 'gpa.rank', '5/120', 'not-a-hash',"
+                " 'confirmed', 2, %s)",
+                (
+                    UUID("66666666-6666-7666-8666-666666666665"),
+                    USER_A,
+                    MATTER_A,
+                    FIXED_FETCHED,
+                ),
+            )
+        self.conn.rollback()
 
         self.conn.execute(f"SET ROLE {TEST_ROLE}")
         try:
             self.conn.execute(
                 "SELECT set_config('app.current_workspace_id', %s, false)", (str(WS_A),)
             )
-            self.assertEqual(1, self.count("core.fact"))
+            self.assertEqual(2, self.count("core.fact"))
             self.assertEqual(
-                1,
+                2,
                 fetch_scalar(
                     self.conn,
                     "SELECT count(*) FROM core.fact WHERE owner_id = %s",
@@ -960,14 +989,26 @@ class AlphaSchemaTest(unittest.TestCase):
                     (USER_B,),
                 ),
             )
+            self.conn.execute("SAVEPOINT foreign_owner")
             with self.assertRaises(errors.InsufficientPrivilege):
                 self.conn.execute(
                     "INSERT INTO core.fact"
-                    " (owner_id, fact_type, value_text, value_hash,"
+                    " (owner_id, matter_id, fact_type, value_text, value_hash,"
                     "  confirm_status, version_no, confirmed_at)"
-                    " VALUES (%s, 'gpa.rank', '9/120', %s, 'confirmed', 2, %s)",
-                    (USER_B, HASH, FIXED_FETCHED),
+                    " VALUES (%s, %s, 'gpa.rank', '9/120', %s, 'confirmed', 2, %s)",
+                    (USER_B, MATTER_B, HASH, FIXED_FETCHED),
                 )
+            self.conn.execute("ROLLBACK TO SAVEPOINT foreign_owner")
+            self.conn.execute("SAVEPOINT foreign_matter")
+            with self.assertRaises(errors.InsufficientPrivilege):
+                self.conn.execute(
+                    "INSERT INTO core.fact"
+                    " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                    "  confirm_status, version_no, confirmed_at)"
+                    " VALUES (%s, %s, 'gpa.rank', '9/120', %s, 'confirmed', 2, %s)",
+                    (USER_A, MATTER_B, HASH, FIXED_FETCHED),
+                )
+            self.conn.execute("ROLLBACK TO SAVEPOINT foreign_matter")
         finally:
             self.conn.rollback()
             self.conn.execute("RESET ROLE")
