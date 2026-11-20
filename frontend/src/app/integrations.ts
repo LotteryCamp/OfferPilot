@@ -1,15 +1,23 @@
-import { defineAsyncComponent, type Component, type InjectionKey } from 'vue'
+import { defineAsyncComponent, type InjectionKey } from 'vue'
 import { createMattersApi } from '../modules/matters/api'
-import type { MattersApi } from '../modules/matters/types'
+import type { Matter, MattersApi } from '../modules/matters/types'
 import { http } from '../shared/http'
+
+type WorkspaceModule = (new () => {
+  $props: { matterId: string; matter: Readonly<Matter> }
+  $emit: (event: 'changed') => void
+}) & {
+  // Vue's default $emit accepts any event. Check its declared emits as well.
+  emits?: { changed: () => unknown } | string[]
+}
 
 export interface WorkspaceIntegrations {
   mattersApi?: MattersApi
   identity?: { mode: 'single-user-local'; label: string }
   modules?: {
-    sources?: Component
-    plan?: Component
-    tasks?: Component
+    sources?: WorkspaceModule
+    plan?: WorkspaceModule
+    tasks?: WorkspaceModule
   }
 }
 

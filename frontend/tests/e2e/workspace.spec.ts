@@ -53,9 +53,12 @@ test('桌面宽度与窄屏保留主要操作和键盘入口', async ({ page }) 
       width,
     )
   }
-  await page.keyboard.press('Tab')
-  await page.getByRole('textbox', { name: '工作区名称', exact: true }).focus()
-  await expect(page.getByRole('textbox', { name: '工作区名称', exact: true })).toBeFocused()
+  const nameField = page.getByRole('textbox', { name: '工作区名称', exact: true })
+  for (let step = 0; step < 24; step++) {
+    await page.keyboard.press('Tab')
+    if (await nameField.evaluate((field) => document.activeElement === field)) break
+  }
+  await expect(nameField).toBeFocused()
 })
 
 test('深链接保留事项，非法编号和未知页面有恢复入口', async ({ page }, testInfo) => {

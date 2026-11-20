@@ -4,7 +4,7 @@ Vue 3 + TypeScript + Vite 应用，提供个人事项列表、新建表单、事
 
 ## 安装与运行
 
-需要 Node.js 24 LTS 和 npm。进入本目录后执行：
+需要 Node.js 24 LTS 和 npm 11。进入仓库的 `frontend/` 目录后执行：
 
 ```powershell
 npm ci
@@ -66,7 +66,7 @@ npm run test:matters:live
 5. `.env.local` 中的 `API_PROXY_TARGET` 指向实际启动的后端；只在显式指定时启用开发代理。生产部署须提供 `/api` 的同源反向代理，以及 Vue Router 的 SPA 深链接回退。`npm run preview` 只检查静态构建，不承担业务服务转发。
 6. 来源与条件、候选计划审阅已分别通过 `workspaceIntegrations.modules.sources`、`plan` 注册，由张锦昊维护。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。同事项重读保持业务组件，事项变化时清除旧上下文。陈常群负责的整体任务页继续使用 `tasks` 注册点。
 
-接口和模块约定见 `../docs/frontend/workspace-integration.md`。
+接口和模块约定见[工作区集成约定](workspace-integration.md)。
 
 ## 交互约束
 

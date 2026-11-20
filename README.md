@@ -28,6 +28,8 @@
 
 请查阅文档和 [Contributing](CONTRIBUTING.md) 以获取项目信息。注意当前不接受 LotteryCamp（鹦伟达）组织外的 PR。
 
+前端需要 Node.js 24 和 npm 11。在 `frontend/` 运行 `npm ci` 和 `npm run dev` 后，按终端地址打开个人事项工作台。集成和接口约定见[工作区设计](docs/frontend/workspace-integration.md)。
+
 ## License
 
 OfferPilot is licensed under the MIT License. Please see [LICENSE](LICENSE) for detail.

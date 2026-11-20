@@ -1,17 +1,16 @@
 # 个人事项工作区集成约定
 
-本说明覆盖陈常群负责的入口、路由、事项列表、创建、概览，以及张锦昊负责的来源与候选计划模块接入。骨架基于 #43 的 `95853cc376d13a70535cf03d980c74885ebe3f0b`，业务适配对应 #41 的 `f7c2800038e98e5af356e314ea7de061ce38558e`，数据库迁移见已合入 `main` 的 #39、#44，以及 #41 的 0010 迁移。
+本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`f7c2800`）](https://github.com/LotteryCamp/OfferPilot/blob/f7c2800038e98e5af356e314ea7de061ce38558e/docs/backend/api.md)，运行持久化及恢复依赖该分支的数据库迁移 `0010_persistence_recovery.sql`。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
 
 ## 责任与文件边界
 
-| 范围                                            | 维护边界                                                          |
-| ----------------------------------------------- | ----------------------------------------------------------------- |
-| `frontend/src/app`、`router`、`modules/matters` | 陈负责入口、布局、导航、事项业务适配与页面                        |
-| `frontend/src/shared/ui/StatePanel.vue`         | 可共同复用的加载、空内容、错误和未接通反馈；后续变更需双人审阅    |
-| `frontend/src/shared/http.ts`                   | 事项、来源和候选计划共用的 Axios 请求客户端，统一前缀、超时及取消 |
-| 来源、条件、个人事实与补录                      | 张负责业务组件；陈通过组件注册接入                                |
-| 候选计划审阅                                    | 张负责计划版本、条目、出处、确认/拒绝及决定后任务重读；陈集成     |
-| 正式任务页面                                    | 陈负责整体任务展示；保留 `tasks` 组件注册点                       |
+| 范围                                             | 维护边界                                                                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| `frontend/src/app`、`router`、`modules/matters`  | 陈常群负责入口、导航、事项页面及模块集成，见 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31)       |
+| `frontend/src/shared/ui/StatePanel.vue`          | 共用的加载、空内容、错误和未接通反馈                                                                          |
+| `frontend/src/shared/http.ts`                    | 张锦昊在 [#47](https://github.com/LotteryCamp/OfferPilot/pull/47) 提供的共享 Axios 客户端                     |
+| `workspaceIntegrations.modules.sources` / `plan` | 张锦昊负责来源与条件、分析、自查补录及候选审阅，见 [#32](https://github.com/LotteryCamp/OfferPilot/issues/32) |
+| `workspaceIntegrations.modules.tasks`            | 陈常群负责正式任务整体页面及注册，见 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31)               |
 
 ## 路由与上下文
 
@@ -26,7 +25,7 @@
 
 `matterId` 为 UUID，导航统一小写。刷新和直接访问先读取事项；读取失败不挂载业务子组件。前端路由校验不承担后端权限职责。
 
-注册的子组件接收 `matterId: string` 和 `matter: Matter`；不得直接改动传入事项对象。子组件切换事项后需终止读取、清理轮询及待提交输入。`changed` 事件触发父级重新读取；返回概览也会重新读取。取消前端读取不表示停止后端任务。
+注册的子组件接收 `matterId: string` 和只读用途的 `matter: Matter`。写入成功后，`changed` 事件触发父级重新读取。业务模块接入后，同一事项重读期间保留已挂载组件和所选候选，事项 ID 切换或读取失败时清除旧上下文。切换事项时停止旧读取和轮询，离开的页面不得更新新事项。取消前端读取不影响已发起的后端操作。
 
 ## 事项 HTTP 契约
 
@@ -42,20 +41,34 @@
 
 事项响应包含服务端 ID、工作区 ID、类型/类型名、目标、状态、年度、范围、归档/创建/更新时间、`tasks {total,done,open}`、可空的 `latest_plan {id,status,version_no}`。已有事项允许年度和范围为 `null`，页面显示未填写，创建仍要求有效年度。事项、候选及正式任务状态保持独立。
 
-`SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。事项适配器已接入 `src/shared/http.ts`，与来源、计划共用 Axios 客户端。显式启用 `VITE_LOCAL_DEMO_MATTERS=1` 时，开发模式通过同源代理访问真实 Alpha API。`workspaceIntegrations.modules.sources`、`plan` 已注册业务组件，`tasks` 仍为注册点。生产服务连接由集成负责人配置。
+`SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。事项适配器已接入 `src/shared/http.ts` 的 Axios 客户端，与来源及计划共用配置。`workspaceIntegrations.modules.sources`、`plan` 已注册业务组件，`tasks` 保留注册点。`VITE_LOCAL_DEMO_MATTERS=1` 启用开发模式的真实 Alpha API；生产连接由集成负责人配置。各组件遵守 `WorkspaceModule` 约束，接收事项 ID 与只读事项，并声明 `changed` 事件。
 
-业务错误体为 `{error:{code,message,next?,details?}}`，422 的字段问题位于 `details.issues`。页面提供就地字段校验，后端错误保留表单。不得直接展示堆栈、凭据或原始内部错误。
+业务错误体为 `{error:{code,message,next?,details?}}`，422 的字段问题位于 `details.issues`。创建遇到 `409 template_version_missing` 时保留表单并提示补齐已发布模板。网络中断、超时（含 HTTP 408）或创建结果无法核验时，保留表单、停用提交并提示先重读列表。未知错误使用前端提供的通用文案。
 
-## 身份与暂不可用能力
+## 分析、候选决定与恢复
 
-#41 使用服务端固定演示用户及工作区，无登录能力；若接入，应用须声明单用户本地演示，不能宣称跨账户安全隔离。演示身份不存在时后端返回 `500 demo_identity_missing`。前端不发送自行构造的用户或工作区身份头。
+此流程沿用 #47 的分析与候选审阅调用。下表路径均相对于 `/api/v1`。
 
-#41 提供 `/openapi.json`，实际接口版本在服务启动后核对。事项契约中没有来源与条件缺口摘要、Agent 运行状态、创建幂等键或创建操作查询。未接通页面明确说明。创建网络超时或提交结果无法核验时先检查列表。
+| 场景           | 请求及处理                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 发起与查看分析 | `POST /matters/{matterId}/agent-runs` 接收 `source_urls` 等字段，使用同一事项的 `operation_id` 识别重复发起；已知运行 ID 时通过 `GET /agent-runs/{runId}` 读取                               |
+| 核对分析结果   | HTTP `200` 返回 `{ run }`；用 `run.status` 和 `run.error` 区分运行中、缺口、失败等状态，进入 `等待确认` 后用 `persisted_plan_id` 定位已入库候选                                              |
+| 读取持久化结果 | `GET /matters/{matterId}/sources` 读取来源、快照和随要求返回的 `self_check`；`GET /matters/{matterId}/candidate-plans` 和 `GET /candidate-plans/{planId}` 读取候选版本、内容、出处和已有决定 |
+| 确认或拒绝     | `POST /candidate-plans/{planId}/confirm` 或 `POST /candidate-plans/{planId}/reject`，空请求体，携带 UUID 格式的 `Idempotency-Key`；同一决定重试复用原键                                      |
+| 读取正式任务   | `GET /matters/{matterId}/tasks`；候选确认由后端事务生成任务，拒绝不会生成                                                                                                                    |
 
-候选确认/拒绝的具体 HTTP 路径与讨论稿不同，实际 #41 为 `/candidate-plans/{id}/confirm` 和 `/reject`，使用 UUID `Idempotency-Key`。候选计划模块已接入这些决定请求及决定后的任务重读，完整链路需在真实后端与数据库上联调。任务状态更新、归档和事实补录目前没有 #41 对应接口。
+候选审阅在进入页面或恢复时均通过候选 ID 提交决定，一次用户操作只调用一条决定路径。后端还提供 `POST /agent-runs/{runId}/confirm` 和 `POST /agent-runs/{runId}/reject`。候选接口提交的决定以候选详情和任务重读为准，运行检查点可能仍显示 `等待确认`。后端返回依据变化、疑点未解决、来源不可用或官方期限已过时，显示失败与后续处理提示。
+
+刷新或后端重启后，按事项 ID 重新读取来源、自查和候选列表，再读取指定候选及其已有决定。仍有效的待确认候选可以继续审阅。若已知运行 ID，可以读取持久化检查点。服务重启前仍在运行的任务标记为 `已中断`（`RUN_INTERRUPTED`），用户核对已保存结果后可使用新 `operation_id` 重新发起分析。排名事实持久化、补录后重查和最终联调按 [#32](https://github.com/LotteryCamp/OfferPilot/issues/32) 与后端核验。
+
+## 身份与接口边界
+
+Alpha 使用服务端固定演示用户及工作区，应用显示单用户本地演示。演示身份不存在时返回 `500 demo_identity_missing`。前端不发送自造身份头。服务启动后可通过 `/openapi.json` 核对实际部署的接口。
+
+事项详情提供事项与任务摘要及最新计划引用。来源、自查和运行详情由对应业务端点读取。基础 PR 提供事项列表、创建、概览和模块挂载点。整体任务页、候选决定、来源与条件和 Agent 运行验收分别跟进 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31) 和 [#32](https://github.com/LotteryCamp/OfferPilot/issues/32)。
 
 ## 集成验收
 
-公开来源“开始分析”及运行反馈由张锦昊的来源模块维护，调用共享客户端的 `agent-runs` 创建与查询接口；排名保存成功后再发起重新自查，需待事实保存及字段协议接齐。运行状态标识仅辅助查询，持久化的来源、自查和候选按事项独立重读。运行丢失或失败允许重新发起，未确定结果需先核对。工作区集成及整体任务页由陈常群维护。
+安装、启动、代理配置及检查命令见[前端开发与联调指南](development.md)。来源、分析、排名补录及候选决定的契约和 QA 定位入口分别见[来源与条件](source-conditions.md)、[候选审阅](plan-review.md)。
 
-连接真实后端、独立测试库和演示身份后，运行 `npm run test:matters:live` 检查真实创建、列表、概览及刷新使用同一个 UUID，启动步骤见前端 README。联调时另检查真实空列表、HTTP 404、服务中断、快速切换事项、保存期间重复点击以及结果不明确时先查列表。候选模块已交付前端实现，完整候选决定与任务读取仍待真实服务联调验收。
+工作区基础验收覆盖真实创建、列表、概览及刷新读取同一 UUID，以及真实空列表、HTTP 404、服务中断、快速切换事项、保存期间重复点击和结果不明确时先核对列表。完整候选决定与任务验收在相应模块交付后执行。
