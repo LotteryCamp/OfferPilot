@@ -37,11 +37,13 @@ uv run ruff format --check .
 uv run ty check src tests
 ```
 
-测试：
+运行后端测试用例：
 
 ```bash
-pytest backend\tests -q
+uv run pytest tests -q
 ```
+
+未配置 PostgreSQL 测试数据库环境时，会跳过数据库相关测试。
 
 ## Commit Rules
 
