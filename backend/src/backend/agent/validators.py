@@ -56,7 +56,9 @@ def validate_candidate_plan(
             if dep_id == task.task_id:
                 violations.append(f"任务 {task.task_id} 不能依赖自身")
             elif dep_id not in known_ids:
-                violations.append(f"任务 {task.task_id} 依赖了不存在的前置任务 {dep_id}")
+                violations.append(
+                    f"任务 {task.task_id} 依赖了不存在的前置任务 {dep_id}"
+                )
 
         effective_deadline_date = _task_deadline_date(
             task.official_deadline_date,
@@ -124,7 +126,9 @@ def evaluate_requirements(
         source_issues = _collect_source_issues(req, sources_by_id)
         if req.is_ambiguous or source_issues:
             has_review_gap = True
-            reason = "；".join(source_issues) if source_issues else "条款含义需结合原文确认"
+            reason = (
+                "；".join(source_issues) if source_issues else "条款含义需结合原文确认"
+            )
             evaluations.append(
                 RequirementEvaluation(
                     requirement_id=req.requirement_id,
@@ -230,7 +234,8 @@ def _eval_fixed_deadline(
         )
 
     fact_key = str(
-        params.get("fact") or (req.required_fact_keys[0] if req.required_fact_keys else "submitted_at")
+        params.get("fact")
+        or (req.required_fact_keys[0] if req.required_fact_keys else "submitted_at")
     )
     raw_action = confirmed_facts.get(fact_key)
     if _is_missing(raw_action):
@@ -263,7 +268,9 @@ def _eval_fixed_deadline(
         requirement_id=req.requirement_id,
         title=req.title,
         status=EvaluationStatus.MATCHED if passed else EvaluationStatus.NOT_MATCHED,
-        reason="操作时间在官方期限内" if passed else f"操作时间晚于或超出官方期限 ({due.isoformat()})",
+        reason="操作时间在官方期限内"
+        if passed
+        else f"操作时间晚于或超出官方期限 ({due.isoformat()})",
         basis=req.basis,
         computed_deadline=due,
         scope=req.scope,
@@ -352,7 +359,9 @@ def _eval_relative_deadline(
         requirement_id=req.requirement_id,
         title=req.title,
         status=EvaluationStatus.MATCHED if passed else EvaluationStatus.NOT_MATCHED,
-        reason="在相对时限内完成确认" if passed else f"已超出 {int(duration_hours)} 小时时限 ({due.isoformat()})",
+        reason="在相对时限内完成确认"
+        if passed
+        else f"已超出 {int(duration_hours)} 小时时限 ({due.isoformat()})",
         basis=req.basis,
         computed_deadline=due,
         scope=req.scope,
@@ -435,7 +444,9 @@ def _eval_notice_deadline(
         requirement_id=req.requirement_id,
         title=req.title,
         status=EvaluationStatus.MATCHED if passed else EvaluationStatus.NOT_MATCHED,
-        reason="在通知期限内完成确认" if passed else f"晚于通知截止时间 ({due.isoformat()})",
+        reason="在通知期限内完成确认"
+        if passed
+        else f"晚于通知截止时间 ({due.isoformat()})",
         basis=req.basis,
         computed_deadline=due,
         scope=req.scope,
@@ -482,7 +493,11 @@ def _eval_any_minimum(
         val = confirmed_facts.get(key)
         numeric_val = _parse_finite_float(val)
         if numeric_val is not None:
-            met = numeric_val >= float(threshold) if operator == ">=" else numeric_val > float(threshold)
+            met = (
+                numeric_val >= float(threshold)
+                if operator == ">="
+                else numeric_val > float(threshold)
+            )
             if met:
                 return RequirementEvaluation(
                     requirement_id=req.requirement_id,
@@ -626,7 +641,9 @@ def _eval_legacy(
             return RequirementEvaluation(
                 requirement_id=req.requirement_id,
                 title=req.title,
-                status=EvaluationStatus.MATCHED if passed else EvaluationStatus.NOT_MATCHED,
+                status=EvaluationStatus.MATCHED
+                if passed
+                else EvaluationStatus.NOT_MATCHED,
                 reason="操作时间在官方期限内" if passed else "操作时间超出官方期限",
                 basis=req.basis,
                 computed_deadline=req.official_deadline,
@@ -634,7 +651,9 @@ def _eval_legacy(
             )
 
     req_missing = [
-        k for k in req.required_fact_keys if k not in confirmed_facts or confirmed_facts[k] is None
+        k
+        for k in req.required_fact_keys
+        if k not in confirmed_facts or confirmed_facts[k] is None
     ]
     if req_missing:
         return RequirementEvaluation(
@@ -679,9 +698,13 @@ def _collect_source_issues(
         if doc.roi_status == "ambiguous":
             issues.append(f"来源 {doc.title} 适用范围或表述不明确")
         if required_attachments and doc.missing_attachments:
-            relevant_missing = [a for a in doc.missing_attachments if a in required_attachments]
+            relevant_missing = [
+                a for a in doc.missing_attachments if a in required_attachments
+            ]
             if relevant_missing:
-                issues.append(f"来源 {doc.title} 缺失关联附件：{', '.join(relevant_missing)}")
+                issues.append(
+                    f"来源 {doc.title} 缺失关联附件：{', '.join(relevant_missing)}"
+                )
     return issues
 
 
@@ -708,7 +731,10 @@ def collect_source_gaps(
                     source_version_id=doc.source_version_id,
                 )
             )
-        if doc.auto_check_status in ("failed", "conflict") or doc.roi_status == "ambiguous":
+        if (
+            doc.auto_check_status in ("failed", "conflict")
+            or doc.roi_status == "ambiguous"
+        ):
             gaps.append(
                 SourceGap(
                     gap_type="scope_unclear",
@@ -742,7 +768,9 @@ def collect_source_gaps(
                 SourceGap(
                     gap_type="ambiguous_clause",
                     description=f"{ev.title}：{ev.reason}",
-                    source_version_id=ev.basis[0].source_version_id if ev.basis else None,
+                    source_version_id=ev.basis[0].source_version_id
+                    if ev.basis
+                    else None,
                     locator=ev.basis[0].locator if ev.basis else None,
                     related_requirement_ids=[ev.requirement_id],
                 )
@@ -753,7 +781,9 @@ def collect_source_gaps(
                 SourceGap(
                     gap_type=gap_type,
                     description=f"{ev.title}：{ev.reason}",
-                    source_version_id=ev.basis[0].source_version_id if ev.basis else None,
+                    source_version_id=ev.basis[0].source_version_id
+                    if ev.basis
+                    else None,
                     locator=ev.basis[0].locator if ev.basis else None,
                     related_requirement_ids=[ev.requirement_id],
                 )
@@ -763,14 +793,21 @@ def collect_source_gaps(
 
 def find_expired_plan_tasks(plan: CandidatePlan, now: datetime) -> list[str]:
     """Return task_ids in plan whose official deadline has already passed relative to now."""
-    now_shanghai = now.astimezone(SHANGHAI) if now.tzinfo is not None else now.replace(tzinfo=SHANGHAI)
+    now_shanghai = (
+        now.astimezone(SHANGHAI)
+        if now.tzinfo is not None
+        else now.replace(tzinfo=SHANGHAI)
+    )
     expired_ids: list[str] = []
     for task in plan.tasks:
         deadline_at = task.official_deadline_at or task.official_deadline
         if deadline_at is not None:
             if deadline_at < now_shanghai:
                 expired_ids.append(task.task_id)
-        elif task.official_deadline_date is not None and task.official_deadline_date < now_shanghai.date():
+        elif (
+            task.official_deadline_date is not None
+            and task.official_deadline_date < now_shanghai.date()
+        ):
             expired_ids.append(task.task_id)
     return expired_ids
 

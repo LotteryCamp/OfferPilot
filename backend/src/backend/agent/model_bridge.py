@@ -36,6 +36,38 @@ class CallModelFn(Protocol):
     ) -> T: ...
 
 
+_PUBLIC_SCOPE_ALLOWLIST = frozenset(
+    {
+        "school",
+        "college",
+        "department",
+        "program",
+        "major",
+        "track",
+        "category",
+        "degree",
+        "intake_year",
+        "scope_year",
+        "region",
+    }
+)
+
+
+def sanitize_public_scope_attrs(scope_attrs: dict[str, Any]) -> dict[str, Any]:
+    """Keep only allowlisted public academic scope fields for external model payloads."""
+    sanitized: dict[str, Any] = {}
+    for key, value in scope_attrs.items():
+        if key not in _PUBLIC_SCOPE_ALLOWLIST:
+            continue
+        if isinstance(value, str):
+            trimmed = value.strip()[:100]
+            if trimmed:
+                sanitized[key] = trimmed
+        elif isinstance(value, (int, bool)):
+            sanitized[key] = value
+    return sanitized
+
+
 class ModelInvocationError(RuntimeError):
     """Error raised when LLM invocation fails, times out, or returns invalid structure."""
 
@@ -130,7 +162,9 @@ class StructuredModelAdapter:
         self.last_scope_summary: dict[str, Any] = {}
 
     @classmethod
-    def from_backend_adapter(cls, *, strategy_version: str = "alpha-1") -> StructuredModelAdapter:
+    def from_backend_adapter(
+        cls, *, strategy_version: str = "alpha-1"
+    ) -> StructuredModelAdapter:
         """Construct adapter using PR #38 backend.model_adapter.call_model."""
         try:
             module = importlib.import_module("backend.model_adapter")
@@ -147,7 +181,9 @@ class StructuredModelAdapter:
         sources: list[SourceDocument],
     ) -> list[ExtractedRequirement]:
         """Extract structured requirements from official sources via LLM."""
-        requirements, gaps, scope_summary = self.extract_requirements_with_metadata(goal, sources)
+        requirements, gaps, scope_summary = self.extract_requirements_with_metadata(
+            goal, sources
+        )
         self.last_gaps = gaps
         self.last_scope_summary = scope_summary
         return requirements
@@ -159,7 +195,7 @@ class StructuredModelAdapter:
     ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
         """Extract structured requirements, gaps, and scope summary per call without shared state."""
         payload_input = {
-            "goal": goal,
+            "goal": goal.strip(),
             "strategy_version": self._strategy_version,
             "sources": [
                 {
@@ -187,7 +223,9 @@ class StructuredModelAdapter:
         requirements: list[ExtractedRequirement] = []
 
         for draft in parsed.requirements:
-            citations = _validate_and_enrich_citations(draft.basis, valid_source_ids, sources_by_id)
+            citations = _validate_and_enrich_citations(
+                draft.basis, valid_source_ids, sources_by_id
+            )
             requirements.append(
                 ExtractedRequirement(
                     requirement_id=draft.requirement_id,
@@ -218,9 +256,9 @@ class StructuredModelAdapter:
     ) -> CandidatePlan:
         """Generate a structured CandidatePlan without persisting formal tasks."""
         payload_input = {
-            "goal": context.goal,
+            "goal": context.goal.strip(),
             "scope_year": context.scope_year,
-            "scope_attrs": context.scope_attrs,
+            "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
             "strategy_version": self._strategy_version,
             "sources": [
                 {
@@ -232,7 +270,19 @@ class StructuredModelAdapter:
                 }
                 for s in sources
             ],
-            "evaluations": [ev.model_dump(mode="json") for ev in evaluations],
+            "evaluations": [
+                {
+                    "requirement_id": ev.requirement_id,
+                    "title": ev.title,
+                    "status": ev.status.value,
+                    "basis": [c.model_dump(mode="json") for c in ev.basis],
+                    "scope": ev.scope,
+                    "computed_deadline": ev.computed_deadline.isoformat()
+                    if ev.computed_deadline is not None
+                    else None,
+                }
+                for ev in evaluations
+            ],
         }
         parsed = self._invoke_model(
             _PLANNING_INSTRUCTION,
@@ -245,7 +295,9 @@ class StructuredModelAdapter:
         tasks: list[CandidateTask] = []
 
         for item in parsed.tasks:
-            citations = _validate_and_enrich_citations(item.basis, valid_source_ids, sources_by_id)
+            citations = _validate_and_enrich_citations(
+                item.basis, valid_source_ids, sources_by_id
+            )
             tasks.append(
                 CandidateTask(
                     task_id=item.task_id,
@@ -286,7 +338,9 @@ class StructuredModelAdapter:
         except ModelInvocationError:
             raise
         except TimeoutError as exc:
-            raise ModelInvocationError(AgentErrorCode.TIMEOUT, f"模型请求超时: {exc}") from exc
+            raise ModelInvocationError(
+                AgentErrorCode.TIMEOUT, f"模型请求超时: {exc}"
+            ) from exc
         except ValidationError as exc:
             raise ModelInvocationError(
                 AgentErrorCode.VALIDATION_FAILED, f"模型输出不符合结构契约: {exc}"
@@ -296,7 +350,9 @@ class StructuredModelAdapter:
             if raw_code == "TIMEOUT":
                 raise ModelInvocationError(AgentErrorCode.TIMEOUT, str(exc)) from exc
             if raw_code == "INVALID_RESPONSE":
-                raise ModelInvocationError(AgentErrorCode.VALIDATION_FAILED, str(exc)) from exc
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED, str(exc)
+                ) from exc
             raise ModelInvocationError(AgentErrorCode.MODEL_ERROR, str(exc)) from exc
 
 
@@ -318,12 +374,20 @@ def _validate_and_enrich_citations(
             )
         doc = sources_by_id[cite.source_version_id]
 
-        if cite.source_id is not None and doc.source_id is not None and cite.source_id != doc.source_id:
+        if (
+            cite.source_id is not None
+            and doc.source_id is not None
+            and cite.source_id != doc.source_id
+        ):
             raise ModelInvocationError(
                 AgentErrorCode.VALIDATION_FAILED,
                 f"引用 {cite.source_version_id} 的 source_id 与真实来源记录不一致",
             )
-        if cite.snapshot_id is not None and doc.snapshot_id is not None and cite.snapshot_id != doc.snapshot_id:
+        if (
+            cite.snapshot_id is not None
+            and doc.snapshot_id is not None
+            and cite.snapshot_id != doc.snapshot_id
+        ):
             raise ModelInvocationError(
                 AgentErrorCode.VALIDATION_FAILED,
                 f"引用 {cite.source_version_id} 的 snapshot_id 与真实来源记录不一致",
@@ -332,7 +396,9 @@ def _validate_and_enrich_citations(
         norm_locator = _normalize_ws(cite.locator)
         if doc.fragments:
             matching_frags = [
-                frag for frag in doc.fragments if _normalize_ws(frag.locator) == norm_locator
+                frag
+                for frag in doc.fragments
+                if _normalize_ws(frag.locator) == norm_locator
             ]
             if not matching_frags:
                 raise ModelInvocationError(
@@ -341,7 +407,9 @@ def _validate_and_enrich_citations(
                 )
             if cite.excerpt is not None:
                 norm_excerpt = _normalize_ws(cite.excerpt)
-                if not any(norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags):
+                if not any(
+                    norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags
+                ):
                     raise ModelInvocationError(
                         AgentErrorCode.VALIDATION_FAILED,
                         f"引用摘录与定位 '{cite.locator}' 对应的原文片段不符",

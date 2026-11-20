@@ -71,7 +71,9 @@ class AgentOrchestrator:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._checkpoints: dict[str, RunCheckpoint] = {}
         self._run_idempotency: dict[tuple[str, str, str], AgentRunResult] = {}
-        self._persisted_req_cache: dict[tuple[str, str], tuple[list[str], dict[str, str]]] = {}
+        self._persisted_req_cache: dict[
+            tuple[str, str], tuple[list[str], dict[str, str]]
+        ] = {}
         self._run_locks: dict[str, threading.Lock] = {}
         self._locks_guard = threading.Lock()
 
@@ -167,19 +169,23 @@ class AgentOrchestrator:
                 records=records,
             )
 
-        extract_with_meta = getattr(self._model_adapter, "extract_requirements_with_metadata", None)
+        extract_with_meta = getattr(
+            self._model_adapter, "extract_requirements_with_metadata", None
+        )
         adapter_gaps: list[SourceGap] = []
         adapter_scope: dict[str, Any] = {}
         try:
             if callable(extract_with_meta):
-                (requirements, adapter_gaps, adapter_scope), rec_ext = self._gateway.invoke(
-                    tool_name="extract_requirements",
-                    user_id=context.user_id,
-                    matter_id=context.matter_id,
-                    expected_workspace_version=context.workspace_version,
-                    requires_transfer_consent=requires_transfer_consent,
-                    consent_id=context.model_transfer_consent_id,
-                    fn=lambda: extract_with_meta(context.goal, sources),
+                (requirements, adapter_gaps, adapter_scope), rec_ext = (
+                    self._gateway.invoke(
+                        tool_name="extract_requirements",
+                        user_id=context.user_id,
+                        matter_id=context.matter_id,
+                        expected_workspace_version=context.workspace_version,
+                        requires_transfer_consent=requires_transfer_consent,
+                        consent_id=context.model_transfer_consent_id,
+                        fn=lambda: extract_with_meta(context.goal, sources),
+                    )
                 )
             else:
                 requirements, rec_ext = self._gateway.invoke(
@@ -189,7 +195,9 @@ class AgentOrchestrator:
                     expected_workspace_version=context.workspace_version,
                     requires_transfer_consent=requires_transfer_consent,
                     consent_id=context.model_transfer_consent_id,
-                    fn=lambda: self._model_adapter.extract_requirements(context.goal, sources),
+                    fn=lambda: self._model_adapter.extract_requirements(
+                        context.goal, sources
+                    ),
                 )
                 raw_gaps = getattr(self._model_adapter, "last_gaps", None)
                 if isinstance(raw_gaps, list):
@@ -253,7 +261,9 @@ class AgentOrchestrator:
                 expected_workspace_version=context.workspace_version,
                 requires_transfer_consent=requires_transfer_consent,
                 consent_id=context.model_transfer_consent_id,
-                fn=lambda: self._model_adapter.generate_candidate_plan(context, sources, evaluations),
+                fn=lambda: self._model_adapter.generate_candidate_plan(
+                    context, sources, evaluations
+                ),
             )
             records.append(rec_plan)
         except GatewayError as exc:
@@ -329,8 +339,12 @@ class AgentOrchestrator:
                 scope_summary=merged_scope,
             )
 
-        persist_op_id = f"{context.operation_id}:persist" if context.operation_id else None
-        persist_binding = f"persist:{context.matter_id}:{context.goal}:{context.workspace_version}"
+        persist_op_id = (
+            f"{context.operation_id}:persist" if context.operation_id else None
+        )
+        persist_binding = (
+            f"persist:{context.matter_id}:{context.goal}:{context.workspace_version}"
+        )
         try:
             (persisted_req_ids, persisted_plan_id), rec_persist = self._gateway.invoke(
                 tool_name="persist_candidate_artifacts",
@@ -347,6 +361,7 @@ class AgentOrchestrator:
                     evaluations,
                     candidate_plan,
                     sources_by_id,
+                    gaps=merged_gaps,
                     operation_id=context.operation_id,
                 ),
             )
@@ -413,7 +428,9 @@ class AgentOrchestrator:
             execution_records=records,
         )
         if context.operation_id:
-            self._run_idempotency[(context.user_id, context.matter_id, context.operation_id)] = result
+            self._run_idempotency[
+                (context.user_id, context.matter_id, context.operation_id)
+            ] = result
         return result
 
     def confirm_plan(
@@ -485,7 +502,10 @@ class AgentOrchestrator:
             )
             return self._result_from_checkpoint(cp, error=err)
 
-        if cp.candidate_plan is not None and cp.candidate_plan.candidate_version != candidate_version:
+        if (
+            cp.candidate_plan is not None
+            and cp.candidate_plan.candidate_version != candidate_version
+        ):
             err = AgentError(
                 code=AgentErrorCode.VERSION_CONFLICT,
                 message=(
@@ -508,7 +528,10 @@ class AgentOrchestrator:
                 return self._result_from_checkpoint(cp, error=err)
 
             critical_gaps = [
-                g for g in cp.gaps if g.gap_type in ("missing_basis", "repost_only", "expired_source", "read_failed")
+                g
+                for g in cp.gaps
+                if g.gap_type
+                in ("missing_basis", "repost_only", "expired_source", "read_failed")
             ]
             unusable_sources = [
                 s
@@ -596,7 +619,9 @@ class AgentOrchestrator:
             workspace_version=workspace_version,
         )
         if cp is None or cp.persisted_plan_id is None:
-            err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行或持久化计划不存在")
+            err = AgentError(
+                code=AgentErrorCode.VALIDATION_FAILED, message="运行或持久化计划不存在"
+            )
             return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
         if user_id is not None and cp.user_id != user_id:
@@ -651,7 +676,9 @@ class AgentOrchestrator:
         cp.execution_records.append(rec_reject)
         cp.status = RunStatus.CANCELLED
         cp.written_tasks = []
-        cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="用户已拒绝候选计划，未创建正式任务")
+        cp.error = AgentError(
+            code=AgentErrorCode.CANCELLED, message="用户已拒绝候选计划，未创建正式任务"
+        )
         return self._result_from_checkpoint(cp)
 
     def cancel_run(
@@ -664,7 +691,9 @@ class AgentOrchestrator:
         with self._get_run_lock(run_id):
             cp = self._checkpoints.get(run_id)
             if cp is None:
-                err = AgentError(code=AgentErrorCode.VALIDATION_FAILED, message="运行记录不存在")
+                err = AgentError(
+                    code=AgentErrorCode.VALIDATION_FAILED, message="运行记录不存在"
+                )
                 return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
             if user_id is not None and cp.user_id != user_id:
@@ -674,11 +703,17 @@ class AgentOrchestrator:
                 )
                 return AgentRunResult(run_id=run_id, status=RunStatus.FAILED, error=err)
 
-            if cp.status in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED):
+            if cp.status in (
+                RunStatus.COMPLETED,
+                RunStatus.FAILED,
+                RunStatus.CANCELLED,
+            ):
                 return self._result_from_checkpoint(cp)
 
             cp.status = RunStatus.CANCELLED
-            cp.error = AgentError(code=AgentErrorCode.CANCELLED, message="运行已被用户取消")
+            cp.error = AgentError(
+                code=AgentErrorCode.CANCELLED, message="运行已被用户取消"
+            )
             return self._result_from_checkpoint(cp)
 
     def _fetch_sources(self, context: RunContext) -> list[SourceDocument]:
@@ -752,6 +787,7 @@ class AgentOrchestrator:
         candidate_plan: CandidatePlan,
         sources_by_id: dict[str, SourceDocument],
         *,
+        gaps: list[SourceGap] | None = None,
         operation_id: str | None = None,
     ) -> tuple[list[str], str | None]:
         assert self._persistence is not None
@@ -759,8 +795,12 @@ class AgentOrchestrator:
         if cache_key is not None and cache_key in self._persisted_req_cache:
             persisted_ids, req_id_map = self._persisted_req_cache[cache_key]
         else:
-            req_payload = build_requirements_batch_payload(requirements, evaluations, sources_by_id)
-            created_reqs = self._persistence.persist_requirements(matter_id, req_payload)
+            req_payload = build_requirements_batch_payload(
+                requirements, evaluations, sources_by_id, gaps
+            )
+            created_reqs = self._persistence.persist_requirements(
+                matter_id, req_payload
+            )
             req_id_map = {}
             persisted_ids = []
             for req_obj, created in zip(requirements, created_reqs, strict=False):
@@ -853,7 +893,9 @@ def _parse_written_tasks(payload: dict[str, Any], matter_id: str) -> list[Writte
             continue
         raw_obligation = item.get("obligation_nature")
         obligation = (
-            _API_OBLIGATION_TO_ENUM.get(str(raw_obligation), ObligationType.PENDING_VERIFICATION)
+            _API_OBLIGATION_TO_ENUM.get(
+                str(raw_obligation), ObligationType.PENDING_VERIFICATION
+            )
             if raw_obligation is not None
             else ObligationType.OFFICIAL_REQUIRED
         )
@@ -863,7 +905,8 @@ def _parse_written_tasks(payload: dict[str, Any], matter_id: str) -> list[Writte
                 matter_id=str(item.get("matter_id") or matter_id),
                 title=str(item.get("title") or ""),
                 obligation=obligation,
-                official_deadline=item.get("official_deadline_at") or item.get("official_deadline"),
+                official_deadline=item.get("official_deadline_at")
+                or item.get("official_deadline"),
                 suggested_date=item.get("suggested_date"),
                 depends_on=[str(d) for d in item.get("depends_on", [])],
                 evidence_required=str(item.get("evidence_required") or ""),
