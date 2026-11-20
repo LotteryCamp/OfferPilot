@@ -1139,5 +1139,60 @@ def test_model_payload_includes_source_fragments_for_exact_locators() -> None:
         evals,
     )
     assert len(captured) == 2
-    assert captured[0]["sources"][0]["fragments"][0]["locator"] == "正文第3段"
-    assert captured[1]["sources"][0]["fragments"][0]["locator"] == "正文第3段"
+    assert captured[0]["sources"][0]["content"] == ""
+    assert captured[0]["sources"][0]["fragments"] == [
+        {
+            "locator_kind": "section",
+            "locator": "正文第3段",
+            "quote": "（3）成绩排名前 30%。",
+        }
+    ]
+    assert captured[1]["sources"][0]["fragments"] == [
+        {
+            "locator_kind": "section",
+            "locator": "正文第3段",
+        }
+    ]
+
+    from backend.agent import ModelInvocationError
+
+    # Empty excerpt or mismatched locator_kind must be rejected
+    for bad_cite in (
+        {"source_version_id": snap_id, "locator": "正文第3段", "excerpt": "   "},
+        {
+            "source_version_id": snap_id,
+            "locator_kind": "table_row",
+            "locator": "正文第3段",
+            "excerpt": "成绩排名前 30%",
+        },
+    ):
+
+        def bad_model(
+            instruction: str,
+            text: str,
+            response_model: type[Any],
+            *,
+            cite: dict[str, Any] = bad_cite,
+        ) -> Any:
+            return response_model.model_validate(
+                {
+                    "requirements": [
+                        {
+                            "requirement_id": "r1",
+                            "title": "成绩排名要求",
+                            "obligation": "官方必需",
+                            "basis": [cite],
+                        }
+                    ],
+                    "gaps": [],
+                    "scope_summary": {},
+                }
+            )
+
+        try:
+            StructuredModelAdapter(bad_model).extract_requirements_with_metadata(
+                "整理推免要求", [doc]
+            )
+            raise AssertionError("Expected ModelInvocationError")
+        except ModelInvocationError as exc:
+            assert exc.code == AgentErrorCode.VALIDATION_FAILED

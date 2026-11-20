@@ -210,7 +210,7 @@ class StructuredModelAdapter:
                     "publisher": s.publisher,
                     "year": s.year,
                     "scope": s.scope,
-                    "content": s.content,
+                    "content": "" if s.fragments else s.content,
                     "missing_attachments": s.missing_attachments,
                     "fragments": [
                         {
@@ -283,7 +283,6 @@ class StructuredModelAdapter:
                         {
                             "locator_kind": f.locator_kind,
                             "locator": f.locator,
-                            "quote": f.quote,
                         }
                         for f in s.fragments
                     ],
@@ -414,6 +413,12 @@ def _validate_and_enrich_citations(
             )
 
         norm_locator = _normalize_ws(cite.locator)
+        resolved_excerpt = cite.excerpt
+        if cite.excerpt is not None and not _normalize_ws(cite.excerpt):
+            raise ModelInvocationError(
+                AgentErrorCode.VALIDATION_FAILED,
+                f"引用定位 '{cite.locator}' 的摘录不能为空",
+            )
         if doc.fragments:
             matching_frags = [
                 frag
@@ -425,15 +430,27 @@ def _validate_and_enrich_citations(
                     AgentErrorCode.VALIDATION_FAILED,
                     f"引用定位 '{cite.locator}' 不在来源 {doc.title} 已提取的片段中",
                 )
+            kind_matched = [
+                frag
+                for frag in matching_frags
+                if frag.locator_kind == cite.locator_kind
+            ]
+            if not kind_matched:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"引用定位 '{cite.locator}' 的类型 {cite.locator_kind} 与来源片段类型不一致",
+                )
             if cite.excerpt is not None:
                 norm_excerpt = _normalize_ws(cite.excerpt)
                 if not any(
-                    norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags
+                    norm_excerpt in _normalize_ws(frag.quote) for frag in kind_matched
                 ):
                     raise ModelInvocationError(
                         AgentErrorCode.VALIDATION_FAILED,
                         f"引用摘录与定位 '{cite.locator}' 对应的原文片段不符",
                     )
+            else:
+                resolved_excerpt = kind_matched[0].quote
         elif cite.excerpt is not None:
             norm_excerpt = _normalize_ws(cite.excerpt)
             if norm_excerpt not in _normalize_ws(doc.content):
@@ -447,6 +464,7 @@ def _validate_and_enrich_citations(
                 update={
                     "source_id": doc.source_id or cite.source_id,
                     "snapshot_id": doc.snapshot_id or cite.snapshot_id,
+                    "excerpt": resolved_excerpt,
                 }
             )
         )
