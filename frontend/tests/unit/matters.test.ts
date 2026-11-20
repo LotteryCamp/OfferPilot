@@ -57,6 +57,22 @@ describe('事项路由与状态语义', () => {
 })
 
 describe('失败后的写入安全', () => {
+  it('缺少已发布模板时给出明确的处理提示', () => {
+    const failure = describeFailure(
+      {
+        response: {
+          status: 409,
+          data: { error: { code: 'template_version_missing', message: '缺少已发布模板' } },
+        },
+      },
+      true,
+    )
+    expect(failure).toEqual({
+      message: '此事项类型尚无已发布模板。请联系管理员补齐后重试。',
+      uncertain: false,
+    })
+  })
+
   it('无法确认写入结果时阻止直接重试', () => {
     expect(describeFailure(new Error('connection lost'), true).uncertain).toBe(true)
   })
