@@ -36,7 +36,9 @@ _OBLIGATION_TO_API: dict[ObligationType, ApiObligationNature] = {
     ObligationType.PENDING_VERIFICATION: "to_verify",
 }
 
-ApiSelfCheckConclusion = Literal["matched", "not_matched", "missing_info", "needs_user_review"]
+ApiSelfCheckConclusion = Literal[
+    "matched", "not_matched", "missing_info", "needs_user_review"
+]
 
 _CONCLUSION_TO_API: dict[EvaluationStatus, ApiSelfCheckConclusion] = {
     EvaluationStatus.MATCHED: "matched",
@@ -166,7 +168,9 @@ def _build_self_check_payload(
                 continue
         elif gap.source_version_id not in cited_versions:
             continue
-        doc = sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
+        doc = (
+            sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
+        )
         gap_items.append(
             {
                 "gap_type": gap.gap_type,
@@ -222,7 +226,9 @@ def build_requirements_batch_payload(
         ev = eval_by_req.get(req.requirement_id)
         extract_status = to_api_extract_status(req, ev)
         self_check = (
-            _build_self_check_payload(req, ev, gaps or [], sources_by_id) if ev is not None else None
+            _build_self_check_payload(req, ev, gaps or [], sources_by_id)
+            if ev is not None
+            else None
         )
         value_text = req.value_text
         if value_text is None and req.official_deadline is not None:

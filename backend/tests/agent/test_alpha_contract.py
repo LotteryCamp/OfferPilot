@@ -940,7 +940,9 @@ def test_requirement_payload_keeps_self_check_apart_from_extract_status() -> Non
     evaluations = ev_eng + ev_ok + ev_no + ev_bad
     gaps = collect_source_gaps([doc], evaluations)
 
-    payload = build_requirements_batch_payload(requirements, evaluations, sources_map, gaps)
+    payload = build_requirements_batch_payload(
+        requirements, evaluations, sources_map, gaps
+    )
     items = {item["label"]: item for item in payload["requirements"]}
 
     eng = items["英语水平"]
@@ -948,7 +950,9 @@ def test_requirement_payload_keeps_self_check_apart_from_extract_status() -> Non
     assert eng["self_check"]["conclusion"] == "missing_info"
     assert eng["self_check"]["missing_fields"] == ["cet6"]
     assert eng["self_check"]["reason"] == ev_eng[0].reason
-    assert [g["gap_type"] for g in eng["self_check"]["gaps"]] == ["missing_personal_fact"]
+    assert [g["gap_type"] for g in eng["self_check"]["gaps"]] == [
+        "missing_personal_fact"
+    ]
     assert eng["self_check"]["gaps"][0]["source_id"] == src_id
     assert eng["evidence"][0]["locator"] == "二第5项"
 

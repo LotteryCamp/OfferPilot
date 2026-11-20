@@ -798,7 +798,9 @@ class AgentOrchestrator:
             req_payload = build_requirements_batch_payload(
                 requirements, evaluations, sources_by_id, gaps
             )
-            created_reqs = self._persistence.persist_requirements(matter_id, req_payload)
+            created_reqs = self._persistence.persist_requirements(
+                matter_id, req_payload
+            )
             req_id_map = {}
             persisted_ids = []
             for req_obj, created in zip(requirements, created_reqs, strict=False):
