@@ -11,10 +11,10 @@
 | `self_check.reason` | 要求记录 | 判断原因 |
 | `self_check.missing_fields` | 要求记录 | 待用户补充的个人事实键；`missing_info` 时列出缺失项 |
 | `self_check.computed_deadline_at` | 要求记录 | 规则计算出的截止时间，带时区的 ISO 8601，无则为 `null` |
-| `self_check.gaps` | 要求记录 | 与该要求相关的缺口 |
+| `self_check.gaps` | 要求记录 | 与该要求相关的缺口，包含关联该要求的缺口，以及该要求所引用来源的来源级缺口（转载、过期、未读取范围、缺失附件） |
 | 来源引用 | `evidence` | 沿用 `ops.evidence`，`target_type = requirement` |
 
-`extract_status` 不再承载四态结论，“符合”与“不符合”不再合并为 `checked`。
+`extract_status` 不承载四态结论：`matched` 与 `not_matched` 的 `extract_status` 都是 `checked`，两者只靠 `self_check.conclusion` 区分，`missing_info` 同样如此。读取方必须以 `self_check.conclusion` 展示结论。
 
 缺口 `gap_type` 取值：`missing_attachment`、`missing_basis`、`missing_personal_fact`、`repost_only`、`expired_source`、`scope_unclear`、`ambiguous_clause`、`read_failed`。`missing_personal_fact` 表示需要用户补充个人事实，`missing_basis` 表示来源依据缺失。
 

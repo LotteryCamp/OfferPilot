@@ -53,3 +53,11 @@ CREATE POLICY self_check_by_matter ON core.requirement_self_check
         WHERE r.id = requirement_self_check.requirement_id
           AND m.workspace_id = NULLIF(current_setting('app.current_workspace_id', true), '')::uuid
     ));
+
+-- 应用角色由 dev/roles.sql 创建；已存在时在此授权，使已部署环境无需重跑角色脚本。
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'offerpilot_app') THEN
+        GRANT SELECT, INSERT, UPDATE, DELETE ON core.requirement_self_check TO offerpilot_app;
+    END IF;
+END $$;

@@ -889,7 +889,7 @@ def test_requirement_payload_keeps_self_check_apart_from_extract_status() -> Non
     assert eng["extract_status"] == "checked"
     assert eng["self_check"]["conclusion"] == "missing_info"
     assert eng["self_check"]["missing_fields"] == ["cet6"]
-    assert eng["self_check"]["reason"]
+    assert eng["self_check"]["reason"] == ev_eng[0].reason
     assert [g["gap_type"] for g in eng["self_check"]["gaps"]] == ["missing_personal_fact"]
     assert eng["self_check"]["gaps"][0]["source_id"] == src_id
     assert eng["evidence"][0]["locator"] == "二第5项"

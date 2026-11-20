@@ -145,8 +145,12 @@ def _build_self_check_payload(
     sources_by_id: dict[str, SourceDocument],
 ) -> dict[str, Any]:
     gap_items: list[dict[str, Any]] = []
+    cited_versions = {cite.source_version_id for cite in req.basis}
     for gap in gaps:
-        if req.requirement_id not in gap.related_requirement_ids:
+        if gap.related_requirement_ids:
+            if req.requirement_id not in gap.related_requirement_ids:
+                continue
+        elif gap.source_version_id not in cited_versions:
             continue
         doc = sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
         gap_items.append(
