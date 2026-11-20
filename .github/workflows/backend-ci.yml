@@ -48,4 +48,4 @@ jobs:
 
       - name: Run unit tests
         working-directory: backend
-        run: uv run pytest tests/test_basis.py -q
+        run: uv run pytest tests -q
