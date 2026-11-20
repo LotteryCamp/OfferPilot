@@ -44,7 +44,7 @@ jobs:
 
       - name: Type check
         working-directory: backend
-        run: uv run ty check src tests
+        run: uv run ty check
 
       - name: Run unit tests
         working-directory: backend
