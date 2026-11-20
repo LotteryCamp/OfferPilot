@@ -195,7 +195,7 @@ class StructuredModelAdapter:
     ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
         """Extract structured requirements, gaps, and scope summary per call without shared state."""
         payload_input = {
-            "goal": goal.strip()[:200],
+            "goal": goal.strip(),
             "strategy_version": self._strategy_version,
             "sources": [
                 {
@@ -256,7 +256,7 @@ class StructuredModelAdapter:
     ) -> CandidatePlan:
         """Generate a structured CandidatePlan without persisting formal tasks."""
         payload_input = {
-            "goal": context.goal.strip()[:200],
+            "goal": context.goal.strip(),
             "scope_year": context.scope_year,
             "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
             "strategy_version": self._strategy_version,
@@ -275,6 +275,7 @@ class StructuredModelAdapter:
                     "requirement_id": ev.requirement_id,
                     "title": ev.title,
                     "status": ev.status.value,
+                    "basis": [c.model_dump(mode="json") for c in ev.basis],
                     "scope": ev.scope,
                     "computed_deadline": ev.computed_deadline.isoformat()
                     if ev.computed_deadline is not None

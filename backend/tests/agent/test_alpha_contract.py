@@ -1031,7 +1031,18 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
                 basis=[SourceCitation(source_version_id=snap_id, locator="提交申请表")],
                 rule_kind="any_minimum",
                 rule_parameters={"minimum": {"cet4": 500}, "operator": ">="},
-            )
+            ),
+            ExtractedRequirement(
+                requirement_id="r2",
+                title="六级或雅思",
+                obligation=ObligationType.OFFICIAL_RECOMMENDED,
+                basis=[SourceCitation(source_version_id=snap_id, locator="提交申请表")],
+                rule_kind="any_minimum",
+                rule_parameters={
+                    "minimum": {"cet6": 425, "ielts": 6},
+                    "operator": ">=",
+                },
+            ),
         ],
         {snap_id: doc},
         ctx.confirmed_facts,
@@ -1043,5 +1054,8 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
     assert "rank_position" not in sent["scope_attrs"]
     assert "email" not in sent["scope_attrs"]
     assert "confirmed_facts" not in sent
-    assert "reason" not in sent["evaluations"][0]
+    for sent_ev in sent["evaluations"]:
+        assert "reason" not in sent_ev
+        assert "missing_fields" not in sent_ev
+        assert sent_ev["basis"][0]["locator"] == "提交申请表"
     assert "550" not in json.dumps(sent, ensure_ascii=False)
