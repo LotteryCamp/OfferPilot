@@ -233,7 +233,9 @@ class CandidateTask(BaseModel):
             if self.official_deadline_date is None:
                 self.official_deadline_date = shanghai_date
             elif self.official_deadline_date != shanghai_date:
-                raise ValueError("official_deadline_date 必须与 official_deadline_at 的 Asia/Shanghai 日期一致")
+                raise ValueError(
+                    "official_deadline_date 必须与 official_deadline_at 的 Asia/Shanghai 日期一致"
+                )
         return self
 
 

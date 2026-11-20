@@ -46,7 +46,11 @@ def test_validate_candidate_plan_valid() -> None:
         candidate_version=1,
         input_snapshot_id="snap-1",
         tasks=[
-            _task("t1", deadline=datetime(2027, 6, 10, 17, 0, tzinfo=UTC), suggested_date=date(2027, 6, 3)),
+            _task(
+                "t1",
+                deadline=datetime(2027, 6, 10, 17, 0, tzinfo=UTC),
+                suggested_date=date(2027, 6, 3),
+            ),
             _task("t2", depends_on=["t1"]),
         ],
     )
@@ -60,7 +64,12 @@ def test_validate_candidate_plan_detects_cycle_and_bad_dates() -> None:
         candidate_version=1,
         input_snapshot_id="snap-1",
         tasks=[
-            _task("t1", depends_on=["t2"], deadline=datetime(2027, 6, 10, tzinfo=UTC), suggested_date=date(2027, 6, 12)),
+            _task(
+                "t1",
+                depends_on=["t2"],
+                deadline=datetime(2027, 6, 10, tzinfo=UTC),
+                suggested_date=date(2027, 6, 12),
+            ),
             _task("t2", depends_on=["t1"]),
         ],
     )

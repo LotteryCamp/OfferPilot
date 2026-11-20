@@ -36,7 +36,9 @@ _OBLIGATION_TO_API: dict[ObligationType, ApiObligationNature] = {
     ObligationType.PENDING_VERIFICATION: "to_verify",
 }
 
-ApiSelfCheckConclusion = Literal["matched", "not_matched", "missing_info", "needs_user_review"]
+ApiSelfCheckConclusion = Literal[
+    "matched", "not_matched", "missing_info", "needs_user_review"
+]
 
 _CONCLUSION_TO_API: dict[EvaluationStatus, ApiSelfCheckConclusion] = {
     EvaluationStatus.MATCHED: "matched",
@@ -102,14 +104,28 @@ def _resolve_citation_uuids(
     doc = sources_by_id.get(cite.source_version_id)
     if doc is None:
         raise ValueError(f"引用 {cite.source_version_id} 不在当前已加载来源中")
-    if cite.source_id is not None and doc.source_id is not None and cite.source_id != doc.source_id:
-        raise ValueError(f"引用 {cite.source_version_id} 的 source_id 与真实来源记录不一致")
-    if cite.snapshot_id is not None and doc.snapshot_id is not None and cite.snapshot_id != doc.snapshot_id:
-        raise ValueError(f"引用 {cite.source_version_id} 的 snapshot_id 与真实来源记录不一致")
+    if (
+        cite.source_id is not None
+        and doc.source_id is not None
+        and cite.source_id != doc.source_id
+    ):
+        raise ValueError(
+            f"引用 {cite.source_version_id} 的 source_id 与真实来源记录不一致"
+        )
+    if (
+        cite.snapshot_id is not None
+        and doc.snapshot_id is not None
+        and cite.snapshot_id != doc.snapshot_id
+    ):
+        raise ValueError(
+            f"引用 {cite.source_version_id} 的 snapshot_id 与真实来源记录不一致"
+        )
     source_id = doc.source_id or cite.source_id
     snapshot_id = doc.snapshot_id or cite.snapshot_id
     if not source_id or not snapshot_id:
-        raise ValueError(f"引用 {cite.source_version_id} 缺少 UUID 格式的 source_id 或 snapshot_id")
+        raise ValueError(
+            f"引用 {cite.source_version_id} 缺少 UUID 格式的 source_id 或 snapshot_id"
+        )
     UUID(source_id)
     UUID(snapshot_id)
     return source_id, snapshot_id
@@ -152,7 +168,9 @@ def _build_self_check_payload(
                 continue
         elif gap.source_version_id not in cited_versions:
             continue
-        doc = sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
+        doc = (
+            sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
+        )
         gap_items.append(
             {
                 "gap_type": gap.gap_type,
@@ -208,7 +226,9 @@ def build_requirements_batch_payload(
         ev = eval_by_req.get(req.requirement_id)
         extract_status = to_api_extract_status(req, ev)
         self_check = (
-            _build_self_check_payload(req, ev, gaps or [], sources_by_id) if ev is not None else None
+            _build_self_check_payload(req, ev, gaps or [], sources_by_id)
+            if ev is not None
+            else None
         )
         value_text = req.value_text
         if value_text is None and req.official_deadline is not None:
@@ -275,7 +295,9 @@ def build_candidate_plan_create_payload(
             mapped_req_id = candidate_uuid
 
         evidence_note = f"所需证据：{task.evidence_required}"
-        detail_text = f"{task.detail}\n{evidence_note}" if task.detail else evidence_note
+        detail_text = (
+            f"{task.detail}\n{evidence_note}" if task.detail else evidence_note
+        )
 
         items_payload.append(
             {
@@ -283,9 +305,13 @@ def build_candidate_plan_create_payload(
                 "title": task.title[:160],
                 "detail": detail_text,
                 "obligation_nature": to_api_obligation(task.obligation),
-                "official_deadline_date": deadline_date.isoformat() if deadline_date else None,
+                "official_deadline_date": deadline_date.isoformat()
+                if deadline_date
+                else None,
                 "official_deadline_at": _format_iso_dt(deadline_at),
-                "suggested_date": task.suggested_date.isoformat() if task.suggested_date else None,
+                "suggested_date": task.suggested_date.isoformat()
+                if task.suggested_date
+                else None,
                 "depends_on": list(task.depends_on),
                 "evidence_required": bool(task.evidence_required),
                 "requirement_id": mapped_req_id,
@@ -324,7 +350,9 @@ class HttpCandidatePersistenceClient:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
 
-    def persist_requirements(self, matter_id: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
+    def persist_requirements(
+        self, matter_id: str, payload: dict[str, Any]
+    ) -> list[dict[str, Any]]:
         """Persist extracted requirements via POST /api/v1/matters/{matter_id}/requirements."""
         data = self._request_json(
             "POST",
@@ -333,7 +361,9 @@ class HttpCandidatePersistenceClient:
         )
         return list(data.get("requirements", []))
 
-    def persist_candidate_plan(self, matter_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def persist_candidate_plan(
+        self, matter_id: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
         """Persist pending candidate plan via POST /api/v1/matters/{matter_id}/candidate-plans."""
         data = self._request_json(
             "POST",
@@ -344,10 +374,14 @@ class HttpCandidatePersistenceClient:
 
     def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
         """Read persisted candidate plan via GET /api/v1/candidate-plans/{plan_id}."""
-        data = self._request_json("GET", f"{self._base_url}/api/v1/candidate-plans/{plan_id}")
+        data = self._request_json(
+            "GET", f"{self._base_url}/api/v1/candidate-plans/{plan_id}"
+        )
         return dict(data.get("plan", data))
 
-    def confirm_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+    def confirm_candidate_plan(
+        self, plan_id: str, *, operation_id: str
+    ) -> dict[str, Any]:
         """Confirm a persisted candidate plan via POST /api/v1/candidate-plans/{plan_id}/confirm."""
         return self._request_json(
             "POST",
@@ -355,7 +389,9 @@ class HttpCandidatePersistenceClient:
             headers={"Idempotency-Key": operation_id},
         )
 
-    def reject_candidate_plan(self, plan_id: str, *, operation_id: str) -> dict[str, Any]:
+    def reject_candidate_plan(
+        self, plan_id: str, *, operation_id: str
+    ) -> dict[str, Any]:
         """Reject a persisted candidate plan via POST /api/v1/candidate-plans/{plan_id}/reject."""
         return self._request_json(
             "POST",
