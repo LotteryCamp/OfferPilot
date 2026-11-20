@@ -176,9 +176,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
       </div>
       <section v-if="!sources.length" class="panel">
         <ElEmpty description="当前事项暂无关联来源">
-          <p class="empty-description">
-            来源与要求或候选计划建立关联后，会显示在这里。仅登记的来源可能尚未出现在本列表。
-          </p>
+          <p class="empty-description">读取通知后，关联来源将在这里显示；分析前可先查看原文。</p>
           <ElButton :loading="loading" @click="reload">刷新来源</ElButton>
         </ElEmpty>
       </section>

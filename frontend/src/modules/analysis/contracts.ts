@@ -41,7 +41,10 @@ export function assertStartedRun(run: AnalysisRun) {
 }
 
 export function canStartAnotherRun(status: string | undefined | null) {
-  return status == null || ['等待用户', '等待确认', '已完成', '失败', '已取消'].includes(status)
+  return (
+    status == null ||
+    ['等待用户', '等待确认', '已完成', '失败', '已取消', '已中断'].includes(status)
+  )
 }
 
 export function runStatusText(run: AnalysisRun) {
@@ -52,6 +55,7 @@ export function runStatusText(run: AnalysisRun) {
     已完成: '该运行已完成，请重新读取候选决定及正式任务。',
     失败: '本次分析失败，可核对原因后重新发起。',
     已取消: '该运行已取消，可重新发起分析。',
+    已中断: '上次分析已中断，原运行不会继续。请核对已保存结果，也可重新发起分析。',
   }
   return Object.hasOwn(labels, run.status) ? labels[run.status]! : `待识别的运行状态：${run.status}`
 }

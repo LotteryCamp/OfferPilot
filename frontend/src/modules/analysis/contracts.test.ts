@@ -49,7 +49,7 @@ describe('分析运行与已保存候选的边界', () => {
     expect(canStartAnotherRun(status)).toBe(false)
   })
 
-  it.each(['等待用户', '等待确认', '失败', '已取消', '已完成', null])(
+  it.each(['等待用户', '等待确认', '失败', '已取消', '已完成', '已中断', null])(
     '状态 %s 可由用户重新发起',
     (status) => {
       expect(canStartAnotherRun(status)).toBe(true)
@@ -61,6 +61,20 @@ describe('分析运行与已保存候选的边界', () => {
       '待识别的运行状态：future_status',
     )
     expect(runStatusText({ ...run, status: 'constructor' })).toContain('待识别')
+  })
+
+  it('服务重启后的已中断状态允许重新发起，保留中断原因', () => {
+    const result = runResponse.parse({
+      run: {
+        ...run,
+        status: '已中断',
+        persisted_plan_id: null,
+        error: { code: 'RUN_INTERRUPTED', message: '服务重启导致运行中断', missing_fields: [] },
+      },
+    }).run
+    expect(runStatusText(result)).toContain('原运行不会继续')
+    expect(canStartAnotherRun(result.status)).toBe(true)
+    expect(result.error?.code).toBe('RUN_INTERRUPTED')
   })
 })
 

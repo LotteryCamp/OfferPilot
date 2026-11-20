@@ -98,7 +98,7 @@ async function submit() {
   <details class="panel source-import" data-testid="source-import">
     <summary>读取公开通知</summary>
     <p class="muted">
-      支持公开 HTML 通知页面。读取后可查看原文及出处，相关要求生成后会出现在来源列表。
+      支持公开 HTML 通知页面。读取后来源关联当前事项，可查看原文及出处；开始分析后再查看要求。
     </p>
     <form class="source-import-form" :aria-busy="submitting" @submit.prevent="submit">
       <label for="source-url">通知链接</label>
