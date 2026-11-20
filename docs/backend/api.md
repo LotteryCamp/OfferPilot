@@ -972,7 +972,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `scope` | string | 否 | 最长 200 字符 |
 | `scope_year` | integer | 否 | 2020—2100，须与事项年度一致；省略时使用事项年度 |
 | `confirmed_facts` | object | 否 | 已确认的个人事实，默认空对象 |
-| `model_transfer_consent_id` | string | 否 | 最长 200 字符 |
+| `model_transfer_consent_id` | string | 否 | 最长 200 字符；携带 `confirmed_facts` 或事项含 `scope_attrs` 时必须提供有效同意，否则返回 `422 model_transfer_consent_required` 且不创建运行 |
 | `operation_id` | string | 否 | 1—200 字符；同一事项重复提交时返回首次运行结果 |
 
 请求示例：
@@ -984,6 +984,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
   ],
   "publisher": "福州大学数学与统计学院",
   "scope": "2027 届、本院、校内推免推荐",
+  "model_transfer_consent_id": "consent-alpha-demo",
   "operation_id": "run-2026-09-09-001"
 }
 ```
@@ -1061,6 +1062,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `MODEL_ERROR` | 模型调用失败或输出不符合结构契约 |
 | `TIMEOUT` | 来源、模型或工具调用超时 |
 | `VALIDATION_FAILED` | 候选不符合接口或领域约束 |
+| `CONSENT_REQUIRED_OR_REVOKED` | 缺少有效的外部模型传输同意，或同意已撤回 |
 | `VERSION_CONFLICT` | 工作区版本已变化 |
 | `DEADLINE_EXPIRED` | 候选任务对应的官方期限已过 |
 | `RUN_INTERRUPTED` | 运行在服务重启时中断 |
@@ -1132,7 +1134,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 
 ### 7.6 运行结果与错误
 
-运行生命周期请求返回 `200` 和完整 `run` 对象；`run.status` 与 `run.error` 表达运行结果。请求字段校验失败返回 `422 validation_error`，运行不存在返回 `404 agent_run_not_found`。
+运行生命周期请求返回 `200` 和完整 `run` 对象；`run.status` 与 `run.error` 表达运行结果。请求字段校验失败返回 `422 validation_error`，缺少必需的模型传输同意返回 `422 model_transfer_consent_required`，运行不存在返回 `404 agent_run_not_found`。
 
 Alpha 向模型发送公开来源正文、事项目标和适用范围，不发送个人事实或材料。演示用户身份即本次模型传输的授权范围。
 
@@ -1200,6 +1202,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 422 | `unknown_matter_type` | 事项类型不存在或未启用 |
 | 422 | `unknown_snapshot` | 要求引用的快照不存在 |
 | 422 | `scope_year_mismatch` | 来源适用年度与事项年度不一致 |
+| 422 | `model_transfer_consent_required` | 携带个人事实或事项适用范围时缺少模型传输同意，未创建运行 |
 | 422 / 502 | `source_read_failed` | 公开来源读取失败；`details.code` 为读取错误码，`details.retryable` 表示是否可重试 |
 | 422 | `evidence_snapshot_mismatch` | 证据快照与要求快照不一致 |
 | 422 | `evidence_source_mismatch` | 证据来源与快照所属来源不一致 |

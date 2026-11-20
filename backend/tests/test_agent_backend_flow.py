@@ -35,6 +35,7 @@ NOTICE_HTML = FIXTURES / "fzu_notice.html.gz"
 FETCHED_AT = datetime.fromisoformat("2026-09-09T01:00:00+00:00")
 USER_ID = UUID("00000000-0000-7000-8000-000000000001")
 WORKSPACE_ID = UUID("00000000-0000-7000-8000-000000000002")
+TRANSFER_CONSENT_ID = "consent-alpha-demo"
 
 
 class _ReplayState:
@@ -164,6 +165,7 @@ def test_agent_run_generates_candidate_then_confirms(agent_client: TestClient) -
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
             "operation_id": "run-operation-1",
         },
     )
@@ -194,6 +196,28 @@ def test_agent_run_generates_candidate_then_confirms(agent_client: TestClient) -
     assert [task["title"] for task in tasks] == ["准备并提交申请表、奖项证明及成绩单"]
 
 
+def test_agent_run_without_transfer_consent_returns_422(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    matter_id = _create_matter(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "run-without-consent",
+        },
+    )
+
+    assert created.status_code == 422, created.text
+    assert created.json()["error"]["code"] == "model_transfer_consent_required"
+    run_count = admin.execute("SELECT count(*) FROM core.agent_run").fetchone()
+    assert run_count is not None
+    assert run_count[0] == 0
+    assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
+
+
 def test_agent_run_reject_creates_no_tasks(agent_client: TestClient) -> None:
     matter_id = _create_matter(agent_client)
     created = agent_client.post(
@@ -202,6 +226,7 @@ def test_agent_run_reject_creates_no_tasks(agent_client: TestClient) -> None:
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
         },
     )
     run = created.json()["run"]
@@ -230,6 +255,7 @@ def test_agent_run_reads_and_confirms_after_restart(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
             "operation_id": "restart-operation-1",
         },
     )
@@ -312,6 +338,7 @@ def test_interrupted_run_is_reported_and_can_restart(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
             "operation_id": "retry-after-interrupt",
         },
     )
@@ -334,6 +361,7 @@ def test_blocked_candidate_stays_pending_after_restart(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
             "operation_id": "restart-block-operation-1",
         },
     )

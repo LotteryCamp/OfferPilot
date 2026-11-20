@@ -173,6 +173,16 @@ class AgentRunService:
                 next_step="核对运行与事项的适用年度",
             )
 
+        if (body.confirmed_facts or matter_row["scope_attrs"]) and not (
+            body.model_transfer_consent_id and body.model_transfer_consent_id.strip()
+        ):
+            raise ApiError(
+                422,
+                "model_transfer_consent_required",
+                "携带个人事实或事项适用范围时必须提供模型传输同意",
+                next_step="完成模型传输授权后提交同意标识",
+            )
+
         run_id = f"run-{uuid4().hex[:12]}"
         self._create_run(
             run_id=run_id,
