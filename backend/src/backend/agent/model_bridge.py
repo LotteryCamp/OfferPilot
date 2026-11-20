@@ -135,6 +135,8 @@ _EXTRACTION_INSTRUCTION = (
     "   当来源对象包含非空 fragments 列表时，basis[*].locator 必须原样复制对应片段的 fragments[*].locator，"
     "locator_kind 必须取自该片段的 locator_kind，excerpt 必须是该片段 quote 的连续原文字串，严禁自行改写或简写 locator。\n"
     "2. 原文仅给出日期时只填 date 值；给出精确时刻时才填带时区的时间戳，不得虚构时刻。\n"
+    "   当 value_type 为 date 时，value_text 必须严格使用 YYYY-MM-DD 格式（如 2026-09-10），严禁填中文日期或带时刻描述；"
+    "精确时刻请单独填入 official_deadline（带时区 ISO 8601）。value_type 为 number 时 value_text 须为纯数字，boolean 时须为 true 或 false。\n"
     "3. 不同条件或适用人群（如申请推荐与放弃推荐）须拆开标注 scope。\n"
     "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定。"
 )
@@ -238,6 +240,11 @@ class StructuredModelAdapter:
             citations = _validate_and_enrich_citations(
                 draft.basis, valid_source_ids, sources_by_id
             )
+            value_text = _normalize_model_value_text(
+                draft.value_text,
+                draft.value_type,
+                official_deadline=draft.official_deadline,
+            )
             requirements.append(
                 ExtractedRequirement(
                     requirement_id=draft.requirement_id,
@@ -249,7 +256,7 @@ class StructuredModelAdapter:
                     is_ambiguous=draft.is_ambiguous,
                     field_key=draft.field_key,
                     scope=draft.scope,
-                    value_text=draft.value_text,
+                    value_text=value_text,
                     value_type=draft.value_type,
                     confidence=draft.confidence,
                     rule_kind=draft.rule_kind,
@@ -373,6 +380,66 @@ class StructuredModelAdapter:
                     AgentErrorCode.VALIDATION_FAILED, str(exc)
                 ) from exc
             raise ModelInvocationError(AgentErrorCode.MODEL_ERROR, str(exc)) from exc
+
+
+_CALENDAR_DATE_RE = re.compile(
+    r"(?P<year>\d{4})\s*(?:年|[./-])\s*(?P<month>\d{1,2})\s*(?:月|[./-])\s*(?P<day>\d{1,2})\s*日?"
+)
+
+
+def _normalize_model_value_text(
+    value_text: str | None,
+    value_type: Literal["text", "date", "number", "boolean", "enum"],
+    *,
+    official_deadline: datetime | None = None,
+) -> str | None:
+    if value_text is None:
+        if value_type == "date" and official_deadline is not None:
+            return official_deadline.date().isoformat()
+        return None
+    stripped = value_text.strip()
+    if not stripped:
+        if value_type == "date" and official_deadline is not None:
+            return official_deadline.date().isoformat()
+        return None
+    if value_type == "date":
+        if len(stripped) == 10:
+            try:
+                return date.fromisoformat(stripped).isoformat()
+            except ValueError as exc:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"模型返回的日期 {stripped} 无效",
+                ) from exc
+        try:
+            return datetime.fromisoformat(stripped).date().isoformat()
+        except ValueError:
+            pass
+        match = _CALENDAR_DATE_RE.search(stripped)
+        if match is not None:
+            try:
+                parsed_date = date(
+                    int(match.group("year")),
+                    int(match.group("month")),
+                    int(match.group("day")),
+                )
+            except ValueError as exc:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"模型返回的日期 {stripped} 无效",
+                ) from exc
+            return parsed_date.isoformat()
+        if official_deadline is not None:
+            return official_deadline.date().isoformat()
+        raise ModelInvocationError(
+            AgentErrorCode.VALIDATION_FAILED,
+            f"date 类型 value_text 无法规范化为 YYYY-MM-DD：{stripped}",
+        )
+    if value_type == "boolean":
+        lowered = stripped.lower()
+        if lowered in {"true", "false"}:
+            return lowered
+    return stripped
 
 
 def _normalize_ws(text: str) -> str:

@@ -1196,3 +1196,69 @@ def test_model_payload_includes_source_fragments_for_exact_locators() -> None:
             raise AssertionError("Expected ModelInvocationError")
         except ModelInvocationError as exc:
             assert exc.code == AgentErrorCode.VALIDATION_FAILED
+
+    # Chinese date text in value_type='date' normalizes to YYYY-MM-DD and passes payload builder
+    def date_model(instruction: str, text: str, response_model: type[Any]) -> Any:
+        return response_model.model_validate(
+            {
+                "requirements": [
+                    {
+                        "requirement_id": "r-date",
+                        "title": "提交申请材料截止",
+                        "obligation": "官方必需",
+                        "value_type": "date",
+                        "value_text": "2026年9月10日下午15:00前",
+                        "basis": [
+                            {
+                                "source_version_id": snap_id,
+                                "locator": "正文第3段",
+                                "excerpt": "成绩排名前 30%",
+                            }
+                        ],
+                    }
+                ],
+                "gaps": [],
+                "scope_summary": {},
+            }
+        )
+
+    date_reqs, _, _ = StructuredModelAdapter(
+        date_model
+    ).extract_requirements_with_metadata("整理推免要求", [doc])
+    assert date_reqs[0].value_text == "2026-09-10"
+    date_evals, _ = evaluate_requirements(date_reqs, {snap_id: doc}, {})
+    date_batch = build_requirements_batch_payload(date_reqs, date_evals, {snap_id: doc})
+    assert date_batch["requirements"][0]["value_text"] == "2026-09-10"
+
+    # Invalid calendar date must still be rejected
+    def bad_date_model(instruction: str, text: str, response_model: type[Any]) -> Any:
+        return response_model.model_validate(
+            {
+                "requirements": [
+                    {
+                        "requirement_id": "r-bad-date",
+                        "title": "无效日期",
+                        "obligation": "官方必需",
+                        "value_type": "date",
+                        "value_text": "2026年2月30日",
+                        "basis": [
+                            {
+                                "source_version_id": snap_id,
+                                "locator": "正文第3段",
+                                "excerpt": "成绩排名前 30%",
+                            }
+                        ],
+                    }
+                ],
+                "gaps": [],
+                "scope_summary": {},
+            }
+        )
+
+    try:
+        StructuredModelAdapter(bad_date_model).extract_requirements_with_metadata(
+            "整理推免要求", [doc]
+        )
+        raise AssertionError("Expected ModelInvocationError")
+    except ModelInvocationError as exc:
+        assert exc.code == AgentErrorCode.VALIDATION_FAILED
