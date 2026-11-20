@@ -1,6 +1,6 @@
 import { AxiosError, AxiosHeaders } from 'axios'
 import { describe, expect, it } from 'vitest'
-import { isConsentRejectedStart } from './api'
+import { analysisInput, isConsentRejectedStart } from './api'
 
 function failure(status: number, code: string) {
   return new AxiosError('请求被拒绝', 'ERR_BAD_REQUEST', undefined, undefined, {
@@ -13,6 +13,18 @@ function failure(status: number, code: string) {
 }
 
 describe('分析启动的授权拒绝', () => {
+  it('运行只发送分析字段，由后端查询全局授权', () => {
+    const input = {
+      source_urls: ['https://example.edu/notice'],
+      publisher: '官方发布方',
+      scope_year: 2027,
+      operation_id: crypto.randomUUID(),
+    }
+    expect(analysisInput.parse(input)).toEqual(input)
+    expect(
+      analysisInput.safeParse({ ...input, model_transfer_consent_id: crypto.randomUUID() }).success,
+    ).toBe(false)
+  })
   it.each(['model_transfer_consent_required', 'model_transfer_consent_invalid'])(
     '%s 的422响应表示尚未创建运行',
     (code) => {

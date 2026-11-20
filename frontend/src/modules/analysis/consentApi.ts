@@ -2,39 +2,29 @@ import axios from 'axios'
 import { z } from 'zod'
 import { http } from '../../shared/http'
 import {
-  assertConsentMatter,
   grantConsentResponse,
   revokeConsentResponse,
   transferConsentState,
 } from './consentContracts'
 
-function path(matterId: string) {
-  return `/matters/${z.uuid().parse(matterId)}/model-transfer-consents`
-}
-export async function readTransferConsent(matterId: string, signal: AbortSignal) {
-  const response = await http.get<unknown>(path(matterId), { signal })
+const path = '/model-transfer-consent'
+export async function readTransferConsent(signal: AbortSignal) {
+  const response = await http.get<unknown>(path, { signal })
   const state = transferConsentState.parse(response.data)
-  assertConsentMatter(state.consent, matterId)
   return state
 }
-export async function grantTransferConsent(matterId: string, signal: AbortSignal) {
-  const response = await http.post<unknown>(path(matterId), undefined, { signal })
+export async function grantTransferConsent(signal: AbortSignal) {
+  const response = await http.post<unknown>(path, undefined, { signal })
   const result = grantConsentResponse.parse(response.data)
-  assertConsentMatter(result.consent, matterId)
   if (result.consent.status !== 'active' || result.consent.revoked_at !== null)
     throw new Error('授予响应未返回有效授权，请重新读取核对。')
   return result.consent
 }
-export async function revokeTransferConsent(
-  matterId: string,
-  consentId: string,
-  signal: AbortSignal,
-) {
-  const response = await http.delete<unknown>(`${path(matterId)}/${z.uuid().parse(consentId)}`, {
+export async function revokeTransferConsent(consentId: string, signal: AbortSignal) {
+  const response = await http.delete<unknown>(`${path}/${z.uuid().parse(consentId)}`, {
     signal,
   })
   const result = revokeConsentResponse.parse(response.data)
-  assertConsentMatter(result.consent, matterId)
   if (
     result.consent.consent_id !== consentId ||
     result.consent.status !== 'revoked' ||

@@ -1,26 +1,25 @@
 import { z } from 'zod'
 
 const scope = {
-  provider: z.string().min(1),
   purposes: z.array(z.string().min(1)).min(1),
   field_categories: z.array(z.string().min(1)).min(1),
 }
 export const transferDisclosure = z.object({
   ...scope,
+  provider: z.string().min(1),
   model: z.string().nullable(),
+  consent_scope: z.string().min(1),
   data_handling: z.string().min(1),
 })
 export const transferConsent = z.object({
   ...scope,
   consent_id: z.uuid(),
-  matter_id: z.uuid(),
   status: z.enum(['active', 'revoked']),
   version_no: z.number().int().positive(),
   created_at: z.string(),
   revoked_at: z.string().nullable(),
 })
 export const transferConsentState = z.object({
-  required: z.boolean(),
   disclosure: transferDisclosure,
   consent: transferConsent.nullable(),
 })
@@ -44,36 +43,26 @@ export function sameDisclosure(a: TransferDisclosure, b: TransferDisclosure) {
     a.provider === b.provider &&
     a.model === b.model &&
     a.data_handling === b.data_handling &&
+    a.consent_scope === b.consent_scope &&
     sameSet(a.purposes, b.purposes) &&
     sameSet(a.field_categories, b.field_categories)
   )
 }
 
-export function consentMatches(
-  consent: TransferConsent,
-  disclosure: TransferDisclosure,
-  matterId: string,
-) {
+export function consentMatches(consent: TransferConsent, disclosure: TransferDisclosure) {
   return (
-    consent.matter_id === matterId &&
     consent.status === 'active' &&
     consent.revoked_at === null &&
-    consent.provider === disclosure.provider &&
     sameSet(consent.purposes, disclosure.purposes) &&
     sameSet(consent.field_categories, disclosure.field_categories)
   )
 }
 
-export function assertConsentMatter(consent: TransferConsent | null, matterId: string) {
-  if (consent && consent.matter_id !== matterId)
-    throw new Error('授权记录与当前事项不一致，已停止使用。')
-}
-
-export function consentBlockReason(state: TransferConsentState | null, matterId: string) {
-  if (!state) return '请先读取当前事项的模型传输授权状态。'
-  if (state.consent && !consentMatches(state.consent, state.disclosure, matterId))
-    return '已有授权与当前事项或披露范围不一致，请先撤回后重新确认。'
-  if (state.required && !state.consent) return '请先阅读下方披露信息，并由本人确认是否授权。'
+export function consentBlockReason(state: TransferConsentState | null) {
+  if (!state) return '请先读取当前用户的模型传输授权状态。'
+  if (state.consent && !consentMatches(state.consent, state.disclosure))
+    return '已有授权与披露用途或字段范围不一致，请先撤回后重新确认。'
+  if (!state.consent) return '请先阅读下方全部事项共用的披露范围，并由本人确认是否授权。'
   return ''
 }
 

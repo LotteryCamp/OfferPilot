@@ -1,5 +1,4 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
-import type { Matter } from '../matters/types'
 import {
   consentError,
   grantTransferConsent,
@@ -9,7 +8,7 @@ import {
 import { consentBlockReason, consentMatches, sameDisclosure } from './consentContracts'
 import type { TransferConsentState } from './consentContracts'
 
-export function useTransferConsent(matter: () => Matter) {
+export function useTransferConsent(matterId: () => string) {
   const state = ref<TransferConsentState | null>(null)
   const busy = ref(false)
   const accepted = ref(false)
@@ -19,7 +18,7 @@ export function useTransferConsent(matter: () => Matter) {
   const blockedReason = computed(() => {
     if (busy.value) return '正在核对模型传输授权，请稍候。'
     if (pendingRevokeId.value) return '撤回结果尚需核对，请重新读取或重试撤回。'
-    return consentBlockReason(state.value, matter().id)
+    return consentBlockReason(state.value)
   })
   let generation = 0
   let controller: AbortController | undefined
@@ -38,13 +37,12 @@ export function useTransferConsent(matter: () => Matter) {
   async function refresh() {
     if (busy.value) return null
     const ticket = generation
-    const context = matter().id
     controller = new AbortController()
     busy.value = true
     error.value = ''
     notice.value = ''
     try {
-      const value = await readTransferConsent(context, controller.signal)
+      const value = await readTransferConsent(controller.signal)
       if (ticket !== generation) return null
       return reconcile(value)
     } catch (cause) {
@@ -69,7 +67,6 @@ export function useTransferConsent(matter: () => Matter) {
     )
       return
     const disclosed = state.value.disclosure
-    const context = matter().id
     const ticket = generation
     controller = new AbortController()
     const signal = controller.signal
@@ -77,7 +74,7 @@ export function useTransferConsent(matter: () => Matter) {
     error.value = ''
     notice.value = ''
     try {
-      const latest = await readTransferConsent(context, signal)
+      const latest = await readTransferConsent(signal)
       if (ticket !== generation) return
       if (!sameDisclosure(disclosed, latest.disclosure)) {
         state.value = latest
@@ -87,22 +84,22 @@ export function useTransferConsent(matter: () => Matter) {
       }
       if (latest.consent) {
         reconcile(latest)
-        notice.value = '已读取当前事项的既有授权，请核对其范围。'
+        notice.value = '已读取当前用户的既有授权，覆盖全部事项，请核对其范围。'
         return
       }
-      const granted = await grantTransferConsent(context, signal)
+      const granted = await grantTransferConsent(signal)
       if (ticket !== generation) return
       state.value = null
-      const verified = await readTransferConsent(context, signal)
+      const verified = await readTransferConsent(signal)
       if (ticket !== generation) return
       if (
         !sameDisclosure(disclosed, verified.disclosure) ||
         verified.consent?.consent_id !== granted.consent_id ||
-        !consentMatches(granted, verified.disclosure, context)
+        !consentMatches(granted, verified.disclosure)
       )
         throw new Error('授予后授权或披露信息发生变化，请重新读取核对。')
       reconcile(verified)
-      notice.value = '当前事项的授权已记录，可主动发起分析或重新自查。'
+      notice.value = '当前用户的统一授权已记录，可在全部事项主动发起分析或重新自查。'
     } catch (cause) {
       if (ticket === generation) {
         state.value = null
@@ -118,7 +115,6 @@ export function useTransferConsent(matter: () => Matter) {
   async function revoke() {
     const id = pendingRevokeId.value ?? state.value?.consent?.consent_id
     if (!id || busy.value) return
-    const context = matter().id
     const ticket = generation
     controller = new AbortController()
     const signal = controller.signal
@@ -129,9 +125,9 @@ export function useTransferConsent(matter: () => Matter) {
     error.value = ''
     notice.value = ''
     try {
-      await revokeTransferConsent(context, id, signal)
+      await revokeTransferConsent(id, signal)
       if (ticket !== generation) return
-      const verified = await readTransferConsent(context, signal)
+      const verified = await readTransferConsent(signal)
       if (ticket !== generation) return
       reconcile(verified)
       notice.value = verified.consent
@@ -148,14 +144,13 @@ export function useTransferConsent(matter: () => Matter) {
   }
 
   watch(
-    [() => matter().id, () => JSON.stringify(matter().scope_attrs ?? {})],
-    (value, previous) => {
+    matterId,
+    () => {
       generation++
       controller?.abort()
       state.value = null
       busy.value = false
       accepted.value = false
-      if (value[0] !== previous?.[0]) pendingRevokeId.value = null
       error.value = ''
       notice.value = ''
       void refresh()

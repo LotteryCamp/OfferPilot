@@ -3,20 +3,24 @@ import { z } from 'zod'
 import { http } from '../../shared/http'
 import { assertStartedRun, runResponse } from './contracts'
 
-export interface AnalysisInput {
-  source_urls: string[]
-  publisher: string
-  scope_year: number
-  scope?: string
-  operation_id: string
-  model_transfer_consent_id?: string
-}
+export const analysisInput = z.strictObject({
+  source_urls: z.array(z.string().min(1)).min(1),
+  publisher: z.string().min(1),
+  scope_year: z.number().int(),
+  scope: z.string().optional(),
+  operation_id: z.uuid(),
+})
+export type AnalysisInput = z.infer<typeof analysisInput>
 
 export async function startAnalysis(matterId: string, input: AnalysisInput, signal: AbortSignal) {
-  const response = await http.post<unknown>(`/matters/${matterId}/agent-runs`, input, {
-    signal,
-    timeout: 120000,
-  })
+  const response = await http.post<unknown>(
+    `/matters/${matterId}/agent-runs`,
+    analysisInput.parse(input),
+    {
+      signal,
+      timeout: 120000,
+    },
+  )
   const { run } = runResponse.parse(response.data)
   assertStartedRun(run)
   return run

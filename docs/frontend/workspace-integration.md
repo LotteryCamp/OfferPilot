@@ -1,6 +1,6 @@
 # 个人事项工作区集成约定
 
-本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`6101e6f`）](https://github.com/LotteryCamp/OfferPilot/blob/6101e6f6f955fd3b66cfeee1bf57c7f594d90018/docs/backend/api.md)，完整联调依赖截至 `0013_model_transfer_consent.sql` 的数据库迁移，包括事项级排名事实及模型传输同意。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
+本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`ad77166`）](https://github.com/LotteryCamp/OfferPilot/blob/ad77166ba66e483e4a50b6cef640a0b650185dcf/docs/backend/api.md)，完整联调依赖截至 `0015_global_model_transfer_consent.sql` 的数据库迁移，包括事项级排名事实及模型传输同意。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
 
 ## 责任与文件边界
 

@@ -26,7 +26,7 @@ const analysis = useAnalysis(
   () => emit('changed'),
 )
 const { run, attempt, busy, checking, error, storageReady } = analysis
-const transfer = useTransferConsent(() => props.matter)
+const transfer = useTransferConsent(() => props.matter.id)
 const {
   state: consentState,
   busy: consentBusy,
@@ -79,7 +79,7 @@ async function start(expectedSourceId?: string) {
     !currentConsent ||
     props.matter.id !== context ||
     props.source?.id !== source.id ||
-    consentBlockReason(currentConsent, context)
+    consentBlockReason(currentConsent)
   )
     return null
   const result = await analysis.start(source.id, {
@@ -87,9 +87,6 @@ async function start(expectedSourceId?: string) {
     publisher: source.publisher,
     scope_year: source.scope_year,
     ...(source.scope ? { scope: source.scope } : {}),
-    ...(currentConsent.consent
-      ? { model_transfer_consent_id: currentConsent.consent.consent_id }
-      : {}),
   })
   if (!result && props.matter.id === context) await transfer.refresh()
   return result
@@ -128,7 +125,7 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
     </p>
     <section class="evidence-block" data-testid="analysis-consent" :aria-busy="consentBusy">
       <div class="section-heading">
-        <h3>模型传输授权</h3>
+        <h3>模型传输统一授权（全部事项）</h3>
         <ElButton
           data-testid="consent-refresh"
           :disabled="consentBusy"
@@ -162,6 +159,10 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
             </dd>
           </div>
           <div class="wide">
+            <dt>授权范围</dt>
+            <dd>{{ consentState.disclosure.consent_scope }}</dd>
+          </div>
+          <div class="wide">
             <dt>数据处理说明</dt>
             <dd>{{ consentState.disclosure.data_handling }}</dd>
           </div>
@@ -170,30 +171,29 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
           v-if="consentState.consent"
           data-testid="consent-active"
           :data-consent-id="consentState.consent.consent_id"
-          :data-matter-id="consentState.consent.matter_id"
         >
-          本事项已有授权记录 v{{ consentState.consent.version_no }}，服务商为
-          {{ consentState.consent.provider }}。
+          当前用户已有统一授权 v{{
+            consentState.consent.version_no
+          }}，覆盖全部事项及后续更换的外部模型服务。
         </p>
-        <template v-else-if="consentState.required">
+        <template v-else>
           <ElCheckbox id="consent-confirmed" v-model="consentAccepted" :disabled="consentBusy"
-            >我已阅读以上服务商、用途、发送字段及数据处理说明，同意本事项按上述范围进行模型传输。</ElCheckbox
+            >我已阅读以上披露，同意当前用户全部事项按上述用途和字段范围向外部模型传输公开资料，并知悉更换模型服务后同意继续有效。</ElCheckbox
           >
           <ElButton
             data-testid="consent-grant"
             :disabled="consentBusy || !consentAccepted"
             @click="transfer.grant"
-            >同意并授权本事项分析</ElButton
+            >同意并授权全部事项分析</ElButton
           >
         </template>
-        <p v-else class="muted">按当前后端状态，本次公开资料分析无需额外授权。</p>
       </template>
       <ElButton
         v-if="consentState?.consent || pendingRevokeId"
         data-testid="consent-revoke"
         :disabled="consentBusy"
         @click="transfer.revoke"
-        >{{ pendingRevokeId ? '重试撤回授权' : '撤回本事项授权' }}</ElButton
+        >{{ pendingRevokeId ? '重试撤回授权' : '撤回全部事项的统一授权' }}</ElButton
       >
       <p class="muted">撤回影响后续调用检查；已发出的请求由模型服务按其数据处理条款处理。</p>
     </section>
