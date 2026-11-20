@@ -1,6 +1,7 @@
-import type { InjectionKey } from 'vue'
-import { connectLocalDemoMatters } from '../modules/matters/localDemoApi'
+import { defineAsyncComponent, type InjectionKey } from 'vue'
+import { createMattersApi } from '../modules/matters/api'
 import type { Matter, MattersApi } from '../modules/matters/types'
+import { http } from '../shared/http'
 
 type WorkspaceModule = (new () => {
   $props: { matterId: string; matter: Readonly<Matter> }
@@ -24,9 +25,15 @@ export const workspaceKey: InjectionKey<WorkspaceIntegrations> = Symbol('workspa
 
 const enableLocalDemo = import.meta.env.DEV && import.meta.env.VITE_LOCAL_DEMO_MATTERS === '1'
 
-export const workspaceIntegrations: WorkspaceIntegrations = enableLocalDemo
-  ? {
-      mattersApi: connectLocalDemoMatters(),
-      identity: { mode: 'single-user-local', label: '单用户本地演示' },
-    }
-  : {}
+export const workspaceIntegrations: WorkspaceIntegrations = {
+  modules: {
+    sources: defineAsyncComponent(() => import('../modules/sources/SourceConditionsPage.vue')),
+    plan: defineAsyncComponent(() => import('../modules/plans/PlanReviewPage.vue')),
+  },
+  ...(enableLocalDemo
+    ? {
+        mattersApi: createMattersApi(http),
+        identity: { mode: 'single-user-local' as const, label: '单用户本地演示' },
+      }
+    : {}),
+}

@@ -19,7 +19,9 @@
     "test:matters:live": "playwright test --config playwright.matters-live.config.ts"
   },
   "dependencies": {
+    "axios": "^1.21.1",
     "element-plus": "^2.14.0",
+    "pinia": "^3.0.4",
     "vue": "^3.5.0",
     "vue-router": "^4.5.0",
     "zod": "^4.0.0"
