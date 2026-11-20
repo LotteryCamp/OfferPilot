@@ -97,8 +97,12 @@ class ToolGateway:
             )
             raise GatewayError(err)
 
-        if requires_transfer_consent and not self._backend.has_valid_transfer_consent(
-            user_id, matter_id, consent_id
+        if requires_transfer_consent and (
+            not consent_id
+            or not consent_id.strip()
+            or not self._backend.has_valid_transfer_consent(
+                user_id, matter_id, consent_id.strip()
+            )
         ):
             err = AgentError(
                 code=AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED,
