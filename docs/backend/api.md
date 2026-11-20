@@ -6,7 +6,7 @@
 | 数据格式 | JSON，UTF-8 |
 | 适用范围 | Alpha 单用户本地演示 |
 | 业务契约 | [`docs/development/alpha-scope-contract.md`](../development/alpha-scope-contract.md) |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0008` |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0009` |
 
 ## 1. 范围
 
