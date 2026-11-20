@@ -34,6 +34,7 @@ ADMIN_DSN = os.environ.get(
 )
 TEST_DB = "offerpilot_alpha_test"
 TEST_ROLE = "offerpilot_schema_test_app"
+APP_ROLE = "offerpilot_app"
 
 USER_A = UUID("11111111-1111-7111-8111-111111111111")
 WS_A = UUID("11111111-1111-7111-8111-111111111112")
@@ -85,16 +86,17 @@ class AlphaSchemaTest(unittest.TestCase):
         ).fetchone()
         if not exists:
             admin.execute(f'CREATE DATABASE "{TEST_DB}"')
-        admin.execute(
-            f"""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{TEST_ROLE}') THEN
-                    CREATE ROLE {TEST_ROLE} NOLOGIN;
-                END IF;
-            END $$;
-            """
-        )
+        for role in (TEST_ROLE, APP_ROLE):
+            admin.execute(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
+                        CREATE ROLE {role} NOLOGIN;
+                    END IF;
+                END $$;
+                """
+            )
         admin.close()
 
         # 用 drop schema 代替 drop database：既能在每次运行时得到干净结构，
@@ -343,6 +345,22 @@ class AlphaSchemaTest(unittest.TestCase):
                 for row in self.conn.execute("SELECT type_code FROM core.matter_type")
             },
         )
+
+        for table, privileges in {
+            "core.requirement_self_check": "SELECT, INSERT, UPDATE, DELETE",
+            "core.fact": "SELECT, INSERT, UPDATE",
+            "core.model_transfer_consent": "SELECT, INSERT, UPDATE",
+            "core.matter_source": "SELECT, INSERT, UPDATE, DELETE",
+            "core.agent_run": "SELECT, INSERT, UPDATE, DELETE",
+        }.items():
+            self.assertTrue(
+                fetch_scalar(
+                    self.conn,
+                    "SELECT has_table_privilege(%s, %s, %s)",
+                    (APP_ROLE, table, privileges),
+                ),
+                f"{APP_ROLE} lacks {privileges} on {table}",
+            )
 
     def test_02_matter_persists_and_can_be_reread(self) -> None:
         self.make_identity(USER_A, WS_A, MATTER_A, "申请 2027 推免")
