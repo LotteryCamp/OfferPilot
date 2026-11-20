@@ -29,6 +29,7 @@ import re
 import sys
 import time
 from pathlib import Path
+from typing import LiteralString, cast
 
 try:
     import psycopg
@@ -58,19 +59,23 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def migration_version(path: Path) -> str:
+    match = MIGRATION_RE.match(path.name)
+    if match is None:
+        raise SystemExit(f"迁移文件名不符合 NNNN_snake_case.sql：{path.name}")
+    return match.group("version")
+
+
 def migration_files(directory: Path) -> list[Path]:
     files = sorted(p for p in directory.glob("*.sql") if p.is_file())
     seen: dict[str, Path] = {}
     for path in files:
-        match = MIGRATION_RE.match(path.name)
-        if not match:
-            raise SystemExit(f"迁移文件名不符合 NNNN_snake_case.sql：{path.name}")
-        version = match.group("version")
+        version = migration_version(path)
         if version in seen:
             raise SystemExit(f"迁移版本号重复：{seen[version].name} 与 {path.name}")
         seen[version] = path
 
-    versions = [int(MIGRATION_RE.match(path.name).group("version")) for path in files]
+    versions = [int(migration_version(path)) for path in files]
     for expected, actual in enumerate(versions, start=1):
         if actual != expected:
             raise SystemExit(f"迁移编号不连续：期望 {expected:04d}，实际 {actual:04d}")
@@ -78,11 +83,10 @@ def migration_files(directory: Path) -> list[Path]:
 
 
 def schema_version_exists(conn: psycopg.Connection) -> bool:
-    return bool(
-        conn.execute("SELECT to_regclass('ops.schema_version') IS NOT NULL").fetchone()[
-            0
-        ]
-    )
+    row = conn.execute(
+        "SELECT to_regclass('ops.schema_version') IS NOT NULL"
+    ).fetchone()
+    return row is not None and bool(row[0])
 
 
 def applied_versions(conn: psycopg.Connection) -> dict[str, tuple[str, object]]:
@@ -105,7 +109,7 @@ def cmd_status(conn: psycopg.Connection, directory: Path) -> int:
     print(f"{'版本':<8}{'状态':<12}{'校验和':<14}文件名")
     drifted = False
     for path in files:
-        version = MIGRATION_RE.match(path.name).group("version")
+        version = migration_version(path)
         digest = sha256(path)
         if version not in applied:
             state = "PENDING"
@@ -115,9 +119,7 @@ def cmd_status(conn: psycopg.Connection, directory: Path) -> int:
         else:
             state = "APPLIED"
         print(f"{version:<8}{state:<12}{digest[:12]:<14}{path.name}")
-    unknown = sorted(
-        set(applied) - {MIGRATION_RE.match(p.name).group("version") for p in files}
-    )
+    unknown = sorted(set(applied) - {migration_version(p) for p in files})
     for version in unknown:
         drifted = True
         print(
@@ -132,7 +134,7 @@ def cmd_migrate(conn: psycopg.Connection, directory: Path, dry_run: bool) -> int
         print(f"错误：迁移目录为空或不存在：{directory}", file=sys.stderr)
         return 2
 
-    known = {MIGRATION_RE.match(path.name).group("version") for path in files}
+    known = {migration_version(path) for path in files}
 
     if dry_run:
         applied = applied_versions(conn) if schema_version_exists(conn) else {}
@@ -145,7 +147,7 @@ def cmd_migrate(conn: psycopg.Connection, directory: Path, dry_run: bool) -> int
             return 2
         pending = 0
         for path in files:
-            version = MIGRATION_RE.match(path.name).group("version")
+            version = migration_version(path)
             if version in applied:
                 continue
             pending += 1
@@ -170,7 +172,7 @@ def cmd_migrate(conn: psycopg.Connection, directory: Path, dry_run: bool) -> int
 
         pending = 0
         for path in files:
-            version = MIGRATION_RE.match(path.name).group("version")
+            version = migration_version(path)
             digest = sha256(path)
             if version in applied:
                 if applied[version][0] != digest:
@@ -190,7 +192,7 @@ def cmd_migrate(conn: psycopg.Connection, directory: Path, dry_run: bool) -> int
             started = time.perf_counter()
             try:
                 with conn.transaction():
-                    conn.execute(path.read_text(encoding="utf-8"))
+                    conn.execute(cast(LiteralString, path.read_text(encoding="utf-8")))
                     elapsed_ms = int((time.perf_counter() - started) * 1000)
                     conn.execute(
                         "INSERT INTO ops.schema_version (version, checksum, execution_ms)"
@@ -222,7 +224,7 @@ def cmd_seed(conn: psycopg.Connection, with_demo: bool) -> int:
             return 2
         print(f"种子 {script.name} ...", end="", flush=True)
         with conn.transaction():
-            conn.execute(script.read_text(encoding="utf-8"))
+            conn.execute(cast(LiteralString, script.read_text(encoding="utf-8")))
         print(" 完成")
     return 0
 
