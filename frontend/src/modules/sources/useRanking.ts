@@ -1,6 +1,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue'
 import type { AnalysisRun } from '../analysis/contracts'
 import { runStatusText } from '../analysis/contracts'
+import { AnalysisNotStartedError } from '../analysis/trigger'
 import { readRanking, saveRanking, rankingError, rankingSaveMayHaveCommitted } from './rankingApi'
 import { rankingDraftSchema } from './rankingDraft'
 import { sameRankingVersion } from './rankingFacts'
@@ -126,6 +127,10 @@ export function useRanking(
     } catch (cause) {
       if (ticket !== generation) return
       error.value = rankingError(cause)
+      if (cause instanceof AnalysisNotStartedError) {
+        notice.value = `排名已保存，尚未重新自查：${cause.message}`
+        return
+      }
       if (acknowledged) {
         notice.value = '保存请求已确认；后续核对或重新自查未完成。请重新读取排名，输入已保留。'
         ready.value = false
@@ -157,7 +162,11 @@ export function useRanking(
       phase.value = 'idle'
       await runRecheck(sourceId)
     } catch (cause) {
-      if (ticket === generation) error.value = rankingError(cause)
+      if (ticket === generation) {
+        error.value = rankingError(cause)
+        if (cause instanceof AnalysisNotStartedError)
+          notice.value = `排名已保存，尚未重新自查：${cause.message}`
+      }
     } finally {
       if (ticket === generation) phase.value = 'idle'
     }
