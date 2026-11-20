@@ -99,7 +99,7 @@ uv run pytest tests -q
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run ty check src tests
+uv run ty check
 ```
 
 ## 代码结构

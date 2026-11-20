@@ -34,7 +34,7 @@ uv sync
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run ty check src tests
+uv run ty check
 ```
 
 运行后端测试用例：
