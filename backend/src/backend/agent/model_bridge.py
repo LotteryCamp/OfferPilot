@@ -148,7 +148,8 @@ _PLANNING_INSTRUCTION = (
     "locator_kind 必须匹配该片段，excerpt 必须是对应片段 quote 的连续原文字串，严禁自行改写。\n"
     "2. 官方日期存入 official_deadline_date，仅原文给出时刻时填写 official_deadline_at（带时区），"
     "个人建议准备日存入 suggested_date，不高于官方期限。\n"
-    "3. 依赖关系 depends_on 只能引用本计划内的 task_id 且不得成环。\n"
+    "3. task_id 优先使用简短编号（如 T-01、T-02）；depends_on 中的每一项必须逐字等于本计划内某条任务的完整 task_id（禁止只写编号前缀），"
+    "不得引用不存在的任务，且不得成环。\n"
     "4. 缺依据或条件不清时在 gaps 中明确说明，不编造确定性结论。"
 )
 
@@ -369,6 +370,7 @@ class StructuredModelAdapter:
                 )
             )
 
+        tasks = _resolve_task_dependency_prefixes(tasks)
         snapshot_id = sources[0].snapshot_id or sources[0].source_version_id
 
         return CandidatePlan(
@@ -468,6 +470,42 @@ def _normalize_model_value_text(
         if lowered in {"true", "false"}:
             return lowered
     return stripped
+
+
+def _resolve_task_dependency_prefixes(
+    tasks: list[CandidateTask],
+) -> list[CandidateTask]:
+    """Resolve unambiguous task_id prefix shorthands (e.g. 'T01' -> 'T01-xxx') in depends_on."""
+    ordered_ids = [t.task_id for t in tasks]
+    exact_ids = set(ordered_ids)
+    resolved_tasks: list[CandidateTask] = []
+
+    for task in tasks:
+        if not task.depends_on:
+            resolved_tasks.append(task)
+            continue
+        new_deps: list[str] = []
+        seen: set[str] = set()
+        for raw_dep in task.depends_on:
+            dep = raw_dep.strip()
+            if not dep:
+                mapped = raw_dep
+            elif dep in exact_ids:
+                mapped = dep
+            else:
+                matches = [
+                    tid for tid in ordered_ids if tid.startswith((f"{dep}-", f"{dep}_"))
+                ]
+                mapped = matches[0] if len(matches) == 1 else raw_dep
+            if mapped not in seen:
+                seen.add(mapped)
+                new_deps.append(mapped)
+        if new_deps == task.depends_on:
+            resolved_tasks.append(task)
+        else:
+            resolved_tasks.append(task.model_copy(update={"depends_on": new_deps}))
+
+    return resolved_tasks
 
 
 def _normalize_ws(text: str) -> str:

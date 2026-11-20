@@ -1193,3 +1193,138 @@ def test_date_value_text_is_normalized_or_rejected() -> None:
     evals, _ = evaluate_requirements([req], {snap_id: doc}, {})
     batch = build_requirements_batch_payload([req], evals, {snap_id: doc})
     assert batch["requirements"][0]["value_text"] == "2026-09-10"
+
+
+def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
+    from backend.agent import validate_candidate_plan
+    from backend.agent.model_bridge import _resolve_task_dependency_prefixes
+
+    snap_id, _ = _fragment_doc()
+    cite = SourceCitation(source_version_id=snap_id, locator="正文第3段")
+    t1 = CandidateTask(
+        task_id="T01-check-eligibility",
+        title="核对资格",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="资格确认",
+    )
+    t2 = CandidateTask(
+        task_id="T02-prepare-application-form",
+        title="准备申请表",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["T01"],
+        evidence_required="申请表",
+    )
+    t3 = CandidateTask(
+        task_id="T05-submit-application-package",
+        title="提交材料",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["T02", "T01-check-eligibility"],
+        evidence_required="回执",
+    )
+    resolved = _resolve_task_dependency_prefixes([t1, t2, t3])
+    assert resolved[1].depends_on == ["T01-check-eligibility"]
+    assert resolved[2].depends_on == [
+        "T02-prepare-application-form",
+        "T01-check-eligibility",
+    ]
+    plan = CandidatePlan(
+        candidate_id="cand-m1",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=resolved,
+    )
+    assert validate_candidate_plan(plan, 1) == []
+
+    # Missing or ambiguous prefix must still be rejected by validate_candidate_plan
+    t_dup = CandidateTask(
+        task_id="T01-other",
+        title="另一前置",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    t_bad = CandidateTask(
+        task_id="T03-bad",
+        title="引用不存在或歧义前缀",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["T01", "T99"],
+        evidence_required="说明",
+    )
+    ambiguous_resolved = _resolve_task_dependency_prefixes([t1, t_dup, t_bad])
+    assert ambiguous_resolved[2].depends_on == ["T01", "T99"]
+    bad_plan = CandidatePlan(
+        candidate_id="cand-m1",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=ambiguous_resolved,
+    )
+    violations = validate_candidate_plan(bad_plan, 1)
+    assert len(violations) == 2
+
+    # Empty/whitespace dependency must not match task IDs starting with '-' or '_'
+    t_leading = CandidateTask(
+        task_id="-leading-dash",
+        title="特殊前缀任务",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    t_blank_dep = CandidateTask(
+        task_id="T04-blank",
+        title="空白依赖",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["   "],
+        evidence_required="说明",
+    )
+    blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
+    assert blank_resolved[1].depends_on == ["   "]
+    assert validate_candidate_plan(
+        CandidatePlan(
+            candidate_id="cand-m1",
+            workspace_version=1,
+            candidate_version=1,
+            input_snapshot_id=snap_id,
+            tasks=blank_resolved,
+        ),
+        1,
+    )
+
+    # Long task_id (>80 chars) truncates client_item_id and depends_on consistently
+    long_id = "T01-" + ("x" * 90)
+    t_long = CandidateTask(
+        task_id=long_id,
+        title="长编号任务",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    t_dep_long = CandidateTask(
+        task_id="T02-next",
+        title="依赖长编号",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["T01"],
+        evidence_required="说明",
+    )
+    long_resolved = _resolve_task_dependency_prefixes([t_long, t_dep_long])
+    long_plan_payload = build_candidate_plan_create_payload(
+        CandidatePlan(
+            candidate_id="cand-m1",
+            workspace_version=1,
+            candidate_version=1,
+            input_snapshot_id=snap_id,
+            tasks=long_resolved,
+        ),
+        {snap_id: _fragment_doc()[1]},
+    )
+    assert (
+        long_plan_payload["items"][1]["depends_on"][0]
+        == long_plan_payload["items"][0]["client_item_id"]
+    )

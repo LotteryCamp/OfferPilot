@@ -312,7 +312,7 @@ def build_candidate_plan_create_payload(
                 "suggested_date": task.suggested_date.isoformat()
                 if task.suggested_date
                 else None,
-                "depends_on": list(task.depends_on),
+                "depends_on": [dep[:80] for dep in task.depends_on],
                 "evidence_required": bool(task.evidence_required),
                 "requirement_id": mapped_req_id,
                 "sources": sources_payload,
