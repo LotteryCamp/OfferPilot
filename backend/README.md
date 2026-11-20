@@ -40,6 +40,9 @@ uv sync
 | `OFFERPILOT_MODEL_NAME` | 否 | 无 | 模型名称 |
 | `OFFERPILOT_MODEL_PROVIDER` | 否 | `OpenAI 兼容模型服务` | 模型传输同意的服务商名称，写入同意记录并参与出站校验 |
 | `OFFERPILOT_MODEL_API_KEY` | 否 | 无 | 模型服务密钥 |
+| `OFFERPILOT_MODEL_TIMEOUT_SECONDS` | 否 | `180` | 单次模型请求超时，单位秒 |
+
+来源正文较长时，需求抽取请求需要较长的生成时间。`OFFERPILOT_MODEL_TIMEOUT_SECONDS` 推荐取 `180`；来源总量接近单次运行上限时取 `300`。
 
 示例：
 
