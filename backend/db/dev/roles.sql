@@ -19,12 +19,18 @@ GRANT SELECT (id, email, display_name, account_type, status, created_at, updated
 GRANT SELECT ON core.workspace, core.matter_type, core.template_version TO offerpilot_app;
 GRANT SELECT ON core.v_matter_overview, core.v_plan_detail, core.v_task_list TO offerpilot_app;
 
--- 共享来源层只读。
-GRANT SELECT ON ops.source, ops.snapshot, ops.evidence TO offerpilot_app;
+-- 共享来源层：应用登记来源、追加快照与证据；快照与证据写入后不可修改。
+GRANT SELECT, INSERT, UPDATE ON ops.source TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE ON ops.snapshot TO offerpilot_app;
+GRANT SELECT, INSERT ON ops.evidence TO offerpilot_app;
 
 -- 事项聚合：应用只做常规增改；删除由管理任务执行。
 GRANT SELECT, INSERT, UPDATE ON core.matter, core.requirement TO offerpilot_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON core.requirement_self_check TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE ON core.fact TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE ON core.model_transfer_consent TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core.matter_source TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core.agent_run TO offerpilot_app;
 GRANT SELECT, INSERT, UPDATE, DELETE
     ON core.candidate_plan, core.candidate_plan_item, core.candidate_plan_item_source
     TO offerpilot_app;
@@ -32,4 +38,4 @@ GRANT SELECT, INSERT ON core.candidate_plan_decision TO offerpilot_app;
 GRANT SELECT, INSERT, UPDATE ON core.task TO offerpilot_app;
 
 COMMENT ON ROLE offerpilot_app IS
-    'OfferPilot Alpha 应用角色；受 RLS 约束，共享来源层只读';
+    'OfferPilot Alpha 应用角色；受 RLS 约束，快照与证据只增不改';

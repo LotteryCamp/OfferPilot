@@ -485,7 +485,6 @@ CREATE INDEX ix_grant_expire ON core.fact_grant (expires_at) WHERE status =
 CREATE TABLE core.model_transfer_consent (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id uuid NOT NULL,
-    provider varchar(64) NOT NULL,
     field_scope varchar(200) NOT NULL,
     purpose varchar(64) NOT NULL,
     status consent_status DEFAULT 'granted' NOT NULL,
@@ -493,11 +492,10 @@ CREATE TABLE core.model_transfer_consent (
     revoked_at timestamptz,
 CONSTRAINT ck_consent_revoke CHECK ((status = 'revoked') = (revoked_at IS NOT
         NULL)),
-    CONSTRAINT fk_model_transfer_consent_user_id FOREIGN KEY (user_id),
+    CONSTRAINT fk_model_transfer_consent_user_id FOREIGN KEY (user_id)
         REFERENCES core.app_user (id) ON DELETE CASCADE
 );
-CREATE INDEX ix_consent_user ON core.model_transfer_consent (user_id, status,
-    provider);
+CREATE INDEX ix_consent_user ON core.model_transfer_consent (user_id, status);
 
 CREATE TABLE core.matter_info_item (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,

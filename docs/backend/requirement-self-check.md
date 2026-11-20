@@ -18,6 +18,10 @@
 
 缺口 `gap_type` 取值：`missing_attachment`、`missing_basis`、`missing_personal_fact`、`repost_only`、`expired_source`、`scope_unclear`、`ambiguous_clause`、`read_failed`。`missing_personal_fact` 表示需要用户补充个人事实，`missing_basis` 表示来源依据缺失。
 
+## 计划确认
+
+候选计划确认时，`missing_basis`、`repost_only`、`expired_source`、`scope_unclear`、`ambiguous_clause`、`read_failed` 阻塞确认并返回 `409 basis_unresolved`；`missing_personal_fact` 与 `missing_attachment` 不阻塞确认。来源状态非 `active`、自动检查为 `failed`、`conflict`、`roi_status` 非 `original`、适用期结束或快照非当前版本时，确认返回 `409 source_unavailable`。
+
 ## 存储
 
 `core.requirement_self_check`（迁移 `0009`）按 `requirement_id` 一对一关联 `core.requirement`，删除要求时级联删除，并按事项所属工作区启用行级安全。
@@ -72,7 +76,7 @@
 
 ## 响应示例
 
-要求读取接口在每条要求中返回同样结构的 `self_check`，并附带 `id` 与 `evidence`：
+要求读取接口在每条要求中返回同样结构的 `self_check`，并附带 `id` 与 `evidence`。事项来源链接口 `GET /api/v1/matters/{matter_id}/sources` 的每条要求都包含该字段；没有自查结果时为 `null`。
 
 ```json
 {

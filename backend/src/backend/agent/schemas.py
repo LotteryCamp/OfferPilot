@@ -68,6 +68,7 @@ class RunStatus(StrEnum):
     COMPLETED = "已完成"
     FAILED = "失败"
     CANCELLED = "已取消"
+    INTERRUPTED = "已中断"
 
 
 class AuthLevel(StrEnum):
@@ -94,6 +95,7 @@ class AgentErrorCode(StrEnum):
     TOOL_NOT_ALLOWED = "TOOL_NOT_ALLOWED"
     TIMEOUT = "TIMEOUT"
     CANCELLED = "CANCELLED"
+    RUN_INTERRUPTED = "RUN_INTERRUPTED"
 
 
 class AgentError(BaseModel):
@@ -273,7 +275,7 @@ class RunContext(BaseModel):
     workspace_version: int = Field(ge=0)
     source_urls: list[str] = Field(default_factory=list)
     confirmed_facts: dict[str, Any] = Field(default_factory=dict)
-    model_transfer_consent_id: str | None = None
+    model_transfer_facts: dict[str, Any] | None = None
     scope_year: int | None = None
     scope_attrs: dict[str, Any] = Field(default_factory=dict)
     source_documents: list[SourceDocument] = Field(default_factory=list)

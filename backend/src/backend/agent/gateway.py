@@ -16,6 +16,7 @@ from backend.agent.schemas import (
     ExecutionRecord,
 )
 from backend.agent.source_bridge import SourceReadUnavailableError
+from backend.transfer import TRANSFER_TOOL_SCOPE
 
 T = TypeVar("T")
 
@@ -61,7 +62,6 @@ class ToolGateway:
         operation_id: str | None = None,
         idempotency_binding: str = "",
         requires_transfer_consent: bool = False,
-        consent_id: str | None = None,
     ) -> tuple[T, ExecutionRecord]:
         """Validate whitelist, permissions, consent, idempotency, and version before calling fn."""
         required_level = ALLOWED_TOOLS.get(tool_name)
@@ -97,11 +97,13 @@ class ToolGateway:
             )
             raise GatewayError(err)
 
+        transfer_scope = TRANSFER_TOOL_SCOPE.get(tool_name)
         if requires_transfer_consent and (
-            not consent_id
-            or not consent_id.strip()
+            transfer_scope is None
             or not self._backend.has_valid_transfer_consent(
-                user_id, matter_id, consent_id.strip()
+                user_id,
+                purpose=transfer_scope[0],
+                field_categories=transfer_scope[1],
             )
         ):
             err = AgentError(
@@ -345,6 +347,7 @@ def _map_persistence_error(exc: PersistenceApiError) -> AgentError:
         "plan_expired",
         "plan_already_decided",
         "plan_not_pending",
+        "version_conflict",
     }:
         return AgentError(
             code=AgentErrorCode.VERSION_CONFLICT,
