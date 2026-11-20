@@ -38,6 +38,7 @@ uv sync
 | `OFFERPILOT_PORT` | 否 | `8000` | 监听端口 |
 | `OFFERPILOT_MODEL_API_URL` | 否 | 无 | OpenAI 兼容模型服务地址；未配置时 Agent 运行返回 `MODEL_ERROR` |
 | `OFFERPILOT_MODEL_NAME` | 否 | 无 | 模型名称 |
+| `OFFERPILOT_MODEL_PROVIDER` | 否 | `OpenAI 兼容模型服务` | 模型传输同意的服务商名称，写入同意记录并参与出站校验 |
 | `OFFERPILOT_MODEL_API_KEY` | 否 | 无 | 模型服务密钥 |
 
 示例：

@@ -308,6 +308,7 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.requirement",
             "core.requirement_self_check",
             "core.fact",
+            "core.model_transfer_consent",
             "core.agent_run",
             "core.candidate_plan",
             "core.candidate_plan_item",

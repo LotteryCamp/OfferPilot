@@ -105,7 +105,13 @@ class InMemoryWorkspaceBackend:
         return user_id == "u1" and matter_id == "m1"
 
     def has_valid_transfer_consent(
-        self, user_id: str, matter_id: str, consent_id: str | None
+        self,
+        user_id: str,
+        matter_id: str,
+        consent_id: str | None,
+        *,
+        purpose: str,
+        field_categories: tuple[str, ...],
     ) -> bool:
         return self.consent_valid and consent_id == "consent-1"
 
@@ -618,7 +624,13 @@ def test_gateway_requires_nonempty_consent_id_when_transfer_consent_required() -
             self.consent_calls = 0
 
         def has_valid_transfer_consent(
-            self, user_id: str, matter_id: str, consent_id: str | None
+            self,
+            user_id: str,
+            matter_id: str,
+            consent_id: str | None,
+            *,
+            purpose: str,
+            field_categories: tuple[str, ...],
         ) -> bool:
             self.consent_calls += 1
             return True

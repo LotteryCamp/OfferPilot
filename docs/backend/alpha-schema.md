@@ -19,7 +19,7 @@
 
 ## 2. 表与视图
 
-### 2.1 业务表（18 张）
+### 2.1 业务表（19 张）
 
 | 表 | 用途 | 关键约束 |
 | :--- | :--- | :--- |
@@ -36,6 +36,7 @@
 | `core.requirement` | 候选要求 | 必须绑定快照；`checked` 与检查时间一致 |
 | `core.requirement_self_check` | 要求自查结果 | 每个要求至多一条；四态结论、原因、缺失信息、缺口与 `extract_status` 分开保存 |
 | `core.fact` | 个人事实版本 | 同用户同事项同类型只有一条 `confirmed`；版本号在事项内唯一且递增；状态与时间一致 |
+| `core.model_transfer_consent` | 模型传输同意 | 同用户同事项至多一条 `active`；版本号在事项内唯一；状态与撤回时间一致 |
 | `core.candidate_plan` | 候选计划 | 同事项版本唯一；`op_id` 唯一；依据哈希与完整输入持久化 |
 | `core.candidate_plan_item` | 候选计划项 | 同计划顺序唯一；依赖项必须在同一计划内 |
 | `core.candidate_plan_item_source` | 计划项来源定位 | 计划项、快照、定位唯一；来源与快照一致 |
@@ -167,6 +168,7 @@ erDiagram
 | 候选计划 | `draft`、`pending`、`confirmed`、`rejected`、`expired` | `confirmed_at` 仅确认；`expired_at` 仅过期 |
 | 任务 | `pending`、`ready`、`in_progress`、`blocked`、`done`、`cancelled` | `done` 与完成证据同步 |
 | 个人事实 | `draft`、`confirmed`、`superseded`、`revoked` | 当前确认记录唯一；`confirmed`/`superseded` 与确认时间同步；`superseded` 与替代时间同步 |
+| 模型传输同意 | `active`、`revoked` | 同事项至多一条 `active`；`revoked` 与撤回时间同步 |
 
 期限精度：
 
@@ -179,7 +181,7 @@ erDiagram
 
 启用 RLS 的表：`matter`、`requirement`、`candidate_plan`、`candidate_plan_item`、
 `candidate_plan_item_source`、`candidate_plan_decision`、`task`、`requirement_self_check`、
-`matter_source`、`agent_run`、`fact`。
+`matter_source`、`agent_run`、`fact`、`model_transfer_consent`。
 
 策略条件：
 
@@ -197,6 +199,20 @@ EXISTS (
     WHERE m.id = fact.matter_id
       AND m.workspace_id = current_setting('app.current_workspace_id', true)::uuid
       AND w.owner_id = fact.owner_id
+)
+```
+
+`model_transfer_consent` 按事项归属过滤，同时核对记录中的所有者与工作区：
+
+```sql
+workspace_id = current_setting('app.current_workspace_id', true)::uuid
+AND EXISTS (
+    SELECT 1
+    FROM core.matter m
+    JOIN core.workspace w ON w.id = m.workspace_id
+    WHERE m.id = model_transfer_consent.matter_id
+      AND m.workspace_id = model_transfer_consent.workspace_id
+      AND w.owner_id = model_transfer_consent.owner_id
 )
 ```
 
@@ -226,6 +242,7 @@ Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS �
 | `0010` | 事项来源关联、Agent 运行检查点及其 RLS 策略 |
 | `0011` | 个人事实表、当前版本唯一索引及其 RLS 策略 |
 | `0012` | 个人事实事项归属、事项内版本与当前记录唯一索引、RLS 策略调整 |
+| `0013` | 模型传输同意表、活动记录唯一索引及其 RLS 策略 |
 
 ### 6.2 执行规则
 
@@ -278,10 +295,10 @@ uv run python db/migrate.py seed --demo
 环境：PostgreSQL 16.4、Python 3.13、psycopg 3.3.9。
 
 ```text
-空库迁移：11 个全部成功
-重复迁移：11 个全部跳过
+空库迁移：13 个全部成功
+重复迁移：13 个全部跳过
 参考数据与演示数据：成功
-表数量：19（18 张业务表 + schema_version）
+表数量：20（19 张业务表 + schema_version）
 视图数量：3
 集成测试：14 个通过
 ```

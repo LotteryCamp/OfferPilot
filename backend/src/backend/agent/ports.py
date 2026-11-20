@@ -93,9 +93,15 @@ class WorkspaceBackendPort(Protocol):
         ...
 
     def has_valid_transfer_consent(
-        self, user_id: str, matter_id: str, consent_id: str | None
+        self,
+        user_id: str,
+        matter_id: str,
+        consent_id: str | None,
+        *,
+        purpose: str,
+        field_categories: tuple[str, ...],
     ) -> bool:
-        """Verify bound, non-revoked external model transfer consent."""
+        """Verify bound, non-revoked consent for the requested purpose and fields."""
         ...
 
     def get_workspace_version(self, matter_id: str) -> int:
