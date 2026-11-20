@@ -34,7 +34,7 @@ export function describeFailure(error: unknown, write = false) {
       message: '创建结果暂时无法确认。请先重新读取事项列表，核对是否已创建，再决定后续操作。',
       uncertain,
     }
-  if (status === 409 && body?.success && body.data.error.code === 'matter_template_unavailable') {
+  if (status === 409 && body?.success && body.data.error.code === 'template_version_missing') {
     return { message: '此事项类型尚无已发布模板。请联系管理员补齐后重试。', uncertain: false }
   }
   const message =

@@ -77,7 +77,7 @@ watch(
       title="当前事项尚未读取"
       description="事项服务尚未连接，暂时无法核实事项与访问范围。连接后可继续查看。"
     />
-    <StatePanel v-else-if="loading" kind="loading" title="正在读取当前事项" />
+    <StatePanel v-else-if="loading && !matter" kind="loading" title="正在读取当前事项" />
     <StatePanel
       v-else-if="error"
       kind="error"
