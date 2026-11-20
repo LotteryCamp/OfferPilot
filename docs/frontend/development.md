@@ -64,7 +64,7 @@ npm run test:matters:live
 3. `src/app/integrations.ts` 已通过 `createMattersApi(http)` 接入事项适配器。默认不连接业务服务；开发联调按上述环境配置启用。生产服务连接由集成负责人配置。
 4. 若接入 #41 的固定演示身份，同时提供 `identity: { mode: 'single-user-local', label: '单用户本地演示' }`，明确展示运行限制。客户端不得自行伪造登录状态。实际身份变更后应重新挂载应用并清理业务状态。
 5. `.env.local` 中的 `API_PROXY_TARGET` 指向实际启动的后端；只在显式指定时启用开发代理。生产部署须提供 `/api` 的同源反向代理，以及 Vue Router 的 SPA 深链接回退。`npm run preview` 只检查静态构建，不承担业务服务转发。
-6. 来源与条件、候选计划审阅已分别通过 `workspaceIntegrations.modules.sources`、`plan` 注册，由张锦昊维护。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。同事项重读保持业务组件，事项变化时清除旧上下文。陈常群负责的整体任务页继续使用 `tasks` 注册点。
+6. 来源与条件、候选计划审阅及正式任务分别通过 `workspaceIntegrations.modules.sources`、`plan`、`tasks` 注册。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。同事项重读保持业务组件，事项变化时清除旧上下文。正式任务页读取当前事项的任务列表，展示进度及前置任务，并可回到产生任务的候选版本。
 
 接口和模块约定见[工作区集成约定](workspace-integration.md)。
 

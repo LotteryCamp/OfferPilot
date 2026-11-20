@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>排名自查联调</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      import { createApp, h, ref } from 'vue'
+      import { createRouter, createWebHistory, RouterView } from 'vue-router'
+      import 'element-plus/dist/index.css'
+      import AgentAnalysis from '../../../src/modules/analysis/AgentAnalysis.vue'
+      import RankingSupplement from '../../../src/modules/sources/RankingSupplement.vue'
+      import { http } from '../../../src/shared/http'
+
+      const id = new URLSearchParams(location.search).get('matter')
+      const [
+        {
+          data: { matter },
+        },
+        {
+          data: { sources },
+        },
+      ] = await Promise.all([http.get(`/matters/${id}`), http.get(`/matters/${id}/sources`)])
+      const [source] = sources
+      const view = {
+        setup() {
+          const analysis = ref()
+          return () =>
+            h('main', [
+              // Keep the parent's write flag set while the ranking component verifies the saved fact.
+              h(AgentAnalysis, { ref: analysis, matter, source, rankingSaving: true }),
+              h(RankingSupplement, {
+                matterId: matter.id,
+                sourceId: source.id,
+                analysisBusy: analysis.value?.busy ?? false,
+                recheckUnavailable: analysis.value?.recheckBlockedReason ?? '分析入口正在准备',
+                recheck: (sourceId) => analysis.value.startAfterRanking(sourceId),
+              }),
+            ])
+        },
+      }
+      const router = createRouter({
+        history: createWebHistory(),
+        routes: [
+          { path: '/tests/live/fixtures/ranking-recheck.html', component: view },
+          {
+            name: 'matter-plan',
+            path: '/matters/:matterId/plan',
+            component: { render: () => null },
+          },
+        ],
+      })
+      createApp(RouterView).use(router).mount('#app')
+    </script>
+  </body>
+</html>

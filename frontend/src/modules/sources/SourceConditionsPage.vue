@@ -118,7 +118,7 @@ const availableSnapshots = computed(
 
 function openEvidence(sourceId: string, snapshotId: string) {
   if (!availableSnapshots.value.has(`${sourceId}/${snapshotId}`)) return
-  selectedSourceId.value = sourceId
+  selectSource(sourceId)
   selectedSnapshotId.value = snapshotId
 }
 </script>
