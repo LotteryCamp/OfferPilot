@@ -1,2 +1,7 @@
+"""OfferPilot Alpha backend package."""
+
+
 def main() -> None:
-    print("Hello from backend!")
+    from backend.main import run
+
+    run()

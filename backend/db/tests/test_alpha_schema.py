@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """OfferPilot Alpha schema 集成测试。
 
 前置：一个可连接的 PostgreSQL 16 实例，以及有建库权限的账号。
@@ -22,10 +21,11 @@ import sys
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any, LiteralString
 from uuid import UUID
 
 import psycopg
-from psycopg import errors
+from psycopg import errors, sql
 
 DB_DIR = Path(__file__).resolve().parents[1]
 MIGRATE = DB_DIR / "migrate.py"
@@ -34,10 +34,12 @@ ADMIN_DSN = os.environ.get(
 )
 TEST_DB = "offerpilot_alpha_test"
 TEST_ROLE = "offerpilot_schema_test_app"
+APP_ROLE = "offerpilot_app"
 
 USER_A = UUID("11111111-1111-7111-8111-111111111111")
 WS_A = UUID("11111111-1111-7111-8111-111111111112")
 MATTER_A = UUID("11111111-1111-7111-8111-111111111113")
+MATTER_A2 = UUID("11111111-1111-7111-8111-111111111114")
 USER_B = UUID("22222222-2222-7222-8222-222222222221")
 WS_B = UUID("22222222-2222-7222-8222-222222222222")
 MATTER_B = UUID("22222222-2222-7222-8222-222222222223")
@@ -50,6 +52,9 @@ PLAN_ID = UUID("44444444-4444-7444-8444-444444444441")
 TEMPLATE_PRE = UUID("10000000-0000-7000-8000-000000000001")
 ITEM_1 = UUID("44444444-4444-7444-8444-444444444442")
 ITEM_2 = UUID("44444444-4444-7444-8444-444444444443")
+FACT_A1 = UUID("66666666-6666-7666-8666-666666666661")
+FACT_A2 = UUID("66666666-6666-7666-8666-666666666662")
+FACT_B1 = UUID("66666666-6666-7666-8666-666666666663")
 FIXED_FETCHED = datetime(2026, 11, 18, 2, 0, tzinfo=UTC)
 HASH = "a" * 64
 HASH_2 = "b" * 64
@@ -58,6 +63,16 @@ HASH_2 = "b" * 64
 def test_dsn() -> str:
     parts = ADMIN_DSN.rsplit("/", 1)
     return parts[0] + "/" + TEST_DB
+
+
+def fetch_scalar(
+    conn: psycopg.Connection,
+    query: LiteralString | sql.SQL | sql.Composed,
+    params: tuple[object, ...] | None = None,
+) -> Any:
+    row = conn.execute(query, params).fetchone()
+    assert row is not None
+    return row[0]
 
 
 class AlphaSchemaTest(unittest.TestCase):
@@ -71,16 +86,17 @@ class AlphaSchemaTest(unittest.TestCase):
         ).fetchone()
         if not exists:
             admin.execute(f'CREATE DATABASE "{TEST_DB}"')
-        admin.execute(
-            f"""
-            DO $$
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{TEST_ROLE}') THEN
-                    CREATE ROLE {TEST_ROLE} NOLOGIN;
-                END IF;
-            END $$;
-            """
-        )
+        for role in (TEST_ROLE, APP_ROLE):
+            admin.execute(
+                f"""
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{role}') THEN
+                        CREATE ROLE {role} NOLOGIN;
+                    END IF;
+                END $$;
+                """
+            )
         admin.close()
 
         # 用 drop schema 代替 drop database：既能在每次运行时得到干净结构，
@@ -123,7 +139,8 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute("RESET app.current_workspace_id")
         self.conn.execute(
             """
-            TRUNCATE core.task, core.candidate_plan_item, core.candidate_plan,
+            TRUNCATE core.fact, core.agent_run, core.matter_source, core.task,
+                     core.candidate_plan_item, core.candidate_plan,
                      core.requirement, core.matter, core.workspace, core.app_user,
                      ops.evidence, ops.snapshot, ops.source
             CASCADE
@@ -146,7 +163,13 @@ class AlphaSchemaTest(unittest.TestCase):
             "INSERT INTO core.matter"
             " (id, workspace_id, type_code, template_version_id, goal, status, scope_year, scope_attrs)"
             " VALUES (%s, %s, 'pre_recommend', %s, %s, 'active', 2027, %s)",
-            (matter, ws, TEMPLATE_PRE, goal, '{"school": "示例大学", "program": "计算机"}'),
+            (
+                matter,
+                ws,
+                TEMPLATE_PRE,
+                goal,
+                '{"school": "示例大学", "program": "计算机"}',
+            ),
         )
 
     def make_source_chain(self) -> None:
@@ -262,7 +285,10 @@ class AlphaSchemaTest(unittest.TestCase):
         return "confirmed"
 
     def count(self, table: str) -> int:
-        return self.conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
+        query = sql.SQL("SELECT count(*) FROM {}").format(
+            sql.Identifier(*table.split("."))
+        )
+        return fetch_scalar(self.conn, query)
 
     # ---------- tests ----------
 
@@ -280,8 +306,12 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.matter_type",
             "core.template_version",
             "core.matter",
+            "core.matter_source",
             "core.requirement",
             "core.requirement_self_check",
+            "core.fact",
+            "core.model_transfer_consent",
+            "core.agent_run",
             "core.candidate_plan",
             "core.candidate_plan_item",
             "core.candidate_plan_item_source",
@@ -310,8 +340,27 @@ class AlphaSchemaTest(unittest.TestCase):
         )
         self.assertEqual(
             {"pre_recommend", "competition"},
-            {row[0] for row in self.conn.execute("SELECT type_code FROM core.matter_type")},
+            {
+                row[0]
+                for row in self.conn.execute("SELECT type_code FROM core.matter_type")
+            },
         )
+
+        for table, privileges in {
+            "core.requirement_self_check": "SELECT, INSERT, UPDATE, DELETE",
+            "core.fact": "SELECT, INSERT, UPDATE",
+            "core.model_transfer_consent": "SELECT, INSERT, UPDATE",
+            "core.matter_source": "SELECT, INSERT, UPDATE, DELETE",
+            "core.agent_run": "SELECT, INSERT, UPDATE, DELETE",
+        }.items():
+            self.assertTrue(
+                fetch_scalar(
+                    self.conn,
+                    "SELECT has_table_privilege(%s, %s, %s)",
+                    (APP_ROLE, table, privileges),
+                ),
+                f"{APP_ROLE} lacks {privileges} on {table}",
+            )
 
     def test_02_matter_persists_and_can_be_reread(self) -> None:
         self.make_identity(USER_A, WS_A, MATTER_A, "申请 2027 推免")
@@ -325,15 +374,15 @@ class AlphaSchemaTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(("申请 2027 推免", "active", 2027, "示例大学"), row)
 
-        before = self.conn.execute(
-            "SELECT updated_at FROM core.matter WHERE id = %s", (MATTER_A,)
-        ).fetchone()[0]
+        before = fetch_scalar(
+            self.conn, "SELECT updated_at FROM core.matter WHERE id = %s", (MATTER_A,)
+        )
         self.conn.execute(
             "UPDATE core.matter SET goal = '更新后的目标' WHERE id = %s", (MATTER_A,)
         )
-        after = self.conn.execute(
-            "SELECT updated_at FROM core.matter WHERE id = %s", (MATTER_A,)
-        ).fetchone()[0]
+        after = fetch_scalar(
+            self.conn, "SELECT updated_at FROM core.matter WHERE id = %s", (MATTER_A,)
+        )
         self.assertGreater(after, before)
 
     def test_03_matter_constraints(self) -> None:
@@ -400,9 +449,11 @@ class AlphaSchemaTest(unittest.TestCase):
             (snapshot_2, SOURCE_ID, HASH_2, FIXED_FETCHED),
         )
         self.assertFalse(
-            self.conn.execute(
-                "SELECT is_current FROM ops.snapshot WHERE id = %s", (SNAPSHOT_ID,)
-            ).fetchone()[0]
+            fetch_scalar(
+                self.conn,
+                "SELECT is_current FROM ops.snapshot WHERE id = %s",
+                (SNAPSHOT_ID,),
+            )
         )
         self.conn.commit()
 
@@ -423,21 +474,26 @@ class AlphaSchemaTest(unittest.TestCase):
         self.assertEqual(0, self.count("core.task"))
         self.assertEqual(
             2,
-            self.conn.execute(
-                "SELECT item_count FROM core.v_plan_detail WHERE id = %s", (PLAN_ID,)
-            ).fetchone()[0],
+            fetch_scalar(
+                self.conn,
+                "SELECT item_count FROM core.v_plan_detail WHERE id = %s",
+                (PLAN_ID,),
+            ),
         )
         self.assertEqual(
             "rejected",
-            self.conn.execute(
+            fetch_scalar(
+                self.conn,
                 "SELECT decision FROM core.candidate_plan_decision WHERE plan_id = %s",
                 (PLAN_ID,),
-            ).fetchone()[0],
+            ),
         )
         self.assertIsNone(
-            self.conn.execute(
-                "SELECT op_id FROM core.candidate_plan WHERE id = %s", (PLAN_ID,)
-            ).fetchone()[0]
+            fetch_scalar(
+                self.conn,
+                "SELECT op_id FROM core.candidate_plan WHERE id = %s",
+                (PLAN_ID,),
+            )
         )
 
     def test_06_confirm_writes_tasks_and_is_idempotent(self) -> None:
@@ -456,9 +512,11 @@ class AlphaSchemaTest(unittest.TestCase):
 
         # 换一个连接重读，确认任务已经持久化。
         with psycopg.connect(test_dsn()) as fresh:
-            persisted = fresh.execute(
-                "SELECT count(*) FROM core.task WHERE matter_id = %s", (MATTER_A,)
-            ).fetchone()[0]
+            persisted = fetch_scalar(
+                fresh,
+                "SELECT count(*) FROM core.task WHERE matter_id = %s",
+                (MATTER_A,),
+            )
         self.assertEqual(2, persisted)
         self.assertEqual(1, self.count("core.candidate_plan_decision"))
 
@@ -518,9 +576,9 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.commit()
         self.confirm_plan(PLAN_ID, UUID("55555555-5555-7555-8555-555555555553"))
 
-        task_id = self.conn.execute(
-            "SELECT id FROM core.task ORDER BY title LIMIT 1"
-        ).fetchone()[0]
+        task_id = fetch_scalar(
+            self.conn, "SELECT id FROM core.task ORDER BY title LIMIT 1"
+        )
         with self.assertRaises(errors.CheckViolation):
             self.conn.execute(
                 "UPDATE core.task SET status = 'done' WHERE id = %s", (task_id,)
@@ -562,16 +620,19 @@ class AlphaSchemaTest(unittest.TestCase):
             self.assertEqual(1, self.count("core.v_matter_overview"))
             self.assertEqual(
                 0,
-                self.conn.execute(
+                fetch_scalar(
+                    self.conn,
                     "SELECT count(*) FROM core.v_task_list WHERE matter_id = %s",
                     (MATTER_B,),
-                ).fetchone()[0],
+                ),
             )
             self.assertEqual(
                 0,
-                self.conn.execute(
-                    "SELECT count(*) FROM core.matter WHERE id = %s", (MATTER_B,)
-                ).fetchone()[0],
+                fetch_scalar(
+                    self.conn,
+                    "SELECT count(*) FROM core.matter WHERE id = %s",
+                    (MATTER_B,),
+                ),
             )
 
             self.conn.execute(
@@ -628,7 +689,7 @@ class AlphaSchemaTest(unittest.TestCase):
         )
         self.conn.commit()
 
-        invalid_rows = [
+        invalid_rows: list[tuple[str, LiteralString, tuple[object, ...]]] = [
             (
                 "expired without expired_at",
                 (
@@ -658,10 +719,10 @@ class AlphaSchemaTest(unittest.TestCase):
                 (UUID("44444444-4444-7444-8444-444444444448"), MATTER_A, USER_A),
             ),
         ]
-        for label, sql, params in invalid_rows:
+        for label, statement, params in invalid_rows:
             with self.subTest(label=label):
                 with self.assertRaises(errors.CheckViolation):
-                    self.conn.execute(sql, params)
+                    self.conn.execute(statement, params)
                 self.conn.rollback()
 
         # 未确认的计划不能写确认决定。
@@ -775,7 +836,12 @@ class AlphaSchemaTest(unittest.TestCase):
                 "INSERT INTO ops.evidence (source_id, snapshot_id, target_type, target_id,"
                 " locator_kind, locator, fetched_at)"
                 " VALUES (%s, %s, 'evaluation', %s, 'section', '第 1 节', %s)",
-                (source_2, snapshot_2, UUID("99999999-9999-7999-8999-999999999999"), FIXED_FETCHED),
+                (
+                    source_2,
+                    snapshot_2,
+                    UUID("99999999-9999-7999-8999-999999999999"),
+                    FIXED_FETCHED,
+                ),
             )
         self.conn.rollback()
 
@@ -813,6 +879,160 @@ class AlphaSchemaTest(unittest.TestCase):
                 (MATTER_A, PLAN_ID, ITEM_2, USER_B),
             )
         self.conn.rollback()
+
+    def test_14_fact_current_version_and_rls(self) -> None:
+        self.make_identity(USER_A, WS_A, MATTER_A, "A 的事项")
+        self.conn.execute(
+            "INSERT INTO core.matter"
+            " (id, workspace_id, type_code, template_version_id, goal, status,"
+            "  scope_year, scope_attrs)"
+            " VALUES (%s, %s, 'pre_recommend', %s, 'A 的第二事项', 'active', 2027, '{}')",
+            (MATTER_A2, WS_A, TEMPLATE_PRE),
+        )
+        self.make_identity(USER_B, WS_B, MATTER_B, "B 的事项")
+        self.conn.execute(
+            "INSERT INTO core.fact"
+            " (id, owner_id, matter_id, fact_type, value_text, value_json, value_hash,"
+            "  confirm_status, version_no, confirmed_at)"
+            " VALUES (%s, %s, %s, 'gpa.rank', '5/120', %s, %s, 'confirmed', 1, %s)",
+            (
+                FACT_A1,
+                USER_A,
+                MATTER_A,
+                '{"position": 5, "cohort_size": 120, "percentile": 4.1667}',
+                HASH,
+                FIXED_FETCHED,
+            ),
+        )
+        self.conn.commit()
+
+        self.conn.execute(
+            "INSERT INTO core.fact"
+            " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+            "  confirm_status, version_no, confirmed_at)"
+            " VALUES (%s, %s, %s, 'gpa.rank', '6/120', %s, 'confirmed', 1, %s)",
+            (FACT_A2, USER_A, MATTER_A2, HASH_2, FIXED_FETCHED),
+        )
+        self.conn.commit()
+
+        self.conn.execute(
+            "INSERT INTO core.fact"
+            " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+            "  confirm_status, version_no, confirmed_at)"
+            " VALUES (%s, %s, %s, 'gpa.rank', '8/120', %s, 'confirmed', 1, %s)",
+            (FACT_B1, USER_B, MATTER_B, HASH_2, FIXED_FETCHED),
+        )
+        self.conn.commit()
+
+        with self.assertRaises(errors.UniqueViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, 'gpa.rank', '8/120', %s, 'confirmed', 2, %s)",
+                (USER_A, MATTER_A, HASH_2, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.UniqueViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at, superseded_at)"
+                " VALUES (%s, %s, 'gpa.rank', '5/120', %s, 'superseded', 1, %s, %s)",
+                (USER_A, MATTER_A, HASH_2, FIXED_FETCHED, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no)"
+                " VALUES (%s, %s, 'gpa.rank', '5/120', %s, 'confirmed', 2)",
+                (USER_A, MATTER_A, HASH_2),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, %s, 'gpa.rank', '5/120', %s, 'superseded', 2, %s)",
+                (
+                    UUID("66666666-6666-7666-8666-666666666664"),
+                    USER_A,
+                    MATTER_A,
+                    HASH_2,
+                    FIXED_FETCHED,
+                ),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (id, owner_id, matter_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, %s, 'gpa.rank', '5/120', 'not-a-hash',"
+                " 'confirmed', 2, %s)",
+                (
+                    UUID("66666666-6666-7666-8666-666666666665"),
+                    USER_A,
+                    MATTER_A,
+                    FIXED_FETCHED,
+                ),
+            )
+        self.conn.rollback()
+
+        self.conn.execute(f"SET ROLE {TEST_ROLE}")
+        try:
+            self.conn.execute(
+                "SELECT set_config('app.current_workspace_id', %s, false)", (str(WS_A),)
+            )
+            self.assertEqual(2, self.count("core.fact"))
+            self.assertEqual(
+                2,
+                fetch_scalar(
+                    self.conn,
+                    "SELECT count(*) FROM core.fact WHERE owner_id = %s",
+                    (USER_A,),
+                ),
+            )
+            self.assertEqual(
+                0,
+                fetch_scalar(
+                    self.conn,
+                    "SELECT count(*) FROM core.fact WHERE owner_id = %s",
+                    (USER_B,),
+                ),
+            )
+            self.conn.execute("SAVEPOINT foreign_owner")
+            with self.assertRaises(errors.InsufficientPrivilege):
+                self.conn.execute(
+                    "INSERT INTO core.fact"
+                    " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                    "  confirm_status, version_no, confirmed_at)"
+                    " VALUES (%s, %s, 'gpa.rank', '9/120', %s, 'confirmed', 2, %s)",
+                    (USER_B, MATTER_B, HASH, FIXED_FETCHED),
+                )
+            self.conn.execute("ROLLBACK TO SAVEPOINT foreign_owner")
+            self.conn.execute("SAVEPOINT foreign_matter")
+            with self.assertRaises(errors.InsufficientPrivilege):
+                self.conn.execute(
+                    "INSERT INTO core.fact"
+                    " (owner_id, matter_id, fact_type, value_text, value_hash,"
+                    "  confirm_status, version_no, confirmed_at)"
+                    " VALUES (%s, %s, 'gpa.rank', '9/120', %s, 'confirmed', 2, %s)",
+                    (USER_A, MATTER_B, HASH, FIXED_FETCHED),
+                )
+            self.conn.execute("ROLLBACK TO SAVEPOINT foreign_matter")
+        finally:
+            self.conn.rollback()
+            self.conn.execute("RESET ROLE")
+            self.conn.execute("RESET app.current_workspace_id")
+            self.conn.commit()
 
 
 if __name__ == "__main__":

@@ -75,7 +75,11 @@ class InMemoryWorkspaceBackend:
         return True
 
     def has_valid_transfer_consent(
-        self, user_id: str, matter_id: str, consent_id: str | None
+        self,
+        user_id: str,
+        *,
+        purpose: str,
+        field_categories: tuple[str, ...],
     ) -> bool:
         return self.consent_valid
 
@@ -320,7 +324,6 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
         scope_year=2027,
         scope_attrs={"school": "福州大学", "college": "数学与统计学院"},
         confirmed_facts={"paper_transcript": True},
-        model_transfer_consent_id="consent-fx",
         as_of=replay_clock,
     )
 
@@ -1020,7 +1023,6 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
             "email": "secret@example.com",
         },
         confirmed_facts={"cet4": 550, "rank_position": 3},
-        model_transfer_consent_id="consent-1",
     )
     ev = evaluate_requirements(
         [
