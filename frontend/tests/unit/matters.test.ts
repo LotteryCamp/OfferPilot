@@ -57,6 +57,26 @@ describe('事项路由与状态语义', () => {
 })
 
 describe('失败后的写入安全', () => {
+  it('HTTP 408 后创建结果不确定，应先检查列表', () => {
+    const failure = describeFailure({ response: { status: 408 } }, true)
+    expect(failure.uncertain).toBe(true)
+    expect(failure.message).toContain('重新读取事项列表')
+    expect(describeFailure({ response: { status: 408 } }).uncertain).toBe(false)
+  })
+
+  it('未知状态的错误提示不包含后端错误正文', () => {
+    const error = {
+      response: {
+        status: 418,
+        data: { error: { code: 'internal_error', message: '后端内部诊断详情' } },
+      },
+    }
+    expect(describeFailure(error).message).toBe('暂时无法读取事项，请检查服务连接后重试。')
+    expect(describeFailure(error, true).message).toBe(
+      '暂时无法创建工作区，请检查提交信息和服务连接后重试。',
+    )
+  })
+
   it('缺少已发布模板时给出明确的处理提示', () => {
     const failure = describeFailure(
       {

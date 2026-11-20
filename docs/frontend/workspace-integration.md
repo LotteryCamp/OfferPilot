@@ -43,7 +43,7 @@
 
 `SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。团队联调统一复用 #47 的客户端并在 `workspaceIntegrations` 注册事项适配器和业务组件。基础工作区的独立联调通过 `VITE_LOCAL_DEMO_MATTERS=1` 启用开发模式的同源代理，仅访问真实事项读写接口。
 
-业务错误体为 `{error:{code,message,next?,details?}}`，422 的字段问题位于 `details.issues`。创建遇到 `409 template_version_missing` 时保留表单并提示补齐已发布模板。网络中断、超时或创建结果无法核验时，先重读列表确认是否已经创建。页面反馈不得直接展示堆栈、凭据或原始内部错误。
+业务错误体为 `{error:{code,message,next?,details?}}`，422 的字段问题位于 `details.issues`。创建遇到 `409 template_version_missing` 时保留表单并提示补齐已发布模板。网络中断、超时（含 HTTP 408）或创建结果无法核验时，保留表单、停用提交并提示先重读列表。未知错误使用前端提供的通用文案。
 
 ## 分析、候选决定与恢复
 
@@ -69,4 +69,4 @@ Alpha 使用服务端固定演示用户及工作区，应用显示单用户本�
 
 ## 集成验收
 
-连接真实后端、独立测试库和演示身份后，运行 `npm run test:matters:live` 检查真实创建、列表、概览及刷新使用同一个 UUID，启动步骤见前端 README。联调时另检查真实空列表、HTTP 404、服务中断、快速切换事项、保存期间重复点击以及结果不明确时先查列表。完整候选决定与任务验收在相应模块交付后执行。
+工作区基础验收覆盖真实创建、列表、概览及刷新读取同一 UUID，以及真实空列表、HTTP 404、服务中断、快速切换事项、保存期间重复点击和结果不明确时先核对列表。完整候选决定与任务验收在相应模块交付后执行。

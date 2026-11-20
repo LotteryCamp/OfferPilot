@@ -9,20 +9,29 @@ export function useMatterRead<T>(
   const error = shallowRef<unknown>()
   let sequence = 0
   let controller: AbortController | undefined
+  let loadedKey: string | undefined
 
   async function reload() {
     const current = ++sequence
     controller?.abort()
-    controller = new AbortController()
-    data.value = undefined
+    const request = new AbortController()
+    controller = request
+    const requestedKey = key.value
+    if (loadedKey !== requestedKey) data.value = undefined
     error.value = undefined
     loading.value = Boolean(read)
     if (!read) return
     try {
-      const result = await read(key.value, controller.signal)
-      if (current === sequence) data.value = result
+      const result = await read(requestedKey, request.signal)
+      if (current === sequence) {
+        data.value = result
+        loadedKey = requestedKey
+      }
     } catch (failure) {
-      if (current === sequence && !controller.signal.aborted) error.value = failure
+      if (current === sequence && !request.signal.aborted) {
+        data.value = undefined
+        error.value = failure
+      }
     } finally {
       if (current === sequence) loading.value = false
     }
