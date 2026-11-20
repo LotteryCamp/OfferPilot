@@ -24,15 +24,23 @@ class SourceReadUnavailableError(RuntimeError):
         self.message = message
 
 
-def source_document_from_public_result(result: BaseModel | Mapping[str, Any]) -> SourceDocument:
+def source_document_from_public_result(
+    result: BaseModel | Mapping[str, Any],
+) -> SourceDocument:
     """Convert PR #37 PublicSourceResult into an Agent SourceDocument."""
-    data = result.model_dump(mode="python") if isinstance(result, BaseModel) else dict(result)
+    data = (
+        result.model_dump(mode="python")
+        if isinstance(result, BaseModel)
+        else dict(result)
+    )
     snapshot_id = str(data["snapshot_id"])
     source_id = str(data["source_id"])
 
     fragments = [
         SourceFragmentRecord(
-            locator_kind=frag["locator"]["kind"] if isinstance(frag.get("locator"), dict) else "section",
+            locator_kind=frag["locator"]["kind"]
+            if isinstance(frag.get("locator"), dict)
+            else "section",
             locator=str(frag["locator_text"]),
             quote=str(frag["quote"]),
         )
@@ -84,11 +92,15 @@ def source_document_from_backend_record(
         title=str(snapshot_payload["title"]),
         publisher=str(source_payload["publisher"]),
         url=str(source_payload["url"]) if source_payload.get("url") else None,
-        year=int(source_payload["scope_year"]) if source_payload.get("scope_year") is not None else None,
+        year=int(source_payload["scope_year"])
+        if source_payload.get("scope_year") is not None
+        else None,
         scope=str(source_payload["scope"]) if source_payload.get("scope") else None,
         published_date=snapshot_payload.get("published_date"),
         content=str(snapshot_payload["text"]),
-        content_hash=str(snapshot_payload["content_hash"]) if snapshot_payload.get("content_hash") else None,
+        content_hash=str(snapshot_payload["content_hash"])
+        if snapshot_payload.get("content_hash")
+        else None,
         fetched_at=snapshot_payload.get("fetched_at"),
         source_status=source_status,
         auto_check_status=auto_check_status,
@@ -138,7 +150,9 @@ class PublicHtmlSourceReader:
         default_publisher: str = "官方公开来源",
         default_scope_year: int = 2027,
     ) -> None:
-        self._preloaded = list(preloaded_sources) if preloaded_sources is not None else None
+        self._preloaded = (
+            list(preloaded_sources) if preloaded_sources is not None else None
+        )
         self._read_fn = read_public_html_fn
         self._default_publisher = default_publisher
         self._default_scope_year = default_scope_year
@@ -157,7 +171,9 @@ class PublicHtmlSourceReader:
         if not urls:
             return []
 
-        effective_year = scope_year if scope_year is not None else self._default_scope_year
+        effective_year = (
+            scope_year if scope_year is not None else self._default_scope_year
+        )
         reader = self._resolve_reader()
         docs: list[SourceDocument] = []
         for url in urls:
@@ -172,7 +188,9 @@ class PublicHtmlSourceReader:
                 raise
             except Exception as exc:
                 code = str(getattr(exc, "code", "source_read_failed"))
-                raise SourceReadUnavailableError(code, f"来源读取失败 ({url}): {exc}") from exc
+                raise SourceReadUnavailableError(
+                    code, f"来源读取失败 ({url}): {exc}"
+                ) from exc
             docs.append(source_document_from_public_result(raw_result))
         return docs
 

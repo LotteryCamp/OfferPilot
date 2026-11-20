@@ -70,7 +70,15 @@ class ToolGateway:
                 code=AgentErrorCode.TOOL_NOT_ALLOWED,
                 message=f"工具 {tool_name} 不在首版白名单内",
             )
-            self._audit(matter_id, tool_name, AuthLevel.L0, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                AuthLevel.L0,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err)
 
         if not self._backend.check_permission(user_id, matter_id, required_level):
@@ -78,7 +86,15 @@ class ToolGateway:
                 code=AgentErrorCode.PERMISSION_DENIED,
                 message=f"无权执行工具 {tool_name}（需要 {required_level.value} 授权）",
             )
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err)
 
         if requires_transfer_consent and not self._backend.has_valid_transfer_consent(
@@ -88,7 +104,15 @@ class ToolGateway:
                 code=AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED,
                 message="缺少有效的外部模型传输同意，或同意已被撤回",
             )
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err)
 
         is_write = required_level in (AuthLevel.L1, AuthLevel.L2, AuthLevel.L3)
@@ -97,7 +121,15 @@ class ToolGateway:
                 code=AgentErrorCode.VALIDATION_FAILED,
                 message=f"写入工具 {tool_name} 必须携带 operation_id",
             )
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err)
 
         cache_key = (user_id, matter_id, tool_name, operation_id or "")
@@ -108,7 +140,15 @@ class ToolGateway:
                     code=AgentErrorCode.VALIDATION_FAILED,
                     message=f"幂等键 {operation_id} 已被用于其他操作，拒绝跨操作复用",
                 )
-                self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+                self._audit(
+                    matter_id,
+                    tool_name,
+                    required_level,
+                    expected_workspace_version,
+                    operation_id,
+                    False,
+                    err,
+                )
                 raise GatewayError(err)
 
             cached_entry = self._idempotency_cache.get(cache_key)
@@ -118,7 +158,15 @@ class ToolGateway:
                         code=AgentErrorCode.VALIDATION_FAILED,
                         message=f"幂等键 {operation_id} 与原请求参数不一致",
                     )
-                    self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+                    self._audit(
+                        matter_id,
+                        tool_name,
+                        required_level,
+                        expected_workspace_version,
+                        operation_id,
+                        False,
+                        err,
+                    )
                     raise GatewayError(err)
                 record = self._audit(
                     matter_id,
@@ -138,7 +186,15 @@ class ToolGateway:
                 code=AgentErrorCode.VERSION_CONFLICT,
                 message=f"工作区版本已变化（期望 {expected_workspace_version}，当前 {current_version}）",
             )
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err)
 
         try:
@@ -147,7 +203,15 @@ class ToolGateway:
             raise
         except PersistenceApiError as exc:
             err = _map_persistence_error(exc)
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err) from exc
         except SourceReadUnavailableError as exc:
             err = AgentError(
@@ -155,19 +219,56 @@ class ToolGateway:
                 message=exc.message,
                 details={"source_error_code": exc.code},
             )
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err) from exc
         except ModelInvocationError as exc:
             err = AgentError(code=exc.code, message=exc.message)
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err) from exc
         except TimeoutError as exc:
-            err = AgentError(code=AgentErrorCode.TIMEOUT, message=f"工具 {tool_name} 执行超时: {exc}")
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            err = AgentError(
+                code=AgentErrorCode.TIMEOUT, message=f"工具 {tool_name} 执行超时: {exc}"
+            )
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err) from exc
         except Exception as exc:
-            err = AgentError(code=AgentErrorCode.MODEL_ERROR, message=f"工具 {tool_name} 执行失败: {exc}")
-            self._audit(matter_id, tool_name, required_level, expected_workspace_version, operation_id, False, err)
+            err = AgentError(
+                code=AgentErrorCode.MODEL_ERROR,
+                message=f"工具 {tool_name} 执行失败: {exc}",
+            )
+            self._audit(
+                matter_id,
+                tool_name,
+                required_level,
+                expected_workspace_version,
+                operation_id,
+                False,
+                err,
+            )
             raise GatewayError(err) from exc
 
         if operation_id is not None:
@@ -235,7 +336,12 @@ def _map_persistence_error(exc: PersistenceApiError) -> AgentError:
             details={"backend_code": exc.error_code, "retryable": True},
         )
     backend_code = exc.error_code or ""
-    if backend_code in {"basis_changed", "plan_expired", "plan_already_decided", "plan_not_pending"}:
+    if backend_code in {
+        "basis_changed",
+        "plan_expired",
+        "plan_already_decided",
+        "plan_not_pending",
+    }:
         return AgentError(
             code=AgentErrorCode.VERSION_CONFLICT,
             message=str(exc),
