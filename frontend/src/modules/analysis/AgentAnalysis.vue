@@ -8,6 +8,8 @@ import { canStartAnotherRun, runStatusText } from './contracts'
 import { useAnalysis } from './useAnalysis'
 import { useTransferConsent } from './useTransferConsent'
 import { consentBlockReason, transferScopeLabel } from './consentContracts'
+import { analysisTriggerBlockReason } from './trigger'
+import type { AnalysisTrigger } from './trigger'
 
 const props = defineProps<{
   matter: Matter
@@ -38,7 +40,6 @@ const {
 const canStart = computed(
   () =>
     !busy.value &&
-    !props.rankingSaving &&
     !checking.value &&
     storageReady.value &&
     props.source !== null &&
@@ -48,8 +49,7 @@ const canStart = computed(
       run.value?.status ?? (attempt.value?.status === '不可查询' ? null : attempt.value?.status),
     ),
 )
-const blockedReason = computed(() => {
-  if (props.rankingSaving) return '排名正在保存和核对，请稍后重试。'
+const commonBlockedReason = computed(() => {
   if (busy.value || checking.value) return '分析正在执行或查询，请等待当前操作结束。'
   if (!storageReady.value) return '浏览器无法保存运行标识，请先检查会话存储。'
   if (!props.source || !safeSourceUrl(props.source.url)) return '请先选择可分析的公开来源。'
@@ -58,11 +58,17 @@ const blockedReason = computed(() => {
   if (!canStart.value) return '请先核对当前运行状态，再重新发起。'
   return ''
 })
+const blockedReason = computed(() =>
+  analysisTriggerBlockReason(props.rankingSaving, commonBlockedReason.value, 'manual'),
+)
+const recheckBlockedReason = computed(() =>
+  analysisTriggerBlockReason(props.rankingSaving, commonBlockedReason.value, 'saved-ranking'),
+)
 
-async function start(expectedSourceId?: string) {
+async function startRun(trigger: AnalysisTrigger, expectedSourceId?: string) {
   const source = props.source
-  if (!source || blockedReason.value || (expectedSourceId && source.id !== expectedSourceId))
-    return null
+  const reason = trigger === 'manual' ? blockedReason.value : recheckBlockedReason.value
+  if (!source || reason || (expectedSourceId && source.id !== expectedSourceId)) return null
   if (
     attempt.value &&
     attempt.value.status === null &&
@@ -91,8 +97,16 @@ async function start(expectedSourceId?: string) {
   if (!result && props.matter.id === context) await transfer.refresh()
   return result
 }
+function start() {
+  return startRun('manual')
+}
+function startAfterRanking(sourceId: string) {
+  return startRun('saved-ranking', sourceId)
+}
 defineExpose({
   start,
+  startAfterRanking,
+  recheckBlockedReason,
   busy: computed(() => busy.value || checking.value || consentBusy.value),
   blockedReason,
 })

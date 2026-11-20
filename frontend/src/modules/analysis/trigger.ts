@@ -1,0 +1,10 @@
+export type AnalysisTrigger = 'manual' | 'saved-ranking'
+
+export function analysisTriggerBlockReason(
+  rankingSaving: boolean,
+  commonReason: string,
+  trigger: AnalysisTrigger,
+) {
+  if (trigger === 'manual' && rankingSaving) return '排名正在保存和核对，请稍后重试。'
+  return commonReason
+}

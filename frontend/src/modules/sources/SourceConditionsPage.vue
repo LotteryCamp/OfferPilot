@@ -101,7 +101,7 @@ function sourceChanged() {
 
 async function recheckRanking(sourceId: string | null) {
   if (!sourceId || analysisSource.value?.id !== sourceId) return null
-  return (await analysisPanel.value?.start(sourceId)) ?? null
+  return (await analysisPanel.value?.startAfterRanking(sourceId)) ?? null
 }
 
 function selectSource(id: string) {
@@ -162,7 +162,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
       :matter-id="matterId"
       :source-id="analysisSource?.id ?? null"
       :analysis-busy="analysisPanel?.busy ?? false"
-      :recheck-unavailable="analysisPanel?.blockedReason ?? '分析入口正在准备，请稍后重试。'"
+      :recheck-unavailable="analysisPanel?.recheckBlockedReason ?? '分析入口正在准备，请稍后重试。'"
       :recheck="recheckRanking"
       @changed="sourceChanged"
     />
