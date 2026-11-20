@@ -19,6 +19,8 @@ class Settings:
     demo_workspace_id: UUID = DEFAULT_WORKSPACE_ID
     api_prefix: str = "/api/v1"
     demo_timezone: str = "Asia/Shanghai"
+    model_provider: str = "OpenAI 兼容模型服务"
+    model_name: str = ""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -34,6 +36,10 @@ class Settings:
                 "OFFERPILOT_DEMO_WORKSPACE_ID", DEFAULT_WORKSPACE_ID
             ),
             demo_timezone=os.environ.get("OFFERPILOT_DEMO_TIMEZONE", "Asia/Shanghai"),
+            model_provider=os.environ.get(
+                "OFFERPILOT_MODEL_PROVIDER", "OpenAI 兼容模型服务"
+            ),
+            model_name=os.environ.get("OFFERPILOT_MODEL_NAME", ""),
         )
 
 

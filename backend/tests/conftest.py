@@ -48,7 +48,8 @@ def admin(database_urls: tuple[str, str]) -> Iterator[psycopg.Connection]:
     try:
         connection.execute(
             """
-            TRUNCATE core.fact, core.agent_run, core.matter_source, core.task,
+            TRUNCATE core.model_transfer_consent, core.fact, core.agent_run,
+                     core.matter_source, core.task,
                      core.candidate_plan_decision,
                      core.candidate_plan_item_source, core.candidate_plan_item,
                      core.candidate_plan, core.requirement_self_check,

@@ -75,7 +75,13 @@ class InMemoryWorkspaceBackend:
         return True
 
     def has_valid_transfer_consent(
-        self, user_id: str, matter_id: str, consent_id: str | None
+        self,
+        user_id: str,
+        matter_id: str,
+        consent_id: str | None,
+        *,
+        purpose: str,
+        field_categories: tuple[str, ...],
     ) -> bool:
         return self.consent_valid
 

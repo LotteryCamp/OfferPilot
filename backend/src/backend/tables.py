@@ -273,6 +273,23 @@ fact = Table(
     schema="core",
 )
 
+model_transfer_consent = Table(
+    "model_transfer_consent",
+    metadata,
+    Column("id", UUID_TYPE, primary_key=True),
+    Column("workspace_id", UUID_TYPE, nullable=False),
+    Column("owner_id", UUID_TYPE, nullable=False),
+    Column("matter_id", UUID_TYPE, nullable=False),
+    Column("provider", Text, nullable=False),
+    Column("purposes", ARRAY(Text), nullable=False),
+    Column("field_categories", ARRAY(Text), nullable=False),
+    Column("consent_status", String(16), nullable=False),
+    Column("version_no", Integer, nullable=False),
+    Column("created_at", TIMESTAMPTZ, nullable=False),
+    Column("revoked_at", TIMESTAMPTZ),
+    schema="core",
+)
+
 matter_source = Table(
     "matter_source",
     metadata,

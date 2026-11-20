@@ -35,7 +35,7 @@ from backend.services import requirements as requirement_service
 from backend.services import sources as source_service
 from backend.services.sources import SourceReader, read_public_html
 from backend.sources import source_document_from_registration
-from backend.tables import matter, workspace
+from backend.tables import matter, model_transfer_consent, workspace
 
 logger = logging.getLogger(__name__)
 
@@ -249,10 +249,47 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
         return row is not None
 
     def has_valid_transfer_consent(
-        self, user_id: str, matter_id: str, consent_id: str | None
+        self,
+        user_id: str,
+        matter_id: str,
+        consent_id: str | None,
+        *,
+        purpose: str,
+        field_categories: tuple[str, ...],
     ) -> bool:
-        """Alpha 只向模型传输公开来源正文与事项适用范围，演示身份即本次传输范围。"""
-        return self.check_permission(user_id, matter_id, AuthLevel.L1)
+        """Verify an active, matter-bound consent covering the outbound scope."""
+        if not consent_id or not consent_id.strip():
+            return False
+        if user_id != str(self._settings.demo_user_id):
+            return False
+        try:
+            consent_uuid = UUID(consent_id.strip())
+            matter_uuid = UUID(matter_id)
+        except ValueError:
+            return False
+        with (
+            self._session_factory() as session,
+            workspace_transaction(session, self._settings.demo_workspace_id),
+        ):
+            row = session.execute(
+                select(model_transfer_consent.c.id)
+                .join(matter, matter.c.id == model_transfer_consent.c.matter_id)
+                .join(workspace, workspace.c.id == matter.c.workspace_id)
+                .where(
+                    model_transfer_consent.c.id == consent_uuid,
+                    model_transfer_consent.c.owner_id == self._settings.demo_user_id,
+                    model_transfer_consent.c.matter_id == matter_uuid,
+                    model_transfer_consent.c.consent_status == "active",
+                    model_transfer_consent.c.provider == self._settings.model_provider,
+                    model_transfer_consent.c.purposes.contains([purpose]),
+                    model_transfer_consent.c.field_categories.contains(
+                        list(field_categories)
+                    ),
+                    matter.c.workspace_id == self._settings.demo_workspace_id,
+                    workspace.c.owner_id == self._settings.demo_user_id,
+                )
+            ).first()
+        return row is not None
 
     def get_workspace_version(self, matter_id: str) -> int:
         try:

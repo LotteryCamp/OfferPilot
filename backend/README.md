@@ -14,10 +14,10 @@ Alpha 核心演示的业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16�
 | Python | 3.13 |
 | uv | 最新稳定版 |
 | PostgreSQL | 16 及以上 |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0012` 已应用，参考数据与演示身份已写入 |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0014` 已应用，参考数据与演示身份已写入 |
 | 数据库角色 | 非所有者登录角色 `offerpilot_app`，具备 `core`、`ops` 模式访问权限 |
 
-数据库结构由数据库迁移交付，本模块不包含 DDL 与迁移执行器。目标库须先具备事项、来源、快照、要求、证据、个人事实、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
+数据库结构由本模块的迁移交付。目标库须先具备事项、来源、快照、要求、证据、个人事实、模型传输同意、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
 
 ## 安装
 
@@ -38,7 +38,11 @@ uv sync
 | `OFFERPILOT_PORT` | 否 | `8000` | 监听端口 |
 | `OFFERPILOT_MODEL_API_URL` | 否 | 无 | OpenAI 兼容模型服务地址；未配置时 Agent 运行返回 `MODEL_ERROR` |
 | `OFFERPILOT_MODEL_NAME` | 否 | 无 | 模型名称 |
+| `OFFERPILOT_MODEL_PROVIDER` | 否 | `OpenAI 兼容模型服务` | 模型传输同意的服务商名称，写入同意记录并参与出站校验 |
 | `OFFERPILOT_MODEL_API_KEY` | 否 | 无 | 模型服务密钥 |
+| `OFFERPILOT_MODEL_TIMEOUT_SECONDS` | 否 | `180` | 单次模型请求超时，单位秒 |
+
+来源正文较长时，需求抽取请求需要较长的生成时间。`OFFERPILOT_MODEL_TIMEOUT_SECONDS` 推荐取 `180`；来源总量接近单次运行上限时取 `300`。
 
 示例：
 

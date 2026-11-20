@@ -44,7 +44,7 @@ Alpha 当前没有登录能力，接口使用固定演示身份：
 | 演示用户 | `OFFERPILOT_DEMO_USER_ID` | `00000000-0000-7000-8000-000000000001` |
 | 演示工作区 | `OFFERPILOT_DEMO_WORKSPACE_ID` | `00000000-0000-7000-8000-000000000002` |
 
-每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实按当前事项过滤，并要求事项位于当前工作区且事实所有者等于工作区所有者。事项、个人事实、候选计划与任务的读取同时校验事项归属。
+每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实与模型传输同意按当前事项过滤，并要求事项位于当前工作区、记录所有者等于工作区所有者。事项、个人事实、模型传输同意、候选计划与任务的读取同时校验事项归属。
 
 固定身份仅用于本地演示。它不等同于多用户认证，也不构成跨账户安全边界。演示用户或工作区不存在时，接口返回 `500 demo_identity_missing`。
 
@@ -986,7 +986,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `scope` | string | 否 | 最长 200 字符 |
 | `scope_year` | integer | 否 | 2020—2100，须与事项年度一致；省略时使用事项年度 |
 | `confirmed_facts` | object | 否 | 运行级个人事实，默认空对象；只接受未注册键，已注册类型必须通过当前事项的事实接口保存 |
-| `model_transfer_consent_id` | string | 否 | 最长 200 字符；携带 `confirmed_facts` 或事项含 `scope_attrs` 时必须提供有效同意，否则返回 `422 model_transfer_consent_required` 且不创建运行 |
+| `model_transfer_consent_id` | string | 否 | 当前事项的有效同意标识，通过[模型传输同意接口](model-transfer-consent.md)取得；携带 `confirmed_facts` 或事项含 `scope_attrs` 时必须提供，缺失返回 `422 model_transfer_consent_required`，失效返回 `422 model_transfer_consent_invalid`，均不创建运行 |
 | `operation_id` | string | 否 | 1—200 字符；同一事项重复提交时返回首次运行结果 |
 
 已注册个人事实由后端从当前事项的 `core.fact` 读取当前确认版本并写入候选依据。请求的 `confirmed_facts` 含已注册类型时返回 `422 managed_fact_type`，不创建运行；未注册键作为运行级事实使用，不形成事实版本，不进入依据指纹。事实版本与运行依据的对应规则见[个人事实接口](facts.md)。
@@ -1083,13 +1083,23 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `DEADLINE_EXPIRED` | 候选任务对应的官方期限已过 |
 | `RUN_INTERRUPTED` | 运行在服务重启时中断 |
 
-### 7.2 读取运行
+### 7.2 模型传输同意
+
+`GET /api/v1/matters/{matter_id}/model-transfer-consents` 读取当前事项的授权状态、披露信息与有效同意；`POST` 同路径授予同意并返回 `consent_id`；`DELETE /api/v1/matters/{matter_id}/model-transfer-consents/{consent_id}` 撤回同意。
+
+事项的 `scope_attrs` 非空时，分析入口必须先取得有效同意。前端展示 `disclosure` 中的服务商、用途、字段类别与数据处理说明，用户确认后调用授予接口，再把 `consent.consent_id` 写入运行的 `model_transfer_consent_id`。
+
+同意归属于当前用户与当前事项，覆盖 `requirement_extraction`、`candidate_planning` 两个用途与 `matter_goal`、`public_scope`、`public_sources` 三类字段。运行入口在创建运行前核对全部用途，出站网关在每次模型工具调用前按实际用途与字段类别再次核对；撤回后的标识返回 `422 model_transfer_consent_invalid`。
+
+完整请求、响应、字段类别与出站边界见[模型传输同意接口](model-transfer-consent.md)。
+
+### 7.3 读取运行
 
 `GET /api/v1/agent-runs/{run_id}`
 
 响应结构同创建运行的 `run` 对象。运行不存在时返回 `404 agent_run_not_found`。运行状态与检查点从数据库读取；`已中断` 运行的 `error.code` 为 `RUN_INTERRUPTED`，`details.retryable` 为 `true`。
 
-### 7.3 确认运行
+### 7.4 确认运行
 
 `POST /api/v1/agent-runs/{run_id}/confirm`
 
@@ -1136,23 +1146,23 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 }
 ```
 
-### 7.4 拒绝运行
+### 7.5 拒绝运行
 
 `POST /api/v1/agent-runs/{run_id}/reject`
 
 请求头与确认相同。拒绝只记录 `rejected` 决定，不创建任务。响应 `200`，`run.status` 为 `已取消`，`written_tasks` 为空。
 
-### 7.5 取消运行
+### 7.6 取消运行
 
 `POST /api/v1/agent-runs/{run_id}/cancel`
 
 停止后续工具调用。已经写入的任务或决定保持不变。响应 `200`，运行状态转为 `已取消`。
 
-### 7.6 运行结果与错误
+### 7.7 运行结果与错误
 
 运行生命周期请求返回 `200` 和完整 `run` 对象；`run.status` 与 `run.error` 表达运行结果。请求字段校验失败返回 `422 validation_error`，缺少必需的模型传输同意返回 `422 model_transfer_consent_required`，运行不存在返回 `404 agent_run_not_found`。
 
-Alpha 向模型发送公开来源正文、事项目标和适用范围，不发送个人事实或材料。演示用户身份即本次模型传输的授权范围。
+Alpha 向模型发送事项目标、白名单公开范围字段与公开来源正文，不发送个人事实、个人材料或用户导入件。事项的 `scope_attrs` 非空，或请求携带 `confirmed_facts` 时，运行必须携带当前事项的有效模型传输同意；事项访问权限不参与该判断。
 
 ## 8. 依据指纹
 
@@ -1206,6 +1216,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 404 | `matter_not_found` | 事项不存在或不属于当前工作区；事项、事实、来源与任务接口均拒绝 |
 | 404 | `plan_not_found` | 候选计划不存在或不属于当前工作区 |
 | 404 | `agent_run_not_found` | Agent 运行不存在或不属于当前工作区 |
+| 404 | `transfer_consent_not_found` | 模型传输同意不存在或不属于当前事项 |
 | 409 | `source_conflict` | 同一 URL 的来源元数据不一致，或来源标识冲突 |
 | 409 | `snapshot_conflict` | 快照标识或内容归属冲突 |
 | 409 | `operation_conflict` | 幂等键已用于其他计划或决定 |
@@ -1223,6 +1234,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 422 | `unknown_snapshot` | 要求引用的快照不存在 |
 | 422 | `scope_year_mismatch` | 来源适用年度与事项年度不一致 |
 | 422 | `model_transfer_consent_required` | 携带个人事实或事项适用范围时缺少模型传输同意，未创建运行 |
+| 422 | `model_transfer_consent_invalid` | 模型传输同意不存在、已撤回、服务商不匹配或未覆盖出站范围；`details.purposes` 列出未覆盖用途，未创建运行 |
 | 422 / 502 | `source_read_failed` | 公开来源读取失败；`details.code` 为读取错误码，`details.retryable` 表示是否可重试 |
 | 422 | `evidence_snapshot_mismatch` | 证据快照与要求快照不一致 |
 | 422 | `evidence_source_mismatch` | 证据来源与快照所属来源不一致 |
@@ -1246,6 +1258,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | `core.requirement`、`ops.evidence` | 候选要求与原文证据 |
 | `core.requirement_self_check` | 四态自查结论、原因、缺失信息与缺口 |
 | `core.fact` | 按事项归属的当前确认事实、历史版本与事实版本摘要 |
+| `core.model_transfer_consent` | 按事项归属的模型传输同意、用途、字段类别与授权版本 |
 | `core.matter_source` | 事项与已读取来源快照的关联 |
 | `core.candidate_plan`、`core.candidate_plan_item` | 候选计划与计划项 |
 | `core.candidate_plan_item_source` | 计划项出处 |
@@ -1261,6 +1274,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 - 无登录与账户切换，所有请求使用固定演示身份。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
 - 个人事实接口按事项注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`，不提供同类型多实例、跨事项共享、草稿、撤回、删除与个人材料引用。
+- 模型传输同意按事项授予，不提供有效期、按用途分别授予、第三方服务商条款绑定与历史列表。
 - 来源读取只访问公开 HTML 页面；不解析 PDF 与附件、不生成材料、不执行外部提交。
 - Agent 运行检查点持久化；服务重启时未完成的运行标记为 `已中断`，不恢复原运行。
 - 不提供跨设备、多用户共享与权限管理。
