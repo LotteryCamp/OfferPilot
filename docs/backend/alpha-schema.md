@@ -32,6 +32,7 @@
 | `ops.snapshot` | 来源快照 | 同源版本唯一；同源内容哈希唯一；只增不改 |
 | `ops.evidence` | 要求证据 | 四元组唯一；来源、快照、要求三者一致 |
 | `core.requirement` | 候选要求 | 必须绑定快照；`checked` 与检查时间一致 |
+| `core.requirement_self_check` | 要求自查结果 | 每个要求至多一条；四态结论、原因、缺失信息、缺口与 `extract_status` 分开保存 |
 | `core.candidate_plan` | 候选计划 | 同事项版本唯一；`op_id` 唯一；依据哈希与完整输入持久化 |
 | `core.candidate_plan_item` | 候选计划项 | 同计划顺序唯一；依赖项必须在同一计划内 |
 | `core.candidate_plan_item_source` | 计划项来源定位 | 计划项、快照、定位唯一；来源与快照一致 |
@@ -146,7 +147,7 @@ erDiagram
 ## 5. 行级安全
 
 启用 RLS 的表：`matter`、`requirement`、`candidate_plan`、`candidate_plan_item`、
-`candidate_plan_item_source`、`candidate_plan_decision`、`task`。
+`candidate_plan_item_source`、`candidate_plan_decision`、`task`、`requirement_self_check`。
 
 策略条件：
 
@@ -176,6 +177,7 @@ Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS �
 | `0006` | 3 个查询视图 |
 | `0007` | 事项聚合的 RLS 策略 |
 | `0008` | 计划决定与计划项来源的 RLS 策略 |
+| `0009` | 要求自查结果表及其 RLS 策略 |
 
 ### 6.2 执行规则
 

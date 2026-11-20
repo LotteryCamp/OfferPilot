@@ -361,6 +361,7 @@ class AgentOrchestrator:
                     evaluations,
                     candidate_plan,
                     sources_by_id,
+                    gaps=merged_gaps,
                     operation_id=context.operation_id,
                 ),
             )
@@ -786,6 +787,7 @@ class AgentOrchestrator:
         candidate_plan: CandidatePlan,
         sources_by_id: dict[str, SourceDocument],
         *,
+        gaps: list[SourceGap] | None = None,
         operation_id: str | None = None,
     ) -> tuple[list[str], str | None]:
         assert self._persistence is not None
@@ -794,11 +796,9 @@ class AgentOrchestrator:
             persisted_ids, req_id_map = self._persisted_req_cache[cache_key]
         else:
             req_payload = build_requirements_batch_payload(
-                requirements, evaluations, sources_by_id
+                requirements, evaluations, sources_by_id, gaps
             )
-            created_reqs = self._persistence.persist_requirements(
-                matter_id, req_payload
-            )
+            created_reqs = self._persistence.persist_requirements(matter_id, req_payload)
             req_id_map = {}
             persisted_ids = []
             for req_obj, created in zip(requirements, created_reqs, strict=False):

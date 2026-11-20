@@ -300,6 +300,7 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.template_version",
             "core.matter",
             "core.requirement",
+            "core.requirement_self_check",
             "core.candidate_plan",
             "core.candidate_plan_item",
             "core.candidate_plan_item_source",
