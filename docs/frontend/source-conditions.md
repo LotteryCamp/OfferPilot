@@ -37,6 +37,8 @@ npm run dev
 
 公开来源读取成功后，在“本次来源读取结果”展示服务端返回的标题、发布单位、范围、获取时间、正文和定位片段，并重读关联来源列表。该次结果只在当前页面保留；刷新恢复尚未关联的来源需要后端提供相应事项关联能力。来源读取结果不代表要求已生成或自查已完成。
 
+关联列表尚未返回本快照的要求时，读取结果显示“已读取，待分析”；已有要求的同一快照显示“已读取通知”。已关联但无要求的快照，在要求区同样显示“已读取，待分析”。此提示说明尚无可展示的要求，不代表 Agent 已进入运行队列。
+
 `contracts.ts` 校验响应必需字段及事项、快照关联；未知状态显示原始编码并标为待识别。只有有效 HTTP(S) 原文链接可打开，引用文本由 Vue 文本绑定显示。日期字段保留日期精度，带时区的时间转为北京时间。
 
 每条要求可包含 `self_check`，其结构遵循后端自查保存协议。`conclusion` 的 `matched`、`not_matched`、`missing_info`、`needs_user_review` 分别显示“按现有信息符合”“按现有信息不符合”“待补充信息”“待用户核对”；同时展示 `reason`、`missing_fields`、`computed_deadline_at` 和 `gaps`。缺口关联的来源及快照已在本列表返回时，提供切换查看入口。字段缺失或为 `null` 时明确提示尚无可读取的个人自查结果；不从 `extract_status` 推断资格结论。未识别的结论编码保持中性提示。
@@ -56,6 +58,23 @@ npm run dev
 `SourceConditionsPage.vue` 已通过 `workspaceIntegrations.modules.sources` 注册到 `/matters/:matterId/sources`，接收 `matterId`、只读的 `matter`，共用应用 Pinia、Vue Router 和 Element Plus。来源登记成功后发送 `changed`，工作区重新读取事项。要求列表接收快照与可用出处集合，通过事件请求切换出处。业务样式限定在 `.business-module` 内，沿用工作区的品牌色、字体及卡片样式。
 
 后续联调需要后端业务服务、数据库迁移和真实事项数据。个人自查展示已支持约定字段，完整保存、刷新恢复及重启后的读取需待后端链路接齐后验收。排名补录已完成输入和本地校验，保存、重新自查与 Agent 运行请求尚未接入。
+
+## QA 入口与定位约定
+
+真实测试服务接入方式见前端 README。来源页入口为 `/matters/{matter_id}/sources`，候选页为 `/matters/{matter_id}/plan`；从真实创建接口返回的事项 ID 进入。现有 `npm run test:matters:live` 仅检查事项创建、列表、详情和刷新，来源及候选完整链路仍需独立执行。
+
+| 目标           | 定位方式                                                                                                                            |
+| -------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 来源页及刷新   | `getByTestId('sources-page')`、`getByTestId('sources-refresh')`                                                                     |
+| 读取表单       | `getByTestId('source-import')`，输入项 `#source-url`、`#source-publisher`、`#source-scope`                                          |
+| 读取操作及结果 | `getByTestId('source-read-submit')`、`getByTestId('source-read-result')`                                                            |
+| 来源及版本     | `getByTestId('source-card')` 按 `data-source-id` 区分；`#snapshot-version` 切换版本                                                 |
+| 要求及自查     | `getByTestId('requirements')` 的 `data-snapshot-id`；`requirement-card` 的 `data-requirement-id`；`self-check` 的 `data-conclusion` |
+| 排名输入       | `#ranking-rankPosition`、`#ranking-totalStudents`、`#ranking-confirmed`                                                             |
+
+验收时先读取真实来源，核对返回的来源及快照 ID；未生成要求时检查“已读取，待分析”。要求与自查结果保存后，刷新及重新进入事项，按相同 ID 对照四态、原因、缺失信息、缺口和原文出处。重启后端后重复读取，确认结果来自持久化数据。后端尚未完成来源立即关联、自查保存及读取时，这些恢复用例保持待测。
+
+未完成 Agent 运行的恢复范围为明确提示中断并允许重新发起，不恢复原运行。目前本模块未接入运行入口或运行状态查询，也没有对应的中断提示选择器；该用例须待运行入口及错误协议接齐后验收。
 
 ## 检查命令
 
