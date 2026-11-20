@@ -163,7 +163,7 @@ def agent_client(
 
 def test_agent_run_generates_candidate_then_confirms(agent_client: TestClient) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
 
     created = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
@@ -171,7 +171,6 @@ def test_agent_run_generates_candidate_then_confirms(agent_client: TestClient) -
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "run-operation-1",
         },
     )
@@ -224,16 +223,47 @@ def test_agent_run_without_transfer_consent_returns_422(
     assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
+def test_fact_archive_requires_consent_without_scope_attrs(
+    agent_client: TestClient,
+) -> None:
+    created = agent_client.post(
+        "/api/v1/matters",
+        json={
+            "goal": "申请 2027 年福州大学数学与统计学院推免",
+            "type_code": "pre_recommend",
+            "scope_year": 2027,
+        },
+    )
+    assert created.status_code == 201, created.text
+    matter_id = created.json()["matter"]["id"]
+    saved = agent_client.put(
+        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+
+    response = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "fact-archive-consent",
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert response.json()["error"]["code"] == "model_transfer_consent_required"
+
+
 def test_model_transfer_consent_entry_returns_current_consent(
     agent_client: TestClient,
 ) -> None:
-    matter_id = _create_matter(agent_client)
-
-    before = agent_client.get(f"/api/v1/matters/{matter_id}/model-transfer-consents")
+    before = agent_client.get("/api/v1/model-transfer-consent")
     assert before.status_code == 200, before.text
-    assert before.json()["required"] is True
-    assert before.json()["consent"] is None
-    disclosure = before.json()["disclosure"]
+    body = before.json()
+    assert body["consent"] is None
+    disclosure = body["disclosure"]
+    assert disclosure["provider"]
     assert disclosure["field_categories"] == [
         "matter_goal",
         "public_scope",
@@ -243,34 +273,34 @@ def test_model_transfer_consent_entry_returns_current_consent(
         "requirement_extraction",
         "candidate_planning",
     ]
+    assert disclosure["consent_scope"]
     assert disclosure["data_handling"]
 
-    granted = agent_client.post(f"/api/v1/matters/{matter_id}/model-transfer-consents")
+    granted = agent_client.post("/api/v1/model-transfer-consent")
     assert granted.status_code == 200, granted.text
-    body = granted.json()
-    assert body["created"] is True
-    consent = body["consent"]
+    granted_body = granted.json()
+    assert granted_body["created"] is True
+    consent = granted_body["consent"]
     assert consent["status"] == "active"
-    assert consent["matter_id"] == matter_id
+    assert "matter_id" not in consent
+    assert "provider" not in consent
     assert consent["version_no"] == 1
     assert consent["revoked_at"] is None
 
-    replayed = agent_client.post(f"/api/v1/matters/{matter_id}/model-transfer-consents")
+    replayed = agent_client.post("/api/v1/model-transfer-consent")
     assert replayed.status_code == 200, replayed.text
     assert replayed.json()["created"] is False
     assert replayed.json()["consent"]["consent_id"] == consent["consent_id"]
 
-    current = agent_client.get(f"/api/v1/matters/{matter_id}/model-transfer-consents")
+    current = agent_client.get("/api/v1/model-transfer-consent")
     assert current.status_code == 200, current.text
     assert current.json()["consent"]["consent_id"] == consent["consent_id"]
 
 
 def test_revoked_consent_blocks_agent_run(agent_client: TestClient) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
-    revoked = agent_client.delete(
-        f"/api/v1/matters/{matter_id}/model-transfer-consents/{consent_id}"
-    )
+    consent_id = _grant_consent(agent_client)
+    revoked = agent_client.delete(f"/api/v1/model-transfer-consent/{consent_id}")
     assert revoked.status_code == 200, revoked.text
     assert revoked.json()["revoked"] is True
     assert revoked.json()["consent"]["status"] == "revoked"
@@ -281,30 +311,20 @@ def test_revoked_consent_blocks_agent_run(agent_client: TestClient) -> None:
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "revoked-consent",
         },
     )
     assert created.status_code == 422, created.text
-    error = created.json()["error"]
-    assert error["code"] == "model_transfer_consent_invalid"
-    assert error["details"]["purposes"] == [
-        "requirement_extraction",
-        "candidate_planning",
-    ]
+    assert created.json()["error"]["code"] == "model_transfer_consent_required"
 
-    current = agent_client.get(f"/api/v1/matters/{matter_id}/model-transfer-consents")
+    current = agent_client.get("/api/v1/model-transfer-consent")
     assert current.json()["consent"] is None
 
-    repeated = agent_client.delete(
-        f"/api/v1/matters/{matter_id}/model-transfer-consents/{consent_id}"
-    )
+    repeated = agent_client.delete(f"/api/v1/model-transfer-consent/{consent_id}")
     assert repeated.status_code == 200, repeated.text
     assert repeated.json()["revoked"] is False
 
-    regranted = agent_client.post(
-        f"/api/v1/matters/{matter_id}/model-transfer-consents"
-    )
+    regranted = agent_client.post("/api/v1/model-transfer-consent")
     assert regranted.status_code == 200, regranted.text
     renewed = regranted.json()["consent"]
     assert regranted.json()["created"] is True
@@ -317,7 +337,6 @@ def test_revoked_consent_blocks_agent_run(agent_client: TestClient) -> None:
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": renewed["consent_id"],
             "operation_id": "regranted-consent",
         },
     )
@@ -325,43 +344,85 @@ def test_revoked_consent_blocks_agent_run(agent_client: TestClient) -> None:
     assert retried.json()["run"]["status"] == "等待确认"
 
 
-def test_model_transfer_consent_is_bound_to_current_matter(
+def test_global_consent_covers_all_matters(
     agent_client: TestClient, admin: psycopg.Connection
 ) -> None:
     matter_a = _create_matter(agent_client)
-    consent_a = _grant_consent(agent_client, matter_a)
     matter_b = _create_matter(agent_client)
+    _grant_consent(agent_client)
 
-    created = agent_client.post(
-        f"/api/v1/matters/{matter_b}/agent-runs",
-        json={
-            "source_urls": [SOURCE_URL],
-            "publisher": "福州大学数学与统计学院",
-            "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_a,
-            "operation_id": "cross-matter-consent",
-        },
-    )
-    assert created.status_code == 422, created.text
-    assert created.json()["error"]["code"] == "model_transfer_consent_invalid"
-    run_count = admin.execute(
-        "SELECT count(*) FROM core.agent_run WHERE matter_id = %s",
-        (UUID(matter_b),),
-    ).fetchone()
+    for matter_id, operation_id in (
+        (matter_a, "global-consent-matter-a"),
+        (matter_b, "global-consent-matter-b"),
+    ):
+        created = agent_client.post(
+            f"/api/v1/matters/{matter_id}/agent-runs",
+            json={
+                "source_urls": [SOURCE_URL],
+                "publisher": "福州大学数学与统计学院",
+                "scope": "2027 届、本院、校内推免推荐",
+                "operation_id": operation_id,
+            },
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["run"]["status"] == "等待确认"
+
+    run_count = admin.execute("SELECT count(*) FROM core.agent_run").fetchone()
     assert run_count is not None
-    assert run_count[0] == 0
+    assert run_count[0] == 2
+
+
+def test_consent_survives_model_provider_change(
+    agent_client: TestClient,
+    database_urls: tuple[str, str],
+    clock,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+
+    app_url, _ = database_urls
+    state = _ReplayState()
+    changed_app: FastAPI = create_app(
+        Settings(
+            database_url=app_url,
+            demo_user_id=USER_ID,
+            demo_workspace_id=WORKSPACE_ID,
+            demo_timezone="Asia/Shanghai",
+            model_provider="另一模型服务",
+            model_name="another-model",
+        ),
+        clock=clock,
+        model_adapter=StructuredModelAdapter(_replay_call_model(state)),
+        agent_source_reader=_fixture_reader(state),
+    )
+    with TestClient(changed_app) as changed_client:
+        current = changed_client.get("/api/v1/model-transfer-consent")
+        assert current.status_code == 200, current.text
+        assert current.json()["consent"] is not None
+        assert current.json()["disclosure"]["provider"] == "另一模型服务"
+
+        created = changed_client.post(
+            f"/api/v1/matters/{matter_id}/agent-runs",
+            json={
+                "source_urls": [SOURCE_URL],
+                "publisher": "福州大学数学与统计学院",
+                "scope": "2027 届、本院、校内推免推荐",
+                "operation_id": "provider-change-run",
+            },
+        )
+        assert created.status_code == 200, created.text
+        assert created.json()["run"]["status"] == "等待确认"
 
 
 def test_agent_run_reject_creates_no_tasks(agent_client: TestClient) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
     created = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
         json={
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
         },
     )
     run = created.json()["run"]
@@ -384,14 +445,13 @@ def test_agent_run_reads_and_confirms_after_restart(
     clock,
 ) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
     created = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
         json={
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "restart-operation-1",
         },
     )
@@ -441,7 +501,7 @@ def test_interrupted_run_is_reported_and_can_restart(
     clock,
 ) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
     admin.execute(
         """
         INSERT INTO core.agent_run
@@ -475,7 +535,6 @@ def test_interrupted_run_is_reported_and_can_restart(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "retry-after-interrupt",
         },
     )
@@ -492,14 +551,13 @@ def test_blocked_candidate_stays_pending_after_restart(
     clock,
 ) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
     created = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
         json={
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "restart-block-operation-1",
         },
     )
@@ -553,7 +611,7 @@ def test_agent_run_records_confirmed_rank_fact(
     )
     assert saved.status_code == 200, saved.text
     fact = saved.json()["fact"]
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
 
     created = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
@@ -561,7 +619,6 @@ def test_agent_run_records_confirmed_rank_fact(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "rank-fact-operation",
         },
     )
@@ -595,7 +652,7 @@ def test_agent_run_rejects_fact_version_change(
         json={"value": {"position": 5, "cohort_size": 120}},
     )
     assert saved.status_code == 200, saved.text
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
 
     def change_fact() -> None:
         state.before_candidate_plan = None
@@ -613,7 +670,6 @@ def test_agent_run_rejects_fact_version_change(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "rank-version-conflict",
         },
     )
@@ -643,7 +699,7 @@ def test_agent_run_reads_facts_only_from_current_matter(
     )
     assert saved.status_code == 200, saved.text
     matter_b = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_b)
+    _grant_consent(agent_client)
 
     created = agent_client.post(
         f"/api/v1/matters/{matter_b}/agent-runs",
@@ -651,7 +707,6 @@ def test_agent_run_reads_facts_only_from_current_matter(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "other-matter-fact",
         },
     )
@@ -676,7 +731,7 @@ def test_agent_run_reads_facts_only_from_current_matter(
 
 def test_agent_run_rejects_managed_fact_payload(agent_client: TestClient) -> None:
     matter_id = _create_matter(agent_client)
-    consent_id = _grant_consent(agent_client, matter_id)
+    _grant_consent(agent_client)
     response = agent_client.post(
         f"/api/v1/matters/{matter_id}/agent-runs",
         json={
@@ -684,7 +739,6 @@ def test_agent_run_rejects_managed_fact_payload(agent_client: TestClient) -> Non
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
             "confirmed_facts": {"gpa.rank": {"percentile": 4.2}},
-            "model_transfer_consent_id": consent_id,
             "operation_id": "managed-fact-payload",
         },
     )
@@ -711,7 +765,7 @@ def test_agent_run_ignores_other_matter_fact_version_change(
         json={"value": {"position": 5, "cohort_size": 120}},
     )
     assert saved.status_code == 200, saved.text
-    consent_id = _grant_consent(agent_client, matter_b)
+    _grant_consent(agent_client)
 
     def change_other_matter() -> None:
         state.before_candidate_plan = None
@@ -729,7 +783,6 @@ def test_agent_run_ignores_other_matter_fact_version_change(
             "source_urls": [SOURCE_URL],
             "publisher": "福州大学数学与统计学院",
             "scope": "2027 届、本院、校内推免推荐",
-            "model_transfer_consent_id": consent_id,
             "operation_id": "other-matter-version-change",
         },
     )
@@ -756,7 +809,7 @@ def _create_matter(client: TestClient) -> str:
     return created.json()["matter"]["id"]
 
 
-def _grant_consent(client: TestClient, matter_id: str) -> str:
-    response = client.post(f"/api/v1/matters/{matter_id}/model-transfer-consents")
+def _grant_consent(client: TestClient) -> str:
+    response = client.post("/api/v1/model-transfer-consent")
     assert response.status_code == 200, response.text
     return response.json()["consent"]["consent_id"]

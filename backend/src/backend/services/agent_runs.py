@@ -188,44 +188,26 @@ class AgentRunService:
                 details={"fact_types": managed_fact_types},
             )
 
-        consent_id = (
-            body.model_transfer_consent_id.strip()
-            if body.model_transfer_consent_id
-            else None
-        )
+        expected_fact_versions, agent_facts = self._load_fact_context(matter_id)
         requires_transfer_consent = bool(
-            body.confirmed_facts or matter_row["scope_attrs"]
+            body.confirmed_facts or agent_facts or matter_row["scope_attrs"]
         )
         backend = SqlWorkspaceBackend(self._settings, self._session_factory)
-        if requires_transfer_consent:
-            if consent_id is None:
-                raise ApiError(
-                    422,
-                    "model_transfer_consent_required",
-                    "携带个人事实或事项适用范围时必须提供模型传输同意",
-                    next_step="通过事项的模型传输同意接口取得同意标识后重试",
-                )
-            uncovered_purposes = [
-                purpose
-                for purpose, field_categories in REQUIRED_TRANSFER_SCOPES
-                if not backend.has_valid_transfer_consent(
-                    str(self._settings.demo_user_id),
-                    str(matter_id),
-                    consent_id,
-                    purpose=purpose,
-                    field_categories=field_categories,
-                )
-            ]
-            if uncovered_purposes:
-                raise ApiError(
-                    422,
-                    "model_transfer_consent_invalid",
-                    "模型传输同意不存在、已撤回或未覆盖本次出站范围",
-                    next_step="重新完成模型传输授权并提交新的同意标识",
-                    details={"purposes": uncovered_purposes},
-                )
+        if requires_transfer_consent and any(
+            not backend.has_valid_transfer_consent(
+                str(self._settings.demo_user_id),
+                purpose=purpose,
+                field_categories=field_categories,
+            )
+            for purpose, field_categories in REQUIRED_TRANSFER_SCOPES
+        ):
+            raise ApiError(
+                422,
+                "model_transfer_consent_required",
+                "携带个人事实或事项适用范围时必须先同意向外部模型传输公开资料",
+                next_step="在个人信息授权同意选项中授予后重试",
+            )
 
-        expected_fact_versions, agent_facts = self._load_fact_context(matter_id)
         confirmed_facts = dict(body.confirmed_facts)
         confirmed_facts.update(agent_facts)
 
@@ -267,7 +249,6 @@ class AgentRunService:
             source_urls=[str(url) for url in body.source_urls],
             confirmed_facts=confirmed_facts,
             model_transfer_facts=body.confirmed_facts,
-            model_transfer_consent_id=consent_id,
             scope_year=scope_year,
             scope_attrs=dict(matter_row["scope_attrs"] or {}),
             operation_id=body.operation_id,

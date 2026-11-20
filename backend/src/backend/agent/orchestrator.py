@@ -192,7 +192,6 @@ class AgentOrchestrator:
                         matter_id=context.matter_id,
                         expected_workspace_version=context.workspace_version,
                         requires_transfer_consent=requires_transfer_consent,
-                        consent_id=context.model_transfer_consent_id,
                         fn=lambda: extract_with_meta(context.goal, sources),
                     )
                 )
@@ -203,7 +202,6 @@ class AgentOrchestrator:
                     matter_id=context.matter_id,
                     expected_workspace_version=context.workspace_version,
                     requires_transfer_consent=requires_transfer_consent,
-                    consent_id=context.model_transfer_consent_id,
                     fn=lambda: self._model_adapter.extract_requirements(
                         context.goal, sources
                     ),
@@ -269,7 +267,6 @@ class AgentOrchestrator:
                 matter_id=context.matter_id,
                 expected_workspace_version=context.workspace_version,
                 requires_transfer_consent=requires_transfer_consent,
-                consent_id=context.model_transfer_consent_id,
                 fn=lambda: self._model_adapter.generate_candidate_plan(
                     context, sources, evaluations
                 ),
@@ -363,7 +360,6 @@ class AgentOrchestrator:
                 operation_id=persist_op_id,
                 idempotency_binding=persist_binding,
                 requires_transfer_consent=requires_transfer_consent,
-                consent_id=context.model_transfer_consent_id,
                 fn=lambda: self._persist_candidates(
                     context.matter_id,
                     requirements,

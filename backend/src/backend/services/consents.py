@@ -12,23 +12,20 @@ from sqlalchemy.orm import Session
 
 from backend.config import Settings
 from backend.errors import ApiError
-from backend.services.common import iso, require_matter, transaction, uuid_text
+from backend.services.common import iso, transaction, uuid_text
 from backend.tables import model_transfer_consent
 from backend.transfer import (
+    TRANSFER_CONSENT_SCOPE,
     TRANSFER_DATA_HANDLING,
     TRANSFER_FIELD_CATEGORIES,
     TRANSFER_PURPOSES,
 )
 
 
-def get_consent(
-    session: Session, settings: Settings, matter_id: UUID
-) -> dict[str, Any]:
+def get_consent(session: Session, settings: Settings) -> dict[str, Any]:
     with transaction(session, settings):
-        matter_row = require_matter(session, settings, matter_id)
-        active = _load_active(session, settings, matter_id)
+        active = _load_active(session, settings)
         return {
-            "required": bool(matter_row["scope_attrs"]),
             "disclosure": _disclosure(settings),
             "consent": _serialize(active) if active is not None else None,
         }
@@ -37,25 +34,26 @@ def get_consent(
 def grant_consent(
     session: Session,
     settings: Settings,
-    matter_id: UUID,
     *,
     now: datetime,
 ) -> dict[str, Any]:
     with transaction(session, settings):
-        require_matter(session, settings, matter_id, for_update=True)
-        active = _load_active(session, settings, matter_id, for_update=True)
+        session.execute(
+            select(
+                func.pg_advisory_xact_lock(func.hashtext(str(settings.demo_user_id)))
+            )
+        )
+        active = _load_active(session, settings, for_update=True)
         if active is not None:
             return {"consent": _serialize(active), "created": False}
 
-        version_no = _next_version(session, settings, matter_id)
+        version_no = _next_version(session, settings)
         consent_id = uuid4()
         session.execute(
             insert(model_transfer_consent).values(
                 id=consent_id,
                 workspace_id=settings.demo_workspace_id,
                 owner_id=settings.demo_user_id,
-                matter_id=matter_id,
-                provider=settings.model_provider,
                 purposes=list(TRANSFER_PURPOSES),
                 field_categories=list(TRANSFER_FIELD_CATEGORIES),
                 consent_status="active",
@@ -65,7 +63,7 @@ def grant_consent(
             )
         )
         session.flush()
-        created = _load_by_id(session, settings, matter_id, consent_id)
+        created = _load_by_id(session, settings, consent_id)
         assert created is not None
         return {"consent": _serialize(created), "created": True}
 
@@ -73,20 +71,18 @@ def grant_consent(
 def revoke_consent(
     session: Session,
     settings: Settings,
-    matter_id: UUID,
     consent_id: UUID,
     *,
     now: datetime,
 ) -> dict[str, Any]:
     with transaction(session, settings):
-        require_matter(session, settings, matter_id, for_update=True)
         row = (
             session.execute(
                 select(model_transfer_consent)
                 .where(
                     model_transfer_consent.c.id == consent_id,
                     model_transfer_consent.c.owner_id == settings.demo_user_id,
-                    model_transfer_consent.c.matter_id == matter_id,
+                    model_transfer_consent.c.workspace_id == settings.demo_workspace_id,
                 )
                 .with_for_update()
             )
@@ -97,7 +93,7 @@ def revoke_consent(
             raise ApiError(
                 404,
                 "transfer_consent_not_found",
-                "未找到当前事项的模型传输同意",
+                "未找到模型传输同意",
                 next_step="刷新授权状态后重试",
             )
         if row["consent_status"] == "revoked":
@@ -108,7 +104,7 @@ def revoke_consent(
             .where(model_transfer_consent.c.id == consent_id)
             .values(consent_status="revoked", revoked_at=now)
         )
-        revoked = _load_by_id(session, settings, matter_id, consent_id)
+        revoked = _load_by_id(session, settings, consent_id)
         assert revoked is not None
         return {"consent": _serialize(revoked), "revoked": True}
 
@@ -116,7 +112,6 @@ def revoke_consent(
 def _load_active(
     session: Session,
     settings: Settings,
-    matter_id: UUID,
     *,
     for_update: bool = False,
 ) -> Mapping[str, Any] | None:
@@ -124,7 +119,7 @@ def _load_active(
         select(model_transfer_consent)
         .where(
             model_transfer_consent.c.owner_id == settings.demo_user_id,
-            model_transfer_consent.c.matter_id == matter_id,
+            model_transfer_consent.c.workspace_id == settings.demo_workspace_id,
             model_transfer_consent.c.consent_status == "active",
         )
         .order_by(model_transfer_consent.c.version_no.desc())
@@ -138,7 +133,6 @@ def _load_active(
 def _load_by_id(
     session: Session,
     settings: Settings,
-    matter_id: UUID,
     consent_id: UUID,
 ) -> Mapping[str, Any] | None:
     return (
@@ -146,7 +140,7 @@ def _load_by_id(
             select(model_transfer_consent).where(
                 model_transfer_consent.c.id == consent_id,
                 model_transfer_consent.c.owner_id == settings.demo_user_id,
-                model_transfer_consent.c.matter_id == matter_id,
+                model_transfer_consent.c.workspace_id == settings.demo_workspace_id,
             )
         )
         .mappings()
@@ -154,11 +148,11 @@ def _load_by_id(
     )
 
 
-def _next_version(session: Session, settings: Settings, matter_id: UUID) -> int:
+def _next_version(session: Session, settings: Settings) -> int:
     current = session.execute(
         select(func.coalesce(func.max(model_transfer_consent.c.version_no), 0)).where(
             model_transfer_consent.c.owner_id == settings.demo_user_id,
-            model_transfer_consent.c.matter_id == matter_id,
+            model_transfer_consent.c.workspace_id == settings.demo_workspace_id,
         )
     ).scalar_one()
     return int(current) + 1
@@ -170,6 +164,7 @@ def _disclosure(settings: Settings) -> dict[str, Any]:
         "model": settings.model_name or None,
         "purposes": list(TRANSFER_PURPOSES),
         "field_categories": list(TRANSFER_FIELD_CATEGORIES),
+        "consent_scope": TRANSFER_CONSENT_SCOPE,
         "data_handling": TRANSFER_DATA_HANDLING,
     }
 
@@ -177,8 +172,6 @@ def _disclosure(settings: Settings) -> dict[str, Any]:
 def _serialize(row: Mapping[str, Any]) -> dict[str, Any]:
     return {
         "consent_id": uuid_text(row["id"]),
-        "matter_id": uuid_text(row["matter_id"]),
-        "provider": row["provider"],
         "purposes": list(row["purposes"]),
         "field_categories": list(row["field_categories"]),
         "status": row["consent_status"],

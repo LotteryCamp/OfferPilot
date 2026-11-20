@@ -107,13 +107,11 @@ class InMemoryWorkspaceBackend:
     def has_valid_transfer_consent(
         self,
         user_id: str,
-        matter_id: str,
-        consent_id: str | None,
         *,
         purpose: str,
         field_categories: tuple[str, ...],
     ) -> bool:
-        return self.consent_valid and consent_id == "consent-1"
+        return self.consent_valid
 
     def get_workspace_version(self, matter_id: str) -> int:
         return self.workspace_version
@@ -278,7 +276,6 @@ def test_happy_path_waits_for_confirmation_then_writes_idempotently() -> None:
         goal="整理夏令营申请计划",
         workspace_version=5,
         confirmed_facts={"major": "软件工程"},
-        model_transfer_consent_id="consent-1",
     )
 
     start_res = orch.start_run(ctx)
@@ -317,7 +314,6 @@ def test_reject_plan_persists_rejected_and_cannot_override_completed() -> None:
         goal="整理夏令营申请计划",
         workspace_version=1,
         confirmed_facts={"major": "软件工程"},
-        model_transfer_consent_id="consent-1",
     )
     res = orch.start_run(ctx)
     assert res.persisted_plan_id is not None
@@ -351,7 +347,6 @@ def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
         goal="整理夏令营申请计划",
         workspace_version=1,
         confirmed_facts={"major": "软件工程"},
-        model_transfer_consent_id="consent-1",
     )
     res = orch.start_run(ctx)
 
@@ -393,7 +388,6 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
         goal="测试缺少持久化",
         workspace_version=1,
         confirmed_facts={"major": "软件工程"},
-        model_transfer_consent_id="consent-1",
     )
     fail_res = orch_no_persist.start_run(ctx)
     assert fail_res.status == RunStatus.FAILED
@@ -459,9 +453,7 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
         backend=backend_ok,
         persistence=InMemoryCandidatePersistence(),
     )
-    res_timeout = orch_timeout.start_run(
-        ctx.model_copy(update={"model_transfer_consent_id": "consent-1"})
-    )
+    res_timeout = orch_timeout.start_run(ctx)
     assert res_timeout.status == RunStatus.FAILED
     assert res_timeout.error is not None
     assert res_timeout.error.code == AgentErrorCode.TIMEOUT
@@ -524,7 +516,7 @@ def test_gateway_blocks_unlisted_tool_and_cross_scope_idempotency() -> None:
 
 
 def test_ownership_consent_retry_and_recorder_resilience() -> None:
-    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    backend = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=False)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
         source_reader=InMemorySourceReader([_sample_doc()]),
@@ -547,6 +539,8 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
     assert no_consent_res.error is not None
     assert no_consent_res.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
 
+    backend.consent_valid = True
+
     # Revoking consent after model call blocks saving candidate artifacts
     class RevokingModelAdapter(InMemoryModelAdapter):
         def generate_candidate_plan(self, context, sources, evaluations):
@@ -566,7 +560,6 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
             goal="整理计划",
             workspace_version=1,
             confirmed_facts={"major": "软件工程"},
-            model_transfer_consent_id="consent-1",
         )
     )
     assert revoked_res.status == RunStatus.FAILED
@@ -581,7 +574,6 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
         goal="整理计划",
         workspace_version=1,
         confirmed_facts={"major": "软件工程"},
-        model_transfer_consent_id="consent-1",
         operation_id="run-op-1",
     )
     r1 = orch.start_run(ctx_op)
@@ -617,39 +609,48 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
     assert len(ok_confirm.written_tasks) == 1
 
 
-def test_gateway_requires_nonempty_consent_id_when_transfer_consent_required() -> None:
-    class PermissiveConsentBackend(InMemoryWorkspaceBackend):
+def test_gateway_requires_valid_transfer_consent_when_required() -> None:
+    class ToggleConsentBackend(InMemoryWorkspaceBackend):
         def __init__(self) -> None:
-            super().__init__(workspace_version=1, consent_valid=True)
+            super().__init__(workspace_version=1, consent_valid=False)
             self.consent_calls = 0
 
         def has_valid_transfer_consent(
             self,
             user_id: str,
-            matter_id: str,
-            consent_id: str | None,
             *,
             purpose: str,
             field_categories: tuple[str, ...],
         ) -> bool:
             self.consent_calls += 1
-            return True
+            return self.consent_valid
 
-    backend = PermissiveConsentBackend()
+    backend = ToggleConsentBackend()
     gateway = ToolGateway(backend)
 
-    for bad_consent in (None, "", "   "):
-        try:
-            gateway.invoke(
-                tool_name="extract_requirements",
-                user_id="u1",
-                matter_id="m1",
-                expected_workspace_version=1,
-                requires_transfer_consent=True,
-                consent_id=bad_consent,
-                fn=list,
-            )
-            raise AssertionError("Expected GatewayError")
-        except GatewayError as exc:
-            assert exc.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
-    assert backend.consent_calls == 0
+    try:
+        gateway.invoke(
+            tool_name="extract_requirements",
+            user_id="u1",
+            matter_id="m1",
+            expected_workspace_version=1,
+            requires_transfer_consent=True,
+            fn=list,
+        )
+        raise AssertionError("Expected GatewayError")
+    except GatewayError as exc:
+        assert exc.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
+    assert backend.consent_calls == 1
+
+    backend.consent_valid = True
+    result, record = gateway.invoke(
+        tool_name="extract_requirements",
+        user_id="u1",
+        matter_id="m1",
+        expected_workspace_version=1,
+        requires_transfer_consent=True,
+        fn=list,
+    )
+    assert result == []
+    assert record.succeeded is True
+    assert backend.consent_calls == 2

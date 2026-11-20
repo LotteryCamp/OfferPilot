@@ -36,7 +36,7 @@
 | `core.requirement` | 候选要求 | 必须绑定快照；`checked` 与检查时间一致 |
 | `core.requirement_self_check` | 要求自查结果 | 每个要求至多一条；四态结论、原因、缺失信息、缺口与 `extract_status` 分开保存 |
 | `core.fact` | 个人事实版本 | 同用户同事项同类型只有一条 `confirmed`；版本号在事项内唯一且递增；状态与时间一致 |
-| `core.model_transfer_consent` | 模型传输同意 | 同用户同事项至多一条 `active`；版本号在事项内唯一；状态与撤回时间一致 |
+| `core.model_transfer_consent` | 模型传输同意 | 同用户至多一条 `active`；版本号在用户内唯一；状态与撤回时间一致 |
 | `core.candidate_plan` | 候选计划 | 同事项版本唯一；`op_id` 唯一；依据哈希与完整输入持久化 |
 | `core.candidate_plan_item` | 候选计划项 | 同计划顺序唯一；依赖项必须在同一计划内 |
 | `core.candidate_plan_item_source` | 计划项来源定位 | 计划项、快照、定位唯一；来源与快照一致 |
@@ -168,7 +168,7 @@ erDiagram
 | 候选计划 | `draft`、`pending`、`confirmed`、`rejected`、`expired` | `confirmed_at` 仅确认；`expired_at` 仅过期 |
 | 任务 | `pending`、`ready`、`in_progress`、`blocked`、`done`、`cancelled` | `done` 与完成证据同步 |
 | 个人事实 | `draft`、`confirmed`、`superseded`、`revoked` | 当前确认记录唯一；`confirmed`/`superseded` 与确认时间同步；`superseded` 与替代时间同步 |
-| 模型传输同意 | `active`、`revoked` | 同事项至多一条 `active`；`revoked` 与撤回时间同步 |
+| 模型传输同意 | `active`、`revoked` | 同用户至多一条 `active`；`revoked` 与撤回时间同步 |
 
 期限精度：
 
@@ -202,16 +202,14 @@ EXISTS (
 )
 ```
 
-`model_transfer_consent` 按事项归属过滤，同时核对记录中的所有者与工作区：
+`model_transfer_consent` 按用户归属过滤，同时核对记录中的所有者与工作区：
 
 ```sql
 workspace_id = current_setting('app.current_workspace_id', true)::uuid
 AND EXISTS (
     SELECT 1
-    FROM core.matter m
-    JOIN core.workspace w ON w.id = m.workspace_id
-    WHERE m.id = model_transfer_consent.matter_id
-      AND m.workspace_id = model_transfer_consent.workspace_id
+    FROM core.workspace w
+    WHERE w.id = model_transfer_consent.workspace_id
       AND w.owner_id = model_transfer_consent.owner_id
 )
 ```
@@ -244,6 +242,7 @@ Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS �
 | `0012` | 个人事实事项归属、事项内版本与当前记录唯一索引、RLS 策略调整 |
 | `0013` | 模型传输同意表、活动记录唯一索引及其 RLS 策略 |
 | `0014` | 模型传输同意表的应用角色授权 |
+| `0015` | 模型传输同意改为用户级全局同意，重建表、唯一索引、RLS 策略与应用角色授权 |
 
 ### 6.2 执行规则
 

@@ -251,42 +251,27 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
     def has_valid_transfer_consent(
         self,
         user_id: str,
-        matter_id: str,
-        consent_id: str | None,
         *,
         purpose: str,
         field_categories: tuple[str, ...],
     ) -> bool:
-        """Verify an active, matter-bound consent covering the outbound scope."""
-        if not consent_id or not consent_id.strip():
-            return False
+        """Verify an active global consent covering the outbound scope."""
         if user_id != str(self._settings.demo_user_id):
-            return False
-        try:
-            consent_uuid = UUID(consent_id.strip())
-            matter_uuid = UUID(matter_id)
-        except ValueError:
             return False
         with (
             self._session_factory() as session,
             workspace_transaction(session, self._settings.demo_workspace_id),
         ):
             row = session.execute(
-                select(model_transfer_consent.c.id)
-                .join(matter, matter.c.id == model_transfer_consent.c.matter_id)
-                .join(workspace, workspace.c.id == matter.c.workspace_id)
-                .where(
-                    model_transfer_consent.c.id == consent_uuid,
+                select(model_transfer_consent.c.id).where(
                     model_transfer_consent.c.owner_id == self._settings.demo_user_id,
-                    model_transfer_consent.c.matter_id == matter_uuid,
+                    model_transfer_consent.c.workspace_id
+                    == self._settings.demo_workspace_id,
                     model_transfer_consent.c.consent_status == "active",
-                    model_transfer_consent.c.provider == self._settings.model_provider,
                     model_transfer_consent.c.purposes.contains([purpose]),
                     model_transfer_consent.c.field_categories.contains(
                         list(field_categories)
                     ),
-                    matter.c.workspace_id == self._settings.demo_workspace_id,
-                    workspace.c.owner_id == self._settings.demo_user_id,
                 )
             ).first()
         return row is not None
