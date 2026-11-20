@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount } from 'vue'
 import { onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
-import { ElButton } from 'element-plus'
+import { ElButton, ElCheckbox } from 'element-plus'
 import type { Matter } from '../matters/types'
 import { safeSourceUrl } from '../sources/presentation'
 import { canStartAnotherRun, runStatusText } from './contracts'
 import { useAnalysis } from './useAnalysis'
+import { useTransferConsent } from './useTransferConsent'
+import { consentBlockReason, transferScopeLabel } from './consentContracts'
 
 const props = defineProps<{
   matter: Matter
@@ -24,6 +26,15 @@ const analysis = useAnalysis(
   () => emit('changed'),
 )
 const { run, attempt, busy, checking, error, storageReady } = analysis
+const transfer = useTransferConsent(() => props.matter)
+const {
+  state: consentState,
+  busy: consentBusy,
+  accepted: consentAccepted,
+  error: transferError,
+  notice: transferNotice,
+  pendingRevokeId,
+} = transfer
 const canStart = computed(
   () =>
     !busy.value &&
@@ -43,8 +54,7 @@ const blockedReason = computed(() => {
   if (!storageReady.value) return '浏览器无法保存运行标识，请先检查会话存储。'
   if (!props.source || !safeSourceUrl(props.source.url)) return '请先选择可分析的公开来源。'
   if (props.matter.scope_year !== props.source.scope_year) return '来源与事项的适用年度不一致。'
-  if (Object.keys(props.matter.scope_attrs ?? {}).length)
-    return '当前事项的适用范围尚缺可用的模型传输授权，请联系后端负责人。'
+  if (transfer.blockedReason.value) return transfer.blockedReason.value
   if (!canStart.value) return '请先核对当前运行状态，再重新发起。'
   return ''
 })
@@ -63,14 +73,32 @@ async function start(expectedSourceId?: string) {
     return null
   const url = safeSourceUrl(source.url)
   if (!url) return null
-  return analysis.start(source.id, {
+  const context = props.matter.id
+  const currentConsent = await transfer.refresh()
+  if (
+    !currentConsent ||
+    props.matter.id !== context ||
+    props.source?.id !== source.id ||
+    consentBlockReason(currentConsent, context)
+  )
+    return null
+  const result = await analysis.start(source.id, {
     source_urls: [url],
     publisher: source.publisher,
     scope_year: source.scope_year,
     ...(source.scope ? { scope: source.scope } : {}),
+    ...(currentConsent.consent
+      ? { model_transfer_consent_id: currentConsent.consent.consent_id }
+      : {}),
   })
+  if (!result && props.matter.id === context) await transfer.refresh()
+  return result
 }
-defineExpose({ start, busy: computed(() => busy.value || checking.value), blockedReason })
+defineExpose({
+  start,
+  busy: computed(() => busy.value || checking.value || consentBusy.value),
+  blockedReason,
+})
 function canLeave() {
   return (
     !busy.value ||
@@ -98,6 +126,77 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
     <p class="muted">
       分析使用后端已保存的当前事项事实，未保存的排名输入不参与自查。分析本身不创建正式任务。
     </p>
+    <section class="evidence-block" data-testid="analysis-consent" :aria-busy="consentBusy">
+      <div class="section-heading">
+        <h3>模型传输授权</h3>
+        <ElButton
+          data-testid="consent-refresh"
+          :disabled="consentBusy"
+          :loading="consentBusy"
+          @click="transfer.refresh"
+          >读取授权状态</ElButton
+        >
+      </div>
+      <p v-if="transferError" role="alert" class="error-text" data-testid="consent-error">
+        {{ transferError }}
+      </p>
+      <p v-if="transferNotice" role="status" data-testid="consent-notice">{{ transferNotice }}</p>
+      <template v-if="consentState">
+        <dl class="metadata-grid" data-testid="consent-disclosure">
+          <div>
+            <dt>服务商</dt>
+            <dd>{{ consentState.disclosure.provider }}</dd>
+          </div>
+          <div>
+            <dt>模型名称</dt>
+            <dd>{{ consentState.disclosure.model || '服务端尚未提供' }}</dd>
+          </div>
+          <div class="wide">
+            <dt>用途</dt>
+            <dd>{{ consentState.disclosure.purposes.map(transferScopeLabel).join('、') }}</dd>
+          </div>
+          <div class="wide">
+            <dt>发送字段</dt>
+            <dd>
+              {{ consentState.disclosure.field_categories.map(transferScopeLabel).join('、') }}
+            </dd>
+          </div>
+          <div class="wide">
+            <dt>数据处理说明</dt>
+            <dd>{{ consentState.disclosure.data_handling }}</dd>
+          </div>
+        </dl>
+        <p
+          v-if="consentState.consent"
+          data-testid="consent-active"
+          :data-consent-id="consentState.consent.consent_id"
+          :data-matter-id="consentState.consent.matter_id"
+        >
+          本事项已有授权记录 v{{ consentState.consent.version_no }}，服务商为
+          {{ consentState.consent.provider }}。
+        </p>
+        <template v-else-if="consentState.required">
+          <ElCheckbox id="consent-confirmed" v-model="consentAccepted" :disabled="consentBusy"
+            >我已阅读以上服务商、用途、发送字段及数据处理说明，同意本事项按上述范围进行模型传输。</ElCheckbox
+          >
+          <ElButton
+            data-testid="consent-grant"
+            :disabled="consentBusy || !consentAccepted"
+            @click="transfer.grant"
+            >同意并授权本事项分析</ElButton
+          >
+        </template>
+        <p v-else class="muted">按当前后端状态，本次公开资料分析无需额外授权。</p>
+      </template>
+      <ElButton
+        v-if="consentState?.consent || pendingRevokeId"
+        data-testid="consent-revoke"
+        :disabled="consentBusy"
+        @click="transfer.revoke"
+        >{{ pendingRevokeId ? '重试撤回授权' : '撤回本事项授权' }}</ElButton
+      >
+      <p class="muted">撤回影响后续调用检查；已发出的请求由模型服务按其数据处理条款处理。</p>
+    </section>
     <div class="module-actions">
       <ElButton
         type="primary"

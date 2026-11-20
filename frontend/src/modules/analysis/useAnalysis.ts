@@ -1,5 +1,11 @@
 import { onUnmounted, ref, watch } from 'vue'
-import { analysisError, getAnalysis, isMissingRun, startAnalysis } from './api'
+import {
+  analysisError,
+  getAnalysis,
+  isConsentRejectedStart,
+  isMissingRun,
+  startAnalysis,
+} from './api'
 import type { AnalysisInput } from './api'
 import { canStartAnotherRun, restoreAnalysisAttempt } from './contracts'
 import type { AnalysisAttempt, AnalysisRun } from './contracts'
@@ -96,7 +102,10 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
       onRead()
       return result
     } catch (cause) {
-      if (ticket === generation) error.value = analysisError(cause)
+      if (ticket === generation) {
+        if (isConsentRejectedStart(cause)) remember({ ...current, status: '未发起' })
+        error.value = analysisError(cause)
+      }
       return null
     } finally {
       if (ticket === generation) busy.value = false
@@ -124,6 +133,8 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
           error.value = '上次分析请求结果尚未确认，请先刷新已保存的来源和候选结果。'
         else if (value.status === '不可查询')
           error.value = '上次运行已不可查询，请读取已保存结果或重新发起分析。'
+        else if (value.status === '未发起')
+          error.value = '上次分析因授权未通过而尚未发起，请核对当前授权后重试。'
       } catch {
         storageReady.value = false
         error.value = '浏览器中的运行标识无法核验，当前仅可读取已保存的来源和候选。'

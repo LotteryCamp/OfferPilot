@@ -43,7 +43,7 @@ export function assertStartedRun(run: AnalysisRun) {
 export function canStartAnotherRun(status: string | undefined | null) {
   return (
     status == null ||
-    ['等待用户', '等待确认', '已完成', '失败', '已取消', '已中断'].includes(status)
+    ['等待用户', '等待确认', '已完成', '失败', '已取消', '已中断', '未发起'].includes(status)
   )
 }
 

@@ -49,7 +49,7 @@ describe('分析运行与已保存候选的边界', () => {
     expect(canStartAnotherRun(status)).toBe(false)
   })
 
-  it.each(['等待用户', '等待确认', '失败', '已取消', '已完成', '已中断', null])(
+  it.each(['等待用户', '等待确认', '失败', '已取消', '已完成', '已中断', '未发起', null])(
     '状态 %s 可由用户重新发起',
     (status) => {
       expect(canStartAnotherRun(status)).toBe(true)

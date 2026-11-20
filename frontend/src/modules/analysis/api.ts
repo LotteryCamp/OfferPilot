@@ -9,6 +9,7 @@ export interface AnalysisInput {
   scope_year: number
   scope?: string
   operation_id: string
+  model_transfer_consent_id?: string
 }
 
 export async function startAnalysis(matterId: string, input: AnalysisInput, signal: AbortSignal) {
@@ -33,6 +34,16 @@ export function isMissingRun(cause: unknown) {
     axios.isAxiosError(cause) &&
     cause.response?.status === 404 &&
     cause.response.data?.error?.code === 'agent_run_not_found'
+  )
+}
+
+export function isConsentRejectedStart(cause: unknown) {
+  return (
+    axios.isAxiosError(cause) &&
+    cause.response?.status === 422 &&
+    ['model_transfer_consent_required', 'model_transfer_consent_invalid'].includes(
+      cause.response.data?.error?.code,
+    )
   )
 }
 
