@@ -609,3 +609,35 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
     )
     assert ok_confirm.status == RunStatus.COMPLETED
     assert len(ok_confirm.written_tasks) == 1
+
+
+def test_gateway_requires_nonempty_consent_id_when_transfer_consent_required() -> None:
+    class PermissiveConsentBackend(InMemoryWorkspaceBackend):
+        def __init__(self) -> None:
+            super().__init__(workspace_version=1, consent_valid=True)
+            self.consent_calls = 0
+
+        def has_valid_transfer_consent(
+            self, user_id: str, matter_id: str, consent_id: str | None
+        ) -> bool:
+            self.consent_calls += 1
+            return True
+
+    backend = PermissiveConsentBackend()
+    gateway = ToolGateway(backend)
+
+    for bad_consent in (None, "", "   "):
+        try:
+            gateway.invoke(
+                tool_name="extract_requirements",
+                user_id="u1",
+                matter_id="m1",
+                expected_workspace_version=1,
+                requires_transfer_consent=True,
+                consent_id=bad_consent,
+                fn=list,
+            )
+            raise AssertionError("Expected GatewayError")
+        except GatewayError as exc:
+            assert exc.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
+    assert backend.consent_calls == 0
