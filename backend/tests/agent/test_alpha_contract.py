@@ -972,3 +972,76 @@ def test_requirement_payload_keeps_self_check_apart_from_extract_status() -> Non
     bare = build_requirements_batch_payload([req_ok], [], sources_map)
     assert bare["requirements"][0]["extract_status"] == "extracted"
     assert bare["requirements"][0]["self_check"] is None
+
+
+def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> None:
+    snap_id = str(uuid4())
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=str(uuid4()),
+        snapshot_id=snap_id,
+        title="公开通知",
+        publisher="某学院",
+        content="提交申请表。",
+    )
+    captured_payloads: list[dict[str, Any]] = []
+
+    def capture_model(instruction: str, text: str, response_model: type[Any]) -> Any:
+        captured_payloads.append(json.loads(text))
+        return response_model.model_validate(
+            {
+                "tasks": [
+                    {
+                        "task_id": "t1",
+                        "title": "提交申请表",
+                        "basis": [
+                            {"source_version_id": snap_id, "locator": "提交申请表"}
+                        ],
+                        "obligation": "官方必需",
+                        "evidence_required": "申请表",
+                    }
+                ],
+                "gaps": [],
+                "scope_summary": {},
+            }
+        )
+
+    adapter = StructuredModelAdapter(capture_model)
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理申请计划",
+        workspace_version=1,
+        scope_year=2027,
+        scope_attrs={
+            "school": "福州大学",
+            "college": "数学与统计学院",
+            "rank_position": 3,
+            "email": "secret@example.com",
+        },
+        confirmed_facts={"cet4": 550, "rank_position": 3},
+        model_transfer_consent_id="consent-1",
+    )
+    ev = evaluate_requirements(
+        [
+            ExtractedRequirement(
+                requirement_id="r1",
+                title="英语四级",
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                basis=[SourceCitation(source_version_id=snap_id, locator="提交申请表")],
+                rule_kind="any_minimum",
+                rule_parameters={"minimum": {"cet4": 500}, "operator": ">="},
+            )
+        ],
+        {snap_id: doc},
+        ctx.confirmed_facts,
+    )[0]
+
+    adapter.generate_candidate_plan(ctx, [doc], ev)
+    sent = captured_payloads[0]
+    assert sent["scope_attrs"] == {"school": "福州大学", "college": "数学与统计学院"}
+    assert "rank_position" not in sent["scope_attrs"]
+    assert "email" not in sent["scope_attrs"]
+    assert "confirmed_facts" not in sent
+    assert "reason" not in sent["evaluations"][0]
+    assert "550" not in json.dumps(sent, ensure_ascii=False)
