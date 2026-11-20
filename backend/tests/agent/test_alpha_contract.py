@@ -1275,26 +1275,27 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         obligation=ObligationType.OFFICIAL_REQUIRED,
         evidence_required="说明",
     )
-    t_blank_dep = CandidateTask(
-        task_id="T04-blank",
-        title="空白依赖",
-        basis=[cite],
-        obligation=ObligationType.OFFICIAL_REQUIRED,
-        depends_on=["   "],
-        evidence_required="说明",
-    )
-    blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
-    assert blank_resolved[1].depends_on == ["   "]
-    assert validate_candidate_plan(
-        CandidatePlan(
-            candidate_id="cand-m1",
-            workspace_version=1,
-            candidate_version=1,
-            input_snapshot_id=snap_id,
-            tasks=blank_resolved,
-        ),
-        1,
-    )
+    for empty_dep in ("", "   "):
+        t_blank_dep = CandidateTask(
+            task_id="T04-blank",
+            title="空白依赖",
+            basis=[cite],
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            depends_on=[empty_dep],
+            evidence_required="说明",
+        )
+        blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
+        assert blank_resolved[1].depends_on == [empty_dep]
+        assert validate_candidate_plan(
+            CandidatePlan(
+                candidate_id="cand-m1",
+                workspace_version=1,
+                candidate_version=1,
+                input_snapshot_id=snap_id,
+                tasks=blank_resolved,
+            ),
+            1,
+        )
 
     # Long task_id (>80 chars) truncates client_item_id and depends_on consistently
     long_id = "T01-" + ("x" * 90)
@@ -1328,3 +1329,33 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         long_plan_payload["items"][1]["depends_on"][0]
         == long_plan_payload["items"][0]["client_item_id"]
     )
+
+    # Distinct long task_ids colliding after 80-char truncation must be rejected
+    t_collide_a = CandidateTask(
+        task_id=("T-" + "a" * 80 + "-1"),
+        title="冲突任务A",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    t_collide_b = CandidateTask(
+        task_id=("T-" + "a" * 80 + "-2"),
+        title="冲突任务B",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    try:
+        build_candidate_plan_create_payload(
+            CandidatePlan(
+                candidate_id="cand-m1",
+                workspace_version=1,
+                candidate_version=1,
+                input_snapshot_id=snap_id,
+                tasks=[t_collide_a, t_collide_b],
+            ),
+            {snap_id: _fragment_doc()[1]},
+        )
+        raise AssertionError("Expected ValueError on 80-char client_item_id collision")
+    except ValueError as exc:
+        assert "冲突" in str(exc)

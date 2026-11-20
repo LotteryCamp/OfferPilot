@@ -262,6 +262,17 @@ def build_candidate_plan_create_payload(
     """Build exact POST /api/v1/matters/{matter_id}/candidate-plans request body."""
     items_payload: list[dict[str, Any]] = []
     req_map = requirement_id_map or {}
+    client_id_map: dict[str, str] = {}
+    reverse_client_ids: dict[str, str] = {}
+    for task in plan.tasks:
+        client_id = task.task_id[:80]
+        prev_task_id = reverse_client_ids.get(client_id)
+        if prev_task_id is not None and prev_task_id != task.task_id:
+            raise ValueError(
+                f"任务编号截断至 80 字符后发生冲突：{prev_task_id} 与 {task.task_id}"
+            )
+        reverse_client_ids[client_id] = task.task_id
+        client_id_map[task.task_id] = client_id
 
     for task in plan.tasks:
         sources_payload: list[dict[str, Any]] = []
@@ -301,7 +312,7 @@ def build_candidate_plan_create_payload(
 
         items_payload.append(
             {
-                "client_item_id": task.task_id[:80],
+                "client_item_id": client_id_map[task.task_id],
                 "title": task.title[:160],
                 "detail": detail_text,
                 "obligation_nature": to_api_obligation(task.obligation),
@@ -312,7 +323,9 @@ def build_candidate_plan_create_payload(
                 "suggested_date": task.suggested_date.isoformat()
                 if task.suggested_date
                 else None,
-                "depends_on": [dep[:80] for dep in task.depends_on],
+                "depends_on": [
+                    client_id_map.get(dep, dep[:80]) for dep in task.depends_on
+                ],
                 "evidence_required": bool(task.evidence_required),
                 "requirement_id": mapped_req_id,
                 "sources": sources_payload,
