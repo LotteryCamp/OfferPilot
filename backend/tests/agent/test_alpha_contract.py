@@ -823,3 +823,90 @@ def test_bot_fixes_string_scores_multisnap_and_concurrent_adapter() -> None:
     assert scope1 == {"goal_tag": "G1"}
     assert gaps2[0].description == "gap-G2"
     assert scope2 == {"goal_tag": "G2"}
+
+
+def test_requirement_payload_keeps_self_check_apart_from_extract_status() -> None:
+    from backend.agent import collect_source_gaps
+
+    src_id = str(uuid4())
+    snap_id = str(uuid4())
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        title="英语要求",
+        publisher="某校",
+        content="四级>=500或六级>=425",
+    )
+    sources_map = {snap_id: doc}
+    cite = SourceCitation(source_version_id=snap_id, locator="二第5项")
+    req_eng = ExtractedRequirement(
+        requirement_id="R-ENG",
+        title="英语水平",
+        obligation=ObligationType.PENDING_VERIFICATION,
+        basis=[cite],
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 500, "cet6": 425}, "operator": ">="},
+    )
+    req_ok = ExtractedRequirement(
+        requirement_id="R-OK",
+        title="英语四级达标",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 500}, "operator": ">="},
+    )
+    req_no = ExtractedRequirement(
+        requirement_id="R-NO",
+        title="英语四级未达标",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 500}, "operator": ">="},
+    )
+    req_bad = ExtractedRequirement(
+        requirement_id="R-BAD",
+        title="参数缺失的规则",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        rule_kind="relative_deadline",
+        rule_parameters={},
+    )
+    requirements = [req_eng, req_ok, req_no, req_bad]
+
+    # R-ENG: cet4 below minimum, cet6 unknown -> missing_info
+    ev_eng, _ = evaluate_requirements([req_eng], sources_map, {"cet4": 499})
+    ev_ok, _ = evaluate_requirements([req_ok], sources_map, {"cet4": 520})
+    ev_no, _ = evaluate_requirements([req_no], sources_map, {"cet4": 400})
+    ev_bad, _ = evaluate_requirements([req_bad], sources_map, {})
+    evaluations = ev_eng + ev_ok + ev_no + ev_bad
+    gaps = collect_source_gaps([doc], evaluations)
+
+    payload = build_requirements_batch_payload(requirements, evaluations, sources_map, gaps)
+    items = {item["label"]: item for item in payload["requirements"]}
+
+    eng = items["英语水平"]
+    assert eng["extract_status"] == "checked"
+    assert eng["self_check"]["conclusion"] == "missing_info"
+    assert eng["self_check"]["missing_fields"] == ["cet6"]
+    assert eng["self_check"]["reason"]
+    assert [g["gap_type"] for g in eng["self_check"]["gaps"]] == ["missing_personal_fact"]
+    assert eng["self_check"]["gaps"][0]["source_id"] == src_id
+    assert eng["evidence"][0]["locator"] == "二第5项"
+
+    # matched and not_matched share extract_status but keep distinct conclusions
+    assert items["英语四级达标"]["extract_status"] == "checked"
+    assert items["英语四级达标"]["self_check"]["conclusion"] == "matched"
+    assert items["英语四级未达标"]["extract_status"] == "checked"
+    assert items["英语四级未达标"]["self_check"]["conclusion"] == "not_matched"
+    assert items["英语四级未达标"]["self_check"]["gaps"] == []
+
+    bad = items["参数缺失的规则"]
+    assert bad["extract_status"] == "to_review"
+    assert bad["self_check"]["conclusion"] == "needs_user_review"
+    assert [g["gap_type"] for g in bad["self_check"]["gaps"]] == ["ambiguous_clause"]
+
+    # Requirements without an evaluation stay extracted with no self_check
+    bare = build_requirements_batch_payload([req_ok], [], sources_map)
+    assert bare["requirements"][0]["extract_status"] == "extracted"
+    assert bare["requirements"][0]["self_check"] is None
