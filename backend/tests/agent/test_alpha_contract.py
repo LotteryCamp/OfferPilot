@@ -1266,3 +1266,65 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
     )
     violations = validate_candidate_plan(bad_plan, 1)
     assert len(violations) == 2
+
+    # Empty/whitespace dependency must not match task IDs starting with '-' or '_'
+    t_leading = CandidateTask(
+        task_id="-leading-dash",
+        title="特殊前缀任务",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    t_blank_dep = CandidateTask(
+        task_id="T04-blank",
+        title="空白依赖",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["   "],
+        evidence_required="说明",
+    )
+    blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
+    assert blank_resolved[1].depends_on == ["   "]
+    assert validate_candidate_plan(
+        CandidatePlan(
+            candidate_id="cand-m1",
+            workspace_version=1,
+            candidate_version=1,
+            input_snapshot_id=snap_id,
+            tasks=blank_resolved,
+        ),
+        1,
+    )
+
+    # Long task_id (>80 chars) truncates client_item_id and depends_on consistently
+    long_id = "T01-" + ("x" * 90)
+    t_long = CandidateTask(
+        task_id=long_id,
+        title="长编号任务",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        evidence_required="说明",
+    )
+    t_dep_long = CandidateTask(
+        task_id="T02-next",
+        title="依赖长编号",
+        basis=[cite],
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        depends_on=["T01"],
+        evidence_required="说明",
+    )
+    long_resolved = _resolve_task_dependency_prefixes([t_long, t_dep_long])
+    long_plan_payload = build_candidate_plan_create_payload(
+        CandidatePlan(
+            candidate_id="cand-m1",
+            workspace_version=1,
+            candidate_version=1,
+            input_snapshot_id=snap_id,
+            tasks=long_resolved,
+        ),
+        {snap_id: _fragment_doc()[1]},
+    )
+    assert (
+        long_plan_payload["items"][1]["depends_on"][0]
+        == long_plan_payload["items"][0]["client_item_id"]
+    )

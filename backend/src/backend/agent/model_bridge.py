@@ -488,7 +488,9 @@ def _resolve_task_dependency_prefixes(
         seen: set[str] = set()
         for raw_dep in task.depends_on:
             dep = raw_dep.strip()
-            if dep in exact_ids:
+            if not dep:
+                mapped = raw_dep
+            elif dep in exact_ids:
                 mapped = dep
             else:
                 matches = [
