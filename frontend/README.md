@@ -59,12 +59,12 @@ npm run test:matters:live
 
 ## 团队共享客户端接入
 
-1. 张锦昊提供唯一的共享 HTTP 客户端。其 `request<T>` 接口须满足 `src/modules/matters/api.ts` 中 `SharedHttpClient`，返回 `{ data: T }`，支持读取取消；共享层负责超时、身份与通用错误转换。事项适配器只执行业务调用及响应校验。
+1. 事项、来源和候选计划共用 `src/shared/http.ts` 的 Axios 客户端。它满足 `src/modules/matters/api.ts` 中 `SharedHttpClient`，返回 `{ data: T }`，支持读取取消与超时。各业务模块保留自己的响应校验和错误展示。
 2. 共享客户端的 `baseURL` 使用后端真实前缀 `/api/v1`；事项适配器请求相对路径 `/matters`，不得重复拼接前缀。
-3. 在 `src/app/integrations.ts` 的唯一 `workspaceIntegrations` 对象中，将 `mattersApi` 设为 `createMattersApi(实际共享客户端)`。客户端导出名和导入路径应使用张实际交付的模块，本工程没有创建 `src/shared/api`。
+3. `src/app/integrations.ts` 已通过 `createMattersApi(http)` 接入事项适配器。默认不连接业务服务；开发联调按上述环境配置启用。生产服务连接由集成负责人配置。
 4. 若接入 #41 的固定演示身份，同时提供 `identity: { mode: 'single-user-local', label: '单用户本地演示' }`，明确展示运行限制。客户端不得自行伪造登录状态。实际身份变更后应重新挂载应用并清理业务状态。
 5. `.env.local` 中的 `API_PROXY_TARGET` 指向实际启动的后端；只在显式指定时启用开发代理。生产部署须提供 `/api` 的同源反向代理，以及 Vue Router 的 SPA 深链接回退。`npm run preview` 只检查静态构建，不承担业务服务转发。
-6. 来源与条件模块通过 `workspaceIntegrations.modules.sources` 注册；候选与任务可分别注册 `plan` / `tasks`。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。事项变化时子组件重新挂载。组件所有权与候选审阅归属须由团队确认。
+6. 来源与条件、候选计划审阅已分别通过 `workspaceIntegrations.modules.sources`、`plan` 注册，由张锦昊维护。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。同事项重读保持业务组件，事项变化时清除旧上下文。陈常群负责的整体任务页继续使用 `tasks` 注册点。
 
 接口和模块约定见 `../docs/frontend/workspace-integration.md`。
 
@@ -75,5 +75,6 @@ npm run test:matters:live
 - 未连接、加载、真实空结果、读取失败分别展示。未读取不表示没有事项。
 - 表单仅在页面内保留；离开未保存表单会提示。保存中禁止重复提交和路由离开。
 - 创建请求网络异常、服务异常或响应无法核验时，写入结果视为未知。当前创建契约没有幂等键或操作查询，需先到列表核对，禁止自动重试或声称未写入。
-- 当前概览没有来源/条件摘要和 Agent 运行接口，明确提示尚不可用。未接入模块仅提供入口，不显示推测结果。
-- 候选审阅、确认/拒绝、任务更新、事实补录和来源读取的业务实现由对应模块后续提供。本工程不会通过本地数组生成正式任务。
+- 来源模块支持公开 HTML 通知读取、关联来源与历史快照、原文和要求引用展示；候选模块支持计划审阅、确认/拒绝、稳定操作标识重试及确认后的任务重读。
+- 来源要求返回 `self_check` 时，逐条展示四态自查结论、判断原因、缺失信息与缺口出处；字段未返回时提示尚无可读取结果。完整保存和刷新恢复依赖后端接齐业务链路，尚待真实联调验收。
+- 当前事项提供排名补录输入、正整数及排名范围校验、本人真实性确认和未保存离开提醒；本地比例展示不判断资格。保存、重新自查和 Agent 运行请求尚未接入，当前输入刷新后无法恢复。整体任务页保留注册点，任务状态更新不在本模块中实现。
