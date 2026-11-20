@@ -153,6 +153,87 @@ _PLANNING_INSTRUCTION = (
 )
 
 
+def build_extraction_input(
+    goal: str,
+    sources: list[SourceDocument],
+    *,
+    strategy_version: str,
+) -> dict[str, Any]:
+    """Build the model input for requirement extraction, carrying source fragments."""
+    return {
+        "goal": goal.strip(),
+        "strategy_version": strategy_version,
+        "sources": [
+            {
+                "source_version_id": s.source_version_id,
+                "source_id": s.source_id,
+                "snapshot_id": s.snapshot_id,
+                "title": s.title,
+                "publisher": s.publisher,
+                "year": s.year,
+                "scope": s.scope,
+                "content": "" if s.fragments else s.content,
+                "missing_attachments": s.missing_attachments,
+                "fragments": [
+                    {
+                        "locator_kind": f.locator_kind,
+                        "locator": f.locator,
+                        "quote": f.quote,
+                    }
+                    for f in s.fragments
+                ],
+            }
+            for s in sources
+        ],
+    }
+
+
+def build_planning_input(
+    context: RunContext,
+    sources: list[SourceDocument],
+    evaluations: list[RequirementEvaluation],
+    *,
+    strategy_version: str,
+) -> dict[str, Any]:
+    """Build the model input for candidate planning from public fields only."""
+    return {
+        "goal": context.goal.strip(),
+        "scope_year": context.scope_year,
+        "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
+        "strategy_version": strategy_version,
+        "sources": [
+            {
+                "source_version_id": s.source_version_id,
+                "title": s.title,
+                "publisher": s.publisher,
+                "year": s.year,
+                "scope": s.scope,
+                "fragments": [
+                    {
+                        "locator_kind": f.locator_kind,
+                        "locator": f.locator,
+                    }
+                    for f in s.fragments
+                ],
+            }
+            for s in sources
+        ],
+        "evaluations": [
+            {
+                "requirement_id": ev.requirement_id,
+                "title": ev.title,
+                "status": ev.status.value,
+                "basis": [c.model_dump(mode="json") for c in ev.basis],
+                "scope": ev.scope,
+                "computed_deadline": ev.computed_deadline.isoformat()
+                if ev.computed_deadline is not None
+                else None,
+            }
+            for ev in evaluations
+        ],
+    }
+
+
 class StructuredModelAdapter:
     """ModelAdapterPort implementation backed by PR #38 call_model."""
 
@@ -200,32 +281,9 @@ class StructuredModelAdapter:
         sources: list[SourceDocument],
     ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
         """Extract structured requirements, gaps, and scope summary per call without shared state."""
-        payload_input = {
-            "goal": goal.strip(),
-            "strategy_version": self._strategy_version,
-            "sources": [
-                {
-                    "source_version_id": s.source_version_id,
-                    "source_id": s.source_id,
-                    "snapshot_id": s.snapshot_id,
-                    "title": s.title,
-                    "publisher": s.publisher,
-                    "year": s.year,
-                    "scope": s.scope,
-                    "content": "" if s.fragments else s.content,
-                    "missing_attachments": s.missing_attachments,
-                    "fragments": [
-                        {
-                            "locator_kind": f.locator_kind,
-                            "locator": f.locator,
-                            "quote": f.quote,
-                        }
-                        for f in s.fragments
-                    ],
-                }
-                for s in sources
-            ],
-        }
+        payload_input = build_extraction_input(
+            goal, sources, strategy_version=self._strategy_version
+        )
         parsed = self._invoke_model(
             _EXTRACTION_INSTRUCTION,
             json.dumps(payload_input, ensure_ascii=False),
@@ -274,42 +332,12 @@ class StructuredModelAdapter:
         evaluations: list[RequirementEvaluation],
     ) -> CandidatePlan:
         """Generate a structured CandidatePlan without persisting formal tasks."""
-        payload_input = {
-            "goal": context.goal.strip(),
-            "scope_year": context.scope_year,
-            "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
-            "strategy_version": self._strategy_version,
-            "sources": [
-                {
-                    "source_version_id": s.source_version_id,
-                    "title": s.title,
-                    "publisher": s.publisher,
-                    "year": s.year,
-                    "scope": s.scope,
-                    "fragments": [
-                        {
-                            "locator_kind": f.locator_kind,
-                            "locator": f.locator,
-                        }
-                        for f in s.fragments
-                    ],
-                }
-                for s in sources
-            ],
-            "evaluations": [
-                {
-                    "requirement_id": ev.requirement_id,
-                    "title": ev.title,
-                    "status": ev.status.value,
-                    "basis": [c.model_dump(mode="json") for c in ev.basis],
-                    "scope": ev.scope,
-                    "computed_deadline": ev.computed_deadline.isoformat()
-                    if ev.computed_deadline is not None
-                    else None,
-                }
-                for ev in evaluations
-            ],
-        }
+        payload_input = build_planning_input(
+            context,
+            sources,
+            evaluations,
+            strategy_version=self._strategy_version,
+        )
         parsed = self._invoke_model(
             _PLANNING_INSTRUCTION,
             json.dumps(payload_input, ensure_ascii=False),

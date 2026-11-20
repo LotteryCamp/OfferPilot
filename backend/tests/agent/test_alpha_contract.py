@@ -1061,7 +1061,7 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
     assert "550" not in json.dumps(sent, ensure_ascii=False)
 
 
-def test_model_payload_includes_source_fragments_for_exact_locators() -> None:
+def _fragment_doc() -> tuple[str, SourceDocument]:
     snap_id = str(uuid4())
     doc = SourceDocument(
         source_version_id=snap_id,
@@ -1078,187 +1078,116 @@ def test_model_payload_includes_source_fragments_for_exact_locators() -> None:
             )
         ],
     )
-    captured: list[dict[str, Any]] = []
+    return snap_id, doc
 
-    def capture_model(instruction: str, text: str, response_model: type[Any]) -> Any:
-        captured.append(json.loads(text))
-        if response_model is RequirementExtractionPayload:
-            return response_model.model_validate(
-                {
-                    "requirements": [
-                        {
-                            "requirement_id": "r1",
-                            "title": "成绩排名要求",
-                            "obligation": "官方必需",
-                            "basis": [
-                                {
-                                    "source_version_id": snap_id,
-                                    "locator": "正文第3段",
-                                    "excerpt": "成绩排名前 30%",
-                                }
-                            ],
-                        }
-                    ],
-                    "gaps": [],
-                    "scope_summary": {},
-                }
-            )
-        return response_model.model_validate(
-            {
-                "tasks": [
-                    {
-                        "task_id": "t1",
-                        "title": "核对排名",
-                        "basis": [
-                            {
-                                "source_version_id": snap_id,
-                                "locator": "正文第3段",
-                                "excerpt": "成绩排名前 30%",
-                            }
-                        ],
-                        "obligation": "官方必需",
-                        "evidence_required": "成绩排名证明",
-                    }
-                ],
-                "gaps": [],
-                "scope_summary": {},
-            }
-        )
 
-    adapter = StructuredModelAdapter(capture_model)
-    reqs, _, _ = adapter.extract_requirements_with_metadata("整理推免要求", [doc])
-    evals, _ = evaluate_requirements(reqs, {snap_id: doc}, {})
-    adapter.generate_candidate_plan(
-        RunContext(
-            user_id="u1",
-            matter_id="m1",
-            goal="整理推免要求",
-            workspace_version=1,
-        ),
-        [doc],
-        evals,
+def test_model_inputs_carry_source_fragments_for_exact_locators() -> None:
+    from backend.agent.model_bridge import build_extraction_input, build_planning_input
+
+    snap_id, doc = _fragment_doc()
+    extraction = build_extraction_input(
+        "整理推免要求", [doc], strategy_version="alpha-1"
     )
-    assert len(captured) == 2
-    assert captured[0]["sources"][0]["content"] == ""
-    assert captured[0]["sources"][0]["fragments"] == [
+    assert extraction["sources"][0]["content"] == ""
+    assert extraction["sources"][0]["fragments"] == [
         {
             "locator_kind": "section",
             "locator": "正文第3段",
             "quote": "（3）成绩排名前 30%。",
         }
     ]
-    assert captured[1]["sources"][0]["fragments"] == [
-        {
-            "locator_kind": "section",
-            "locator": "正文第3段",
-        }
+
+    ctx = RunContext(
+        user_id="u1", matter_id="m1", goal="整理推免要求", workspace_version=1
+    )
+    planning = build_planning_input(ctx, [doc], [], strategy_version="alpha-1")
+    assert planning["sources"][0]["fragments"] == [
+        {"locator_kind": "section", "locator": "正文第3段"}
     ]
 
-    from backend.agent import ModelInvocationError
+    no_fragment_doc = SourceDocument(
+        source_version_id=snap_id,
+        title="无片段来源",
+        publisher="某校",
+        content="完整正文",
+    )
+    fallback = build_extraction_input(
+        "g", [no_fragment_doc], strategy_version="alpha-1"
+    )
+    assert fallback["sources"][0]["content"] == "完整正文"
+    assert fallback["sources"][0]["fragments"] == []
 
-    # Empty excerpt or mismatched locator_kind must be rejected
-    for bad_cite in (
-        {"source_version_id": snap_id, "locator": "正文第3段", "excerpt": "   "},
-        {
-            "source_version_id": snap_id,
-            "locator_kind": "table_row",
-            "locator": "正文第3段",
-            "excerpt": "成绩排名前 30%",
-        },
-    ):
 
-        def bad_model(
-            instruction: str,
-            text: str,
-            response_model: type[Any],
-            *,
-            cite: dict[str, Any] = bad_cite,
-        ) -> Any:
-            return response_model.model_validate(
-                {
-                    "requirements": [
-                        {
-                            "requirement_id": "r1",
-                            "title": "成绩排名要求",
-                            "obligation": "官方必需",
-                            "basis": [cite],
-                        }
-                    ],
-                    "gaps": [],
-                    "scope_summary": {},
-                }
-            )
+def test_citation_validation_rejects_empty_excerpt_and_kind_mismatch() -> None:
+    from backend.agent.model_bridge import (
+        ModelInvocationError,
+        _validate_and_enrich_citations,
+    )
 
+    snap_id, doc = _fragment_doc()
+    valid_ids = {snap_id}
+    docs = {snap_id: doc}
+
+    bad_cites = [
+        SourceCitation(source_version_id=snap_id, locator="正文第3段", excerpt="   "),
+        SourceCitation(
+            source_version_id=snap_id,
+            locator_kind="table_row",
+            locator="正文第3段",
+            excerpt="成绩排名前 30%",
+        ),
+    ]
+    for bad in bad_cites:
         try:
-            StructuredModelAdapter(bad_model).extract_requirements_with_metadata(
-                "整理推免要求", [doc]
-            )
+            _validate_and_enrich_citations([bad], valid_ids, docs)
             raise AssertionError("Expected ModelInvocationError")
         except ModelInvocationError as exc:
             assert exc.code == AgentErrorCode.VALIDATION_FAILED
 
-    # Chinese date text in value_type='date' normalizes to YYYY-MM-DD and passes payload builder
-    def date_model(instruction: str, text: str, response_model: type[Any]) -> Any:
-        return response_model.model_validate(
-            {
-                "requirements": [
-                    {
-                        "requirement_id": "r-date",
-                        "title": "提交申请材料截止",
-                        "obligation": "官方必需",
-                        "value_type": "date",
-                        "value_text": "2026年9月10日下午15:00前",
-                        "basis": [
-                            {
-                                "source_version_id": snap_id,
-                                "locator": "正文第3段",
-                                "excerpt": "成绩排名前 30%",
-                            }
-                        ],
-                    }
-                ],
-                "gaps": [],
-                "scope_summary": {},
-            }
-        )
+    good = _validate_and_enrich_citations(
+        [SourceCitation(source_version_id=snap_id, locator="正文第3段")],
+        valid_ids,
+        docs,
+    )
+    assert good[0].excerpt == "（3）成绩排名前 30%。"
 
-    date_reqs, _, _ = StructuredModelAdapter(
-        date_model
-    ).extract_requirements_with_metadata("整理推免要求", [doc])
-    assert date_reqs[0].value_text == "2026-09-10"
-    date_evals, _ = evaluate_requirements(date_reqs, {snap_id: doc}, {})
-    date_batch = build_requirements_batch_payload(date_reqs, date_evals, {snap_id: doc})
-    assert date_batch["requirements"][0]["value_text"] == "2026-09-10"
 
-    # Invalid calendar date must still be rejected
-    def bad_date_model(instruction: str, text: str, response_model: type[Any]) -> Any:
-        return response_model.model_validate(
-            {
-                "requirements": [
-                    {
-                        "requirement_id": "r-bad-date",
-                        "title": "无效日期",
-                        "obligation": "官方必需",
-                        "value_type": "date",
-                        "value_text": "2026年2月30日",
-                        "basis": [
-                            {
-                                "source_version_id": snap_id,
-                                "locator": "正文第3段",
-                                "excerpt": "成绩排名前 30%",
-                            }
-                        ],
-                    }
-                ],
-                "gaps": [],
-                "scope_summary": {},
-            }
-        )
+def test_date_value_text_is_normalized_or_rejected() -> None:
+    from backend.agent.model_bridge import (
+        ModelInvocationError,
+        _normalize_model_value_text,
+    )
 
-    try:
-        StructuredModelAdapter(bad_date_model).extract_requirements_with_metadata(
-            "整理推免要求", [doc]
+    assert (
+        _normalize_model_value_text("2026年9月10日下午15:00前", "date") == "2026-09-10"
+    )
+    assert _normalize_model_value_text("2026-09-10", "date") == "2026-09-10"
+    assert (
+        _normalize_model_value_text(
+            None,
+            "date",
+            official_deadline=datetime(2026, 9, 10, 15, 0, tzinfo=SHANGHAI),
         )
-        raise AssertionError("Expected ModelInvocationError")
-    except ModelInvocationError as exc:
-        assert exc.code == AgentErrorCode.VALIDATION_FAILED
+        == "2026-09-10"
+    )
+    assert _normalize_model_value_text("TRUE", "boolean") == "true"
+
+    for bad in ("2026年2月30日", "下午三点前"):
+        try:
+            _normalize_model_value_text(bad, "date")
+            raise AssertionError("Expected ModelInvocationError")
+        except ModelInvocationError as exc:
+            assert exc.code == AgentErrorCode.VALIDATION_FAILED
+
+    snap_id, doc = _fragment_doc()
+    req = ExtractedRequirement(
+        requirement_id="r-date",
+        title="提交申请材料截止",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        value_type="date",
+        value_text=_normalize_model_value_text("2026年9月10日下午15:00前", "date"),
+        basis=[SourceCitation(source_version_id=snap_id, locator="正文第3段")],
+    )
+    evals, _ = evaluate_requirements([req], {snap_id: doc}, {})
+    batch = build_requirements_batch_payload([req], evals, {snap_id: doc})
+    assert batch["requirements"][0]["value_text"] == "2026-09-10"
