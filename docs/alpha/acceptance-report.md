@@ -61,7 +61,7 @@ uv run python db/tests/test_alpha_schema.py -q
 
 - **Agent ↔ 后端联调**：2 个 `test_agent_backend_flow` 用例失败；复现记录和错误详情见 issue #34、PR #41，本文档只保留验收结论。责任人：李义东、王智钦、庄凯堃。
 - **PR #41 CI**：Actions 卡在 `Check formatting`，type/unit/验收测试未在 Actions 执行；格式化由李义东修复。
-- **#32 来源/条件/候选计划 UI**：目前没有对应 PR；场景 3/6 的 UI 验收无法开始，负责人张锦昊。
+- **#32 来源/条件/候选计划 UI**：Draft PR #47 已提交，依赖 #41 的 `self_check`、排名和来源契约；场景 3/6 的 UI 验收仍无法开始，负责人张锦昊。
 - **#31 前端整体**：PR #43 仍是 draft；创建 → 工作区 UI 冒烟未测，负责人陈常群。
 - **真实模型联调**：本机没有模型密钥，未执行；不能用固定回放结果替代。负责人庄凯堃。
 
