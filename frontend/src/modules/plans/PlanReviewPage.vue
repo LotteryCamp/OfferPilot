@@ -4,6 +4,7 @@ import { ElAlert, ElButton, ElCheckbox, ElEmpty, ElSkeleton, ElTag } from 'eleme
 import type { Matter } from '../matters/types'
 import { displayDate, normalizeMatterId, safeSourceUrl, statusLabel } from '../sources/presentation'
 import { usePlanReview } from './usePlanReview'
+import { canConfirmBasis } from './contracts'
 
 const props = defineProps<{ matterId: string; matter: Matter }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -41,6 +42,7 @@ const canDecide = computed(
     !refreshRequired.value,
 )
 const items = computed(() => [...(plan.value?.items ?? [])].sort((a, b) => a.seq - b.seq))
+const staleBasis = computed(() => !!plan.value && !canConfirmBasis(plan.value))
 function reload() {
   if (matterId.value && !submitting.value) void review.load(matterId.value)
 }
@@ -108,6 +110,20 @@ function itemName(id: string) {
           <p v-if="plan.status === 'expired'" class="error-text">
             计划已过期，请重新生成并审阅候选计划。
           </p>
+          <ElAlert
+            v-if="plan.status === 'pending' && staleBasis"
+            data-testid="plan-stale-basis"
+            type="warning"
+            :closable="false"
+            title="个人信息依据已变化，此候选不能继续确认。请返回来源与条件重新分析，再审阅新候选；也可拒绝此候选。"
+          />
+          <ul v-if="plan.stale_facts?.length" class="muted">
+            <li v-for="fact in plan.stale_facts" :key="fact.fact_type">
+              {{ fact.fact_type === 'gpa.rank' ? '成绩排名' : fact.fact_type }}：生成时
+              {{ fact.stored_version_no === null ? '未提供' : `v${fact.stored_version_no}` }}，当前
+              {{ fact.current_version_no === null ? '未提供' : `v${fact.current_version_no}` }}
+            </li>
+          </ul>
           <p v-if="plan.decision" class="muted">
             决定：{{ statusLabel('plan', plan.decision.decision) }} ·
             {{ displayDate(plan.decision.decided_at) }}
@@ -257,7 +273,7 @@ function itemName(id: string) {
                 data-testid="plan-confirm"
                 type="primary"
                 :loading="submitting && (!attempt || attempt.action === 'confirm')"
-                :disabled="!canDecide || (!!attempt && attempt.action !== 'confirm')"
+                :disabled="!canDecide || staleBasis || (!!attempt && attempt.action !== 'confirm')"
                 @click="review.decide('confirm')"
                 >{{ attempt?.action === 'confirm' ? '重试确认' : '确认采用并创建任务' }}</ElButton
               >

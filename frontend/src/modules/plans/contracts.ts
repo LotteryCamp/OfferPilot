@@ -14,6 +14,17 @@ const summary = z.object({
   version_no: z.number().int().positive(),
   status: z.string(),
   basis_version: z.string(),
+  basis_status: z.enum(['current', 'stale', 'not_applicable']).optional(),
+  stale_facts: z
+    .array(
+      z.object({
+        fact_type: z.string(),
+        stored_version_no: z.number().int().positive().nullable(),
+        current_version_no: z.number().int().positive().nullable(),
+        current_fact_id: id.nullable(),
+      }),
+    )
+    .optional(),
   generated_at: z.string(),
   decision: decision.nullable(),
 })
@@ -84,6 +95,10 @@ export type PlanSummary = z.infer<typeof summary>
 export type Task = z.infer<typeof taskResponse>['tasks'][number]
 export type DecisionResult = z.infer<typeof decisionResponse>
 export type Action = 'confirm' | 'reject'
+
+export function canConfirmBasis(plan: Pick<PlanSummary, 'basis_status' | 'stale_facts'>) {
+  return plan.basis_status !== 'stale' && !plan.stale_facts?.length
+}
 
 export function assertPlanScope(plan: Plan, matterId: string, planId: string) {
   if (plan.id !== planId || plan.matter_id !== matterId || plan.matter.id !== matterId) {

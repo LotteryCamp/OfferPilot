@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { assertDecision, decisionResponse } from './contracts'
+import { assertDecision, canConfirmBasis, decisionResponse, planListResponse } from './contracts'
 
 const matterId = 'a0000000-0000-4000-8000-000000000001'
 const planId = 'e0000000-0000-4000-8000-000000000001'
@@ -36,5 +36,49 @@ describe('决定响应的一致性', () => {
       assertDecision(rejection(), matterId, crypto.randomUUID(), 'reject', key),
     ).toThrow()
     expect(() => assertDecision(rejection(), matterId, planId, 'confirm', key)).toThrow()
+  })
+})
+
+describe('候选的个人事实版本', () => {
+  const staleFact = {
+    fact_type: 'gpa.rank',
+    stored_version_no: 1,
+    current_version_no: 2,
+    current_fact_id: '90000000-0000-4000-8000-000000000001',
+  }
+  it('读取计划列表时保留过期依据与具体版本', () => {
+    const { plans } = planListResponse.parse({
+      plans: [
+        {
+          id: planId,
+          matter_id: matterId,
+          version_no: 1,
+          status: 'pending',
+          basis_version: 'basis',
+          generated_at: '2026-11-20T00:00:00Z',
+          decision: null,
+          basis_status: 'stale',
+          stale_facts: [staleFact],
+        },
+      ],
+    })
+    expect(plans[0]?.stale_facts).toEqual([staleFact])
+    expect(canConfirmBasis(plans[0]!)).toBe(false)
+  })
+  it('首次补录和事实不可用同样阻止按旧依据确认', () => {
+    expect(canConfirmBasis({ basis_status: 'stale', stale_facts: [] })).toBe(false)
+    expect(canConfirmBasis({ stale_facts: [{ ...staleFact, stored_version_no: null }] })).toBe(
+      false,
+    )
+    expect(
+      canConfirmBasis({
+        stale_facts: [{ ...staleFact, current_version_no: null, current_fact_id: null }],
+      }),
+    ).toBe(false)
+  })
+  it('旧接口未返回依据状态时保持未知，由服务端作最终校验', () => {
+    expect(canConfirmBasis({})).toBe(true)
+    expect(canConfirmBasis({ basis_status: 'current', stale_facts: [] })).toBe(true)
+    expect(canConfirmBasis({ basis_status: 'not_applicable', stale_facts: [] })).toBe(true)
   })
 })

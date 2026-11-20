@@ -2,6 +2,7 @@ import { onUnmounted, ref } from 'vue'
 import { clearAttempt, chooseAttempt, readAttempt, saveAttempt } from './attempt'
 import type { Attempt } from './attempt'
 import type { Action, Plan, PlanSummary, Task } from './contracts'
+import { canConfirmBasis } from './contracts'
 import { decidePlan, decisionMayBeCommitted, getPlan, getTasks, listPlans, planError } from './api'
 
 export function usePlanReview(onChanged: () => void) {
@@ -126,6 +127,10 @@ export function usePlanReview(onChanged: () => void) {
       refreshRequired.value
     )
       return
+    if (action === 'confirm' && !canConfirmBasis(plan.value)) {
+      decisionError.value = '个人信息依据已变化，请重新分析并审阅新的候选计划。'
+      return
+    }
     const currentPlan = plan.value.id
     const context = matterId
     const ticket = generation
