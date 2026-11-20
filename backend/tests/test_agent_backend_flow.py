@@ -7,7 +7,7 @@ import json
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 import psycopg
@@ -412,7 +412,7 @@ def test_unknown_run_returns_not_found(agent_client: TestClient) -> None:
 def test_agent_run_records_confirmed_rank_fact(
     agent_client: TestClient, admin: psycopg.Connection
 ) -> None:
-    state = agent_client.app.state.replay_state
+    state = cast(FastAPI, agent_client.app).state.replay_state
     state.requirement_field_key = "gpa.rank"
     saved = agent_client.put(
         "/api/v1/facts/gpa.rank",
@@ -454,7 +454,7 @@ def test_agent_run_records_confirmed_rank_fact(
 def test_agent_run_rejects_fact_version_change(
     agent_client: TestClient, admin: psycopg.Connection
 ) -> None:
-    state = agent_client.app.state.replay_state
+    state = cast(FastAPI, agent_client.app).state.replay_state
     state.requirement_field_key = "gpa.rank"
     saved = agent_client.put(
         "/api/v1/facts/gpa.rank",
