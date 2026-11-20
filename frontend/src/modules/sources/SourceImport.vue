@@ -9,7 +9,7 @@ import { readPublicSource } from './api'
 import { displayDate, safeSourceUrl } from './presentation'
 
 const props = defineProps<{ matter: Matter; analyzedSnapshots: ReadonlySet<string> }>()
-const emit = defineEmits<{ read: [] }>()
+const emit = defineEmits<{ read: [result: SourceReadResult] }>()
 const url = ref('')
 const publisher = ref('')
 const scope = ref('')
@@ -68,7 +68,7 @@ async function submit() {
     )
     if (current !== sequence) return
     result.value = data
-    emit('read')
+    emit('read', data)
   } catch (cause) {
     if (current !== sequence) return
     if (axios.isAxiosError(cause)) {

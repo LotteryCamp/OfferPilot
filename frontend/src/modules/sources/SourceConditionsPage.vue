@@ -6,6 +6,8 @@ import type { Matter } from '../matters/types'
 import RequirementList from './RequirementList.vue'
 import SourceImport from './SourceImport.vue'
 import RankingSupplement from './RankingSupplement.vue'
+import AgentAnalysis from '../analysis/AgentAnalysis.vue'
+import type { SourceReadResult } from './contracts'
 import { useSourcesStore } from './store'
 import {
   displayDate,
@@ -22,12 +24,14 @@ const { sources, loading, error, loadedAt } = storeToRefs(store)
 const matterId = computed(() => normalizeMatterId(props.matterId))
 const selectedSourceId = ref('')
 const selectedSnapshotId = ref('')
+const lastReadSource = ref<SourceReadResult | null>(null)
 const selectedSource = computed(() =>
   sources.value.find((item) => item.id === selectedSourceId.value),
 )
 const selectedSnapshot = computed(() =>
   selectedSource.value?.snapshots.find((item) => item.id === selectedSnapshotId.value),
 )
+const analysisSource = computed(() => lastReadSource.value?.source ?? selectedSource.value ?? null)
 const snapshots = computed(() =>
   [...(selectedSource.value?.snapshots ?? [])].sort((a, b) => b.version_no - a.version_no),
 )
@@ -58,6 +62,7 @@ watch(
   (id) => {
     selectedSourceId.value = ''
     selectedSnapshotId.value = ''
+    lastReadSource.value = null
     if (id) void store.load(id)
     else store.cancel()
   },
@@ -80,9 +85,21 @@ function reload() {
   if (matterId.value) void store.load(matterId.value)
 }
 
-function sourceRead() {
+function sourceRead(result: SourceReadResult) {
+  lastReadSource.value = result
+  selectedSourceId.value = result.source.id
+  selectedSnapshotId.value = result.snapshot.id
+  sourceChanged()
+}
+
+function sourceChanged() {
   reload()
   emit('changed')
+}
+
+function selectSource(id: string) {
+  lastReadSource.value = null
+  selectedSourceId.value = id
 }
 
 const availableSnapshots = computed(
@@ -126,6 +143,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
     </ElAlert>
 
     <SourceImport :matter="matter" :analyzed-snapshots="analyzedSnapshots" @read="sourceRead" />
+    <AgentAnalysis :matter="matter" :source="analysisSource" @changed="sourceChanged" />
     <RankingSupplement :matter-id="matterId" />
 
     <div v-if="error" role="alert" class="read-error panel">
@@ -179,7 +197,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
               :data-source-id="item.id"
               :class="{ selected: item.id === selectedSourceId }"
               :aria-pressed="item.id === selectedSourceId"
-              @click="selectedSourceId = item.id"
+              @click="selectSource(item.id)"
             >
               <span class="source-publisher">{{ item.publisher }}</span>
               <strong>{{ initialSnapshot(item)?.title || '未提供标题' }}</strong>

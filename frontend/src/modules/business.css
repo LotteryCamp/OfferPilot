@@ -211,8 +211,12 @@
 .business-module .source-import {
   margin-top: 16px;
 }
-.business-module .ranking-supplement {
+.business-module .ranking-supplement,
+.business-module .analysis-panel {
   margin-top: 16px;
+}
+.business-module .analysis-panel .module-actions {
+  margin: 14px 0;
 }
 .business-module .ranking-form {
   display: grid;
