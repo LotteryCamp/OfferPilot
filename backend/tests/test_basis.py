@@ -104,7 +104,7 @@ def test_basis_sorts_confirmed_facts_by_type() -> None:
         "value_hash": "c" * 64,
     }
     english_fact = {
-        "fact_type": "cet6.score",
+        "fact_type": "cet6",
         "fact_id": UUID("00000000-0000-7000-8000-000000000012"),
         "version_no": 1,
         "value_hash": "d" * 64,
@@ -123,7 +123,7 @@ def test_basis_sorts_confirmed_facts_by_type() -> None:
     )
     assert compute_basis_version(first) == compute_basis_version(second)
     assert [item["fact_type"] for item in first["confirmed_facts"]] == [
-        "cet6.score",
+        "cet6",
         "gpa.rank",
     ]
 

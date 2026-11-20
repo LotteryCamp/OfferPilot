@@ -137,7 +137,7 @@ erDiagram
 | 字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `owner_id` | uuid | 事实所属用户 |
-| `fact_type` | varchar(48) | 事实类型；Alpha 为 `gpa.rank` |
+| `fact_type` | varchar(48) | 事实类型；Alpha 为 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
 | `value_text` | text | 服务端生成的展示文本 |
 | `value_json` | jsonb | 按类型规范化的值对象 |
 | `value_hash` | char(64) | 类型、范围、生效日、值与展示文本的规范化 SHA-256 |

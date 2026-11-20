@@ -255,17 +255,150 @@ def test_plan_and_matter_reads_expose_basis_state(client: TestClient) -> None:
 
 def test_unregistered_fact_type_is_rejected(client: TestClient) -> None:
     response = client.put(
-        "/api/v1/facts/cet6.score",
+        "/api/v1/facts/gre.score",
         json={"value": {"score": 600}},
     )
     assert response.status_code == 422, response.text
     error = response.json()["error"]
     assert error["code"] == "unsupported_fact_type"
-    assert error["details"] == {"supported_fact_types": ["gpa.rank"]}
+    assert error["details"] == {
+        "supported_fact_types": [
+            "cert",
+            "cet4",
+            "cet6",
+            "comp",
+            "gpa.rank",
+            "gpa.score",
+            "ielts",
+            "toefl",
+        ]
+    }
 
-    read = client.get("/api/v1/facts/cet6.score")
+    read = client.get("/api/v1/facts/gre.score")
     assert read.status_code == 422
     assert read.json()["error"]["code"] == "unsupported_fact_type"
+
+
+def test_gpa_score_is_saved_on_four_point_scale(client: TestClient) -> None:
+    response = client.put(
+        "/api/v1/facts/gpa.score",
+        json={"value": {"value": 3.725}},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["created"] is True
+    fact = body["fact"]
+    assert fact["version_no"] == 1
+    assert fact["value"] == {"value": 3.73, "scale": 4.0}
+    assert fact["value_text"] == "3.73/4.0"
+
+    maximum = client.put(
+        "/api/v1/facts/gpa.score",
+        json={"value": {"value": 4}},
+    )
+    assert maximum.status_code == 200, maximum.text
+    assert maximum.json()["fact"]["value_text"] == "4.0/4.0"
+    assert maximum.json()["fact"]["version_no"] == 2
+
+
+def test_english_scores_are_saved_and_rendered(client: TestClient) -> None:
+    cases = [
+        ("cet4", {"score": 500}, {"score": 500}, "CET-4 500"),
+        ("cet6", {"score": 425}, {"score": 425}, "CET-6 425"),
+        ("toefl", {"score": 105}, {"score": 105}, "TOEFL 105"),
+        ("ielts", {"overall": 7.25}, {"overall": 7.3}, "IELTS 7.3"),
+    ]
+    for fact_type, value, normalized, text in cases:
+        response = client.put(f"/api/v1/facts/{fact_type}", json={"value": value})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["created"] is True
+        assert body["fact"]["version_no"] == 1
+        assert body["fact"]["value"] == normalized
+        assert body["fact"]["value_text"] == text
+
+    listed = client.get("/api/v1/facts").json()["facts"]
+    assert [item["fact_type"] for item in listed] == [
+        "cet4",
+        "cet6",
+        "ielts",
+        "toefl",
+    ]
+
+
+def test_fact_ranges_are_validated(client: TestClient) -> None:
+    cases = [
+        ("gpa.score", {"value": 4.5}, "value.value", "gpa_out_of_range"),
+        ("cet6", {"score": 711}, "value.score", "score_out_of_range"),
+        ("toefl", {"score": 121}, "value.score", "score_out_of_range"),
+        ("ielts", {"overall": 9.1}, "value.overall", "score_out_of_range"),
+    ]
+    for fact_type, value, path, code in cases:
+        response = client.put(f"/api/v1/facts/{fact_type}", json={"value": value})
+        assert response.status_code == 422, response.text
+        error = response.json()["error"]
+        assert error["code"] == "invalid_fact_value"
+        issues = error["details"]["issues"]
+        assert issues[0]["path"] == path
+        assert issues[0]["code"] == code
+
+    assert client.get("/api/v1/facts").json()["facts"] == []
+
+
+def test_certificate_and_competition_levels_are_saved(client: TestClient) -> None:
+    cases = [
+        ("cert", {"level": "  高级  "}, {"level": "高级"}, "证书 高级"),
+        (
+            "comp",
+            {"level": "国家级一等奖"},
+            {"level": "国家级一等奖"},
+            "竞赛 国家级一等奖",
+        ),
+    ]
+    for fact_type, value, normalized, text in cases:
+        response = client.put(f"/api/v1/facts/{fact_type}", json={"value": value})
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["created"] is True
+        assert body["fact"]["version_no"] == 1
+        assert body["fact"]["value"] == normalized
+        assert body["fact"]["value_text"] == text
+
+    listed = client.get("/api/v1/facts").json()["facts"]
+    assert [item["fact_type"] for item in listed] == ["cert", "comp"]
+
+
+def test_certificate_and_competition_levels_are_validated(
+    client: TestClient,
+) -> None:
+    for fact_type in ("cert", "comp"):
+        missing = client.put(f"/api/v1/facts/{fact_type}", json={"value": {}})
+        assert missing.status_code == 422, missing.text
+        assert missing.json()["error"]["details"]["issues"][0] == {
+            "path": "value.level",
+            "code": "required",
+            "message": (
+                "证书需要提供 level" if fact_type == "cert" else "竞赛需要提供 level"
+            ),
+        }
+
+        blank = client.put(
+            f"/api/v1/facts/{fact_type}",
+            json={"value": {"level": "   "}},
+        )
+        assert blank.status_code == 422, blank.text
+        issue = blank.json()["error"]["details"]["issues"][0]
+        assert issue["path"] == "value.level"
+        assert issue["code"] == "invalid_level"
+
+        too_long = client.put(
+            f"/api/v1/facts/{fact_type}",
+            json={"value": {"level": "等" * 33}},
+        )
+        assert too_long.status_code == 422, too_long.text
+        assert too_long.json()["error"]["details"]["issues"][0]["code"] == (
+            "invalid_level"
+        )
 
 
 def test_rank_greater_than_cohort_is_rejected(client: TestClient) -> None:

@@ -1,4 +1,4 @@
-# 个人事实（成绩排名）接口
+# 个人事实（成绩、排名、英语、证书与竞赛）接口
 
 | 项目 | 内容 |
 | :--- | :--- |
@@ -12,7 +12,7 @@
 
 本接口保存和读取当前演示用户的个人事实，维护事实版本，并在事实值变化时识别依赖旧版本的待确认候选计划。受影响候选在确认时按依据指纹转为过期。
 
-Alpha 只注册成绩排名事实，`fact_type` 为 `gpa.rank`。其他事实类型返回 `422 unsupported_fact_type`。事实类型集合会在后续版本增长；保存、读取、版本、幂等和候选失效共用同一套事实层，类型差异由注册表隔离。
+Alpha 注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` 八种事实。其他事实类型返回 `422 unsupported_fact_type`。事实类型集合会在后续版本增长；保存、读取、版本、幂等和候选失效共用同一套事实层，类型差异由注册表隔离。
 
 ### 1.1 单值当前记录
 
@@ -69,6 +69,13 @@ class FactTypeSpec:
 | `fact_type` | 值写法 | `value_json` | `value_text` | `agent_value` |
 | :--- | :--- | :--- | :--- | :--- |
 | `gpa.rank` | `{position, cohort_size}` 或 `{percentile}` | `{position, cohort_size, percentile}` | `5/120` 或 `前 4.2%` | `percentile` |
+| `gpa.score` | `{value}` | `{value, scale}` | `3.72/4.0` | `value` |
+| `cet4` | `{score}` | `{score}` | `CET-4 500` | `score` |
+| `cet6` | `{score}` | `{score}` | `CET-6 580` | `score` |
+| `toefl` | `{score}` | `{score}` | `TOEFL 105` | `score` |
+| `ielts` | `{overall}` | `{overall}` | `IELTS 7.5` | `overall` |
+| `cert` | `{level}` | `{level}` | `证书 高级` | `level` |
+| `comp` | `{level}` | `{level}` | `竞赛 国家级一等奖` | `level` |
 
 ## 3. 事实对象
 
@@ -97,7 +104,7 @@ class FactTypeSpec:
 | 字段 | 类型 | 说明 |
 | :--- | :--- | :--- |
 | `id` | UUID | 事实版本标识；同一版本不可复用 |
-| `fact_type` | string | 事实类型，Alpha 为 `gpa.rank` |
+| `fact_type` | string | 事实类型，Alpha 为 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
 | `value` | object | 规范化后的 `value_json` |
 | `value_text` | string | 服务端生成的展示文本 |
 | `scope` | string \| null | 适用范围，最长 200 字符 |
@@ -133,7 +140,63 @@ class FactTypeSpec:
 
 `value_text` 由服务端生成：名次写法为 `5/120`，百分位写法为 `前 4.2%`。
 
-### 3.2 `value_hash`
+### 3.2 `gpa.score` 值
+
+`gpa.score` 使用 4.0 制，请求值只包含 `value`：
+
+```json
+{
+  "value": {
+    "value": 3.72
+  }
+}
+```
+
+`value` 为 0 到 4.0 之间的数值，四舍五入保留 2 位小数。规范化后的 `value_json` 固定包含满分：
+
+```json
+{
+  "value": 3.72,
+  "scale": 4.0
+}
+```
+
+`value_text` 为 `3.72/4.0`，`agent_value` 为 4.0 制 GPA 数值。请求中不接受 `scale` 字段；满分调整需要新增事实类型。
+
+### 3.3 英语分数
+
+| `fact_type` | 请求值 | 约束 | `value_text` | `agent_value` |
+| :--- | :--- | :--- | :--- | :--- |
+| `cet4` | `{"score": 500}` | 0—710 的整数 | `CET-4 500` | `500` |
+| `cet6` | `{"score": 580}` | 0—710 的整数 | `CET-6 580` | `580` |
+| `toefl` | `{"score": 105}` | 0—120 的整数 | `TOEFL 105` | `105` |
+| `ielts` | `{"overall": 7.5}` | 0—9 的数值，保留 1 位小数 | `IELTS 7.5` | `7.5` |
+
+这四个键与要求自查 `any_minimum` 规则中的替代项键一致，可直接参与英语水平条件比较。`ielts` 的 `overall` 四舍五入保留 1 位小数，展示文本至少保留 1 位小数。
+
+### 3.4 `cert` 与 `comp` 等级
+
+证书与竞赛使用通用等级字符串：
+
+```json
+{
+  "value": {
+    "level": "高级"
+  }
+}
+```
+
+```json
+{
+  "value": {
+    "level": "国家级一等奖"
+  }
+}
+```
+
+`level` 去除首尾空白后必须为非空字符串，最长 32 字符。等级文本保持用户输入，不转换为固定枚举，以覆盖不同证书与竞赛体系。`cert` 的 `value_text` 为 `证书 {level}`，`comp` 的 `value_text` 为 `竞赛 {level}`，`agent_value` 为等级文本本身。
+
+### 3.5 `value_hash`
 
 `value_hash` 对以下对象做规范化 JSON 编码后计算 SHA-256：
 
@@ -157,7 +220,7 @@ class FactTypeSpec:
 
 `PUT /api/v1/facts/{fact_type}`
 
-`fact_type` 必须已注册，Alpha 只接受 `gpa.rank`。
+`fact_type` 必须已注册，Alpha 接受 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`。
 
 请求体：
 
@@ -191,6 +254,18 @@ class FactTypeSpec:
   "valid_from": "2026-09-01"
 }
 ```
+
+其他类型请求体：
+
+| `fact_type` | 请求体 |
+| :--- | :--- |
+| `gpa.score` | `{"value": {"value": 3.72}}` |
+| `cet4` | `{"value": {"score": 500}}` |
+| `cet6` | `{"value": {"score": 580}}` |
+| `toefl` | `{"value": {"score": 105}}` |
+| `ielts` | `{"value": {"overall": 7.5}}` |
+| `cert` | `{"value": {"level": "高级"}}` |
+| `comp` | `{"value": {"level": "国家级一等奖"}}` |
 
 响应 `200`：
 
@@ -423,13 +498,13 @@ class FactTypeSpec:
 
 ## 8. Agent 运行
 
-`POST /api/v1/matters/{matter_id}/agent-runs` 继续接受可选的 `confirmed_facts`，用于未进入事实档案的运行级字段。`gpa.rank` 以后端从 `core.fact` 读取的当前确认版本为准；请求中同时出现 `gpa.rank` 时，以已确认版本覆盖请求值。
+`POST /api/v1/matters/{matter_id}/agent-runs` 继续接受可选的 `confirmed_facts`，用于未进入事实档案的运行级字段。已注册事实以后端从 `core.fact` 读取的当前确认版本为准；请求中同时出现同键时，以已确认版本覆盖请求值。
 
 后端按事项的相关事实键读取已注册类型的当前确认版本，并将事实条目写入候选计划的 `basis_input`。运行级 `confirmed_facts` 不形成事实版本，不进入依据指纹。
 
 运行开始时记录所用事实版本。候选持久化前重新读取当前版本；版本已变化时运行失败，`error.code` 为 `VERSION_CONFLICT`，不写入依据已过时的候选计划。
 
-规则评估使用渲染器提供的 `agent_value`。`gpa.rank` 使用 `percentile`，数值越小表示排名越靠前。没有确认事实时，自查结论为 `missing_info`，`missing_fields` 包含 `gpa.rank`，缺口为 `missing_personal_fact`。
+规则评估使用渲染器提供的 `agent_value`。`gpa.rank` 使用 `percentile`，数值越小表示排名越靠前；`gpa.score` 使用 4.0 制 GPA 数值；`cet4`、`cet6`、`toefl` 使用整数分数；`ielts` 使用总分；`cert` 与 `comp` 使用等级文本。没有确认事实时，自查结论为 `missing_info`，`missing_fields` 包含对应事实键，缺口为 `missing_personal_fact`。
 
 ## 9. 错误
 
@@ -540,3 +615,9 @@ END $$;
 | F-11 | 名次大于总人数 | 返回 `422 invalid_fact_value`，`details.issues` 定位到 `value.position` |
 | F-12 | Agent 运行使用持久化事实 | 候选依据记录当前事实版本，`gpa.rank` 使用 `percentile` |
 | F-13 | 运行期间事实版本变化 | 运行失败为 `VERSION_CONFLICT`，不写入旧依据候选 |
+| F-14 | 保存 GPA | 版本 1，`value` 包含 `value` 与 `scale`，`value_text` 为 `3.72/4.0` |
+| F-15 | 保存英语四项 | 各自版本 1，展示文本与 `agent_value` 按类型生成 |
+| F-16 | GPA 超过 4.0 | 返回 `422 invalid_fact_value`，`details.issues` 定位到 `value.value` |
+| F-17 | 英语分数超出范围 | 返回 `422 invalid_fact_value`，`details.issues` 定位到 `value.score` 或 `value.overall` |
+| F-18 | 保存证书与竞赛等级 | 版本 1，`value_text` 为 `证书 高级` 或 `竞赛 国家级一等奖`，`agent_value` 为等级文本 |
+| F-19 | 等级为空或超过 32 字符 | 返回 `422 invalid_fact_value`，`details.issues` 定位到 `value.level` |
