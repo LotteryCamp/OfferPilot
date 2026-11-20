@@ -132,19 +132,106 @@ class CandidatePlanDraftPayload(BaseModel):
 _EXTRACTION_INSTRUCTION = (
     "你是 OfferPilot 推免信息抽取助手。严格依据传入的官方来源原文提取要求与适用范围：\n"
     "1. 每条要求必须保留可回溯的 source_version_id 与 locator，禁止编造来源版本或条文。\n"
+    "   当来源对象包含非空 fragments 列表时，basis[*].locator 必须原样复制对应片段的 fragments[*].locator，"
+    "locator_kind 必须取自该片段的 locator_kind，excerpt 必须是该片段 quote 的连续原文字串，严禁自行改写或简写 locator。\n"
     "2. 原文仅给出日期时只填 date 值；给出精确时刻时才填带时区的时间戳，不得虚构时刻。\n"
+    "   当 value_type 为 date 时，value_text 必须严格使用 YYYY-MM-DD 格式（如 2026-09-10），严禁填中文日期或带时刻描述；"
+    "精确时刻请单独填入 official_deadline（带时区 ISO 8601）。value_type 为 number 时 value_text 须为纯数字，boolean 时须为 true 或 false。\n"
     "3. 不同条件或适用人群（如申请推荐与放弃推荐）须拆开标注 scope。\n"
     "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定。"
 )
 
 _PLANNING_INSTRUCTION = (
     "你是 OfferPilot 候选计划生成助手。仅根据已核实来源和条件自查结果生成待用户确认的候选任务：\n"
-    "1. 每条候选任务必须包含来自输入 sources 的 source_version_id 与 locator。\n"
+    "1. 每条候选任务必须包含来自输入 sources 的 source_version_id 与 locator。"
+    "当来源对象包含非空 fragments 列表时，basis[*].locator 必须原样复制对应片段的 fragments[*].locator（或沿用 evaluations.basis 中的 locator），"
+    "locator_kind 必须匹配该片段，excerpt 必须是对应片段 quote 的连续原文字串，严禁自行改写。\n"
     "2. 官方日期存入 official_deadline_date，仅原文给出时刻时填写 official_deadline_at（带时区），"
     "个人建议准备日存入 suggested_date，不高于官方期限。\n"
     "3. 依赖关系 depends_on 只能引用本计划内的 task_id 且不得成环。\n"
     "4. 缺依据或条件不清时在 gaps 中明确说明，不编造确定性结论。"
 )
+
+
+def build_extraction_input(
+    goal: str,
+    sources: list[SourceDocument],
+    *,
+    strategy_version: str,
+) -> dict[str, Any]:
+    """Build the model input for requirement extraction, carrying source fragments."""
+    return {
+        "goal": goal.strip(),
+        "strategy_version": strategy_version,
+        "sources": [
+            {
+                "source_version_id": s.source_version_id,
+                "source_id": s.source_id,
+                "snapshot_id": s.snapshot_id,
+                "title": s.title,
+                "publisher": s.publisher,
+                "year": s.year,
+                "scope": s.scope,
+                "content": "" if s.fragments else s.content,
+                "missing_attachments": s.missing_attachments,
+                "fragments": [
+                    {
+                        "locator_kind": f.locator_kind,
+                        "locator": f.locator,
+                        "quote": f.quote,
+                    }
+                    for f in s.fragments
+                ],
+            }
+            for s in sources
+        ],
+    }
+
+
+def build_planning_input(
+    context: RunContext,
+    sources: list[SourceDocument],
+    evaluations: list[RequirementEvaluation],
+    *,
+    strategy_version: str,
+) -> dict[str, Any]:
+    """Build the model input for candidate planning from public fields only."""
+    return {
+        "goal": context.goal.strip(),
+        "scope_year": context.scope_year,
+        "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
+        "strategy_version": strategy_version,
+        "sources": [
+            {
+                "source_version_id": s.source_version_id,
+                "title": s.title,
+                "publisher": s.publisher,
+                "year": s.year,
+                "scope": s.scope,
+                "fragments": [
+                    {
+                        "locator_kind": f.locator_kind,
+                        "locator": f.locator,
+                    }
+                    for f in s.fragments
+                ],
+            }
+            for s in sources
+        ],
+        "evaluations": [
+            {
+                "requirement_id": ev.requirement_id,
+                "title": ev.title,
+                "status": ev.status.value,
+                "basis": [c.model_dump(mode="json") for c in ev.basis],
+                "scope": ev.scope,
+                "computed_deadline": ev.computed_deadline.isoformat()
+                if ev.computed_deadline is not None
+                else None,
+            }
+            for ev in evaluations
+        ],
+    }
 
 
 class StructuredModelAdapter:
@@ -194,24 +281,9 @@ class StructuredModelAdapter:
         sources: list[SourceDocument],
     ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
         """Extract structured requirements, gaps, and scope summary per call without shared state."""
-        payload_input = {
-            "goal": goal.strip(),
-            "strategy_version": self._strategy_version,
-            "sources": [
-                {
-                    "source_version_id": s.source_version_id,
-                    "source_id": s.source_id,
-                    "snapshot_id": s.snapshot_id,
-                    "title": s.title,
-                    "publisher": s.publisher,
-                    "year": s.year,
-                    "scope": s.scope,
-                    "content": s.content,
-                    "missing_attachments": s.missing_attachments,
-                }
-                for s in sources
-            ],
-        }
+        payload_input = build_extraction_input(
+            goal, sources, strategy_version=self._strategy_version
+        )
         parsed = self._invoke_model(
             _EXTRACTION_INSTRUCTION,
             json.dumps(payload_input, ensure_ascii=False),
@@ -226,6 +298,11 @@ class StructuredModelAdapter:
             citations = _validate_and_enrich_citations(
                 draft.basis, valid_source_ids, sources_by_id
             )
+            value_text = _normalize_model_value_text(
+                draft.value_text,
+                draft.value_type,
+                official_deadline=draft.official_deadline,
+            )
             requirements.append(
                 ExtractedRequirement(
                     requirement_id=draft.requirement_id,
@@ -237,7 +314,7 @@ class StructuredModelAdapter:
                     is_ambiguous=draft.is_ambiguous,
                     field_key=draft.field_key,
                     scope=draft.scope,
-                    value_text=draft.value_text,
+                    value_text=value_text,
                     value_type=draft.value_type,
                     confidence=draft.confidence,
                     rule_kind=draft.rule_kind,
@@ -255,35 +332,12 @@ class StructuredModelAdapter:
         evaluations: list[RequirementEvaluation],
     ) -> CandidatePlan:
         """Generate a structured CandidatePlan without persisting formal tasks."""
-        payload_input = {
-            "goal": context.goal.strip(),
-            "scope_year": context.scope_year,
-            "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
-            "strategy_version": self._strategy_version,
-            "sources": [
-                {
-                    "source_version_id": s.source_version_id,
-                    "title": s.title,
-                    "publisher": s.publisher,
-                    "year": s.year,
-                    "scope": s.scope,
-                }
-                for s in sources
-            ],
-            "evaluations": [
-                {
-                    "requirement_id": ev.requirement_id,
-                    "title": ev.title,
-                    "status": ev.status.value,
-                    "basis": [c.model_dump(mode="json") for c in ev.basis],
-                    "scope": ev.scope,
-                    "computed_deadline": ev.computed_deadline.isoformat()
-                    if ev.computed_deadline is not None
-                    else None,
-                }
-                for ev in evaluations
-            ],
-        }
+        payload_input = build_planning_input(
+            context,
+            sources,
+            evaluations,
+            strategy_version=self._strategy_version,
+        )
         parsed = self._invoke_model(
             _PLANNING_INSTRUCTION,
             json.dumps(payload_input, ensure_ascii=False),
@@ -356,6 +410,66 @@ class StructuredModelAdapter:
             raise ModelInvocationError(AgentErrorCode.MODEL_ERROR, str(exc)) from exc
 
 
+_CALENDAR_DATE_RE = re.compile(
+    r"(?P<year>\d{4})\s*(?:年|[./-])\s*(?P<month>\d{1,2})\s*(?:月|[./-])\s*(?P<day>\d{1,2})\s*日?"
+)
+
+
+def _normalize_model_value_text(
+    value_text: str | None,
+    value_type: Literal["text", "date", "number", "boolean", "enum"],
+    *,
+    official_deadline: datetime | None = None,
+) -> str | None:
+    if value_text is None:
+        if value_type == "date" and official_deadline is not None:
+            return official_deadline.date().isoformat()
+        return None
+    stripped = value_text.strip()
+    if not stripped:
+        if value_type == "date" and official_deadline is not None:
+            return official_deadline.date().isoformat()
+        return None
+    if value_type == "date":
+        if len(stripped) == 10:
+            try:
+                return date.fromisoformat(stripped).isoformat()
+            except ValueError as exc:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"模型返回的日期 {stripped} 无效",
+                ) from exc
+        try:
+            return datetime.fromisoformat(stripped).date().isoformat()
+        except ValueError:
+            pass
+        match = _CALENDAR_DATE_RE.search(stripped)
+        if match is not None:
+            try:
+                parsed_date = date(
+                    int(match.group("year")),
+                    int(match.group("month")),
+                    int(match.group("day")),
+                )
+            except ValueError as exc:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"模型返回的日期 {stripped} 无效",
+                ) from exc
+            return parsed_date.isoformat()
+        if official_deadline is not None:
+            return official_deadline.date().isoformat()
+        raise ModelInvocationError(
+            AgentErrorCode.VALIDATION_FAILED,
+            f"date 类型 value_text 无法规范化为 YYYY-MM-DD：{stripped}",
+        )
+    if value_type == "boolean":
+        lowered = stripped.lower()
+        if lowered in {"true", "false"}:
+            return lowered
+    return stripped
+
+
 def _normalize_ws(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
@@ -394,6 +508,12 @@ def _validate_and_enrich_citations(
             )
 
         norm_locator = _normalize_ws(cite.locator)
+        resolved_excerpt = cite.excerpt
+        if cite.excerpt is not None and not _normalize_ws(cite.excerpt):
+            raise ModelInvocationError(
+                AgentErrorCode.VALIDATION_FAILED,
+                f"引用定位 '{cite.locator}' 的摘录不能为空",
+            )
         if doc.fragments:
             matching_frags = [
                 frag
@@ -405,15 +525,27 @@ def _validate_and_enrich_citations(
                     AgentErrorCode.VALIDATION_FAILED,
                     f"引用定位 '{cite.locator}' 不在来源 {doc.title} 已提取的片段中",
                 )
+            kind_matched = [
+                frag
+                for frag in matching_frags
+                if frag.locator_kind == cite.locator_kind
+            ]
+            if not kind_matched:
+                raise ModelInvocationError(
+                    AgentErrorCode.VALIDATION_FAILED,
+                    f"引用定位 '{cite.locator}' 的类型 {cite.locator_kind} 与来源片段类型不一致",
+                )
             if cite.excerpt is not None:
                 norm_excerpt = _normalize_ws(cite.excerpt)
                 if not any(
-                    norm_excerpt in _normalize_ws(frag.quote) for frag in matching_frags
+                    norm_excerpt in _normalize_ws(frag.quote) for frag in kind_matched
                 ):
                     raise ModelInvocationError(
                         AgentErrorCode.VALIDATION_FAILED,
                         f"引用摘录与定位 '{cite.locator}' 对应的原文片段不符",
                     )
+            else:
+                resolved_excerpt = kind_matched[0].quote
         elif cite.excerpt is not None:
             norm_excerpt = _normalize_ws(cite.excerpt)
             if norm_excerpt not in _normalize_ws(doc.content):
@@ -427,6 +559,7 @@ def _validate_and_enrich_citations(
                 update={
                     "source_id": doc.source_id or cite.source_id,
                     "snapshot_id": doc.snapshot_id or cite.snapshot_id,
+                    "excerpt": resolved_excerpt,
                 }
             )
         )
