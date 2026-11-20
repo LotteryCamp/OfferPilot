@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from backend.basis import compute_basis_version
 from backend.config import Settings
 from backend.errors import ApiError
+from backend.services import facts as fact_service
 from backend.services.common import iso, serialize_task_row, transaction, uuid_text
 from backend.services.plans import (
     collect_basis_input,
@@ -42,6 +43,7 @@ class DecisionResult:
     replayed: bool = False
     expired: bool = False
     current_basis_version: str | None = None
+    stale_facts: list[dict[str, Any]] = field(default_factory=list)
 
 
 def decide_plan(
@@ -214,6 +216,9 @@ def _confirm(
             decision=None,
             expired=True,
             current_basis_version=current_hash,
+            stale_facts=fact_service.stale_facts_for_plan(
+                session, plan_row, settings.demo_user_id
+            ),
         )
     gap_issues = current_basis_gap_issues(session, matter_id)
     if gap_issues:

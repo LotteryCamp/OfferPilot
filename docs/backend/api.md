@@ -6,7 +6,7 @@
 | 数据格式 | JSON，UTF-8 |
 | 适用范围 | Alpha 单用户本地演示 |
 | 业务契约 | [`docs/development/alpha-scope-contract.md`](../development/alpha-scope-contract.md) |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0009` |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0011` |
 
 ## 1. 范围
 
@@ -14,10 +14,13 @@
 
 - 创建个人事项，读取事项列表与事项详情。
 - 读取公开 HTML 来源或登记调用方提供的正文与快照，按事项读取来源链。
+- 保存与读取个人事实（成绩排名），维护事实版本。
 - 创建 Agent 运行，由后端完成来源读取、要求提取、条件自查与候选计划持久化。
 - 持久化候选要求、候选计划、计划项及计划项出处。
 - 读取候选计划，由用户确认或拒绝。
 - 确认后生成个人任务，读取任务及其来源定位。
+
+个人事实的保存、读取、版本规则、类型注册表与候选失效语义见[个人事实接口](facts.md)（迁移 `0011`）。
 
 来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划可以直接写入，也可以由 Agent 运行读取公开来源后生成并持久化。
 
@@ -41,7 +44,7 @@ Alpha 当前没有登录能力，接口使用固定演示身份：
 | 演示用户 | `OFFERPILOT_DEMO_USER_ID` | `00000000-0000-7000-8000-000000000001` |
 | 演示工作区 | `OFFERPILOT_DEMO_WORKSPACE_ID` | `00000000-0000-7000-8000-000000000002` |
 
-每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。事项、候选计划与任务的读取同时校验事项归属。
+每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实按工作区所有者过滤。事项、候选计划与任务的读取同时校验事项归属。
 
 固定身份仅用于本地演示。它不等同于多用户认证，也不构成跨账户安全边界。演示用户或工作区不存在时，接口返回 `500 demo_identity_missing`。
 
@@ -105,6 +108,11 @@ sequenceDiagram
     Client->>API: POST /matters
     API->>DB: 写入 core.matter
     API-->>Client: 事项
+
+    Client->>API: PUT /facts/gpa.rank
+    API->>DB: 写入 core.fact 新版本
+    API->>DB: 查询依赖旧版本的待确认候选
+    API-->>Client: 事实版本与受影响计划
 
     Client->>API: POST /matters/{id}/agent-runs
     API->>Agent: 创建运行
@@ -196,7 +204,7 @@ sequenceDiagram
 }
 ```
 
-事项创建时绑定该事项类型最新发布的模板版本，创建后状态为 `draft`。`latest_plan` 返回该事项最新候选计划的标识、状态和版本号。
+事项创建时绑定该事项类型最新发布的模板版本，创建后状态为 `draft`。`latest_plan` 返回该事项最新候选计划的标识、状态、版本号、依据状态和旧事实列表；依据状态按[个人事实接口](facts.md)的规则计算。
 
 ### 3.2 读取事项列表
 
@@ -662,6 +670,8 @@ sequenceDiagram
     "version_no": 1,
     "status": "pending",
     "basis_version": "7f5c5a5fd8d1f3e5f4b4f4f6a9d2c0e9d7f2b3c4a5e6f708192a3b4c5d6e7f80",
+    "basis_status": "current",
+    "stale_facts": [],
     "generated_at": "2026-09-09T01:00:00+00:00",
     "confirmed_at": null,
     "expired_at": null,
@@ -756,6 +766,8 @@ sequenceDiagram
       "version_no": 1,
       "status": "pending",
       "basis_version": "7f5c5a5fd8d1f3e5f4b4f4f6a9d2c0e9d7f2b3c4a5e6f708192a3b4c5d6e7f80",
+      "basis_status": "current",
+      "stale_facts": [],
       "generated_at": "2026-09-09T01:00:00+00:00",
       "confirmed_at": null,
       "expired_at": null,
@@ -768,13 +780,13 @@ sequenceDiagram
 }
 ```
 
-列表按 `version_no` 倒序排列。`decision` 非空时包含 `decision`、`decided_by`、`decided_at` 和 `operation_id`。
+列表按 `version_no` 倒序排列。`decision` 非空时包含 `decision`、`decided_by`、`decided_at` 和 `operation_id`。`basis_status` 与 `stale_facts` 按[个人事实接口](facts.md)的规则计算。
 
 ### 5.3 读取候选计划详情
 
 `GET /api/v1/candidate-plans/{plan_id}`
 
-响应结构同创建候选计划的 `plan` 对象。详情包含按 `seq` 排列的全部计划项、每项关联的要求摘要、每项出处，以及已有决定和任务。计划不存在或不属于当前工作区时返回 `404 plan_not_found`。
+响应结构同创建候选计划的 `plan` 对象。详情包含按 `seq` 排列的全部计划项、每项关联的要求摘要、每项出处、依据状态，以及已有决定和任务。`basis_status` 为 `stale` 时，`stale_facts` 列出与当前确认事实不一致的条目。计划不存在或不属于当前工作区时返回 `404 plan_not_found`。
 
 ### 5.4 确认候选计划
 
@@ -851,12 +863,14 @@ sequenceDiagram
 | 3 | 计划是否已有终态决定 | `409 plan_already_decided` |
 | 4 | 计划状态是否可决定 | `409 plan_expired` 或 `409 plan_not_pending` |
 | 5 | 官方期限是否已过 | `409 official_deadline_passed`，计划保持原状态 |
-| 6 | 当前依据指纹是否与生成时一致 | `409 basis_changed`，计划转为 `expired` 并写入 `expired_at` |
+| 6 | 当前依据指纹是否与生成时一致，含当前确认事实版本 | `409 basis_changed`，计划转为 `expired` 并写入 `expired_at` |
 | 7 | 候选要求是否存在未解决的关键依据缺口 | `409 basis_unresolved` |
 | 8 | 依据来源是否可用 | `409 source_unavailable` |
 | 9 | 写入确认决定、计划状态与全部任务 | 同一数据库事务提交 |
 
 关键依据缺口包括 `missing_basis`、`repost_only`、`expired_source`、`scope_unclear`、`ambiguous_clause`、`read_failed`；`missing_personal_fact` 与 `missing_attachment` 不阻塞确认。来源状态非 `active`、自动检查为 `failed`、`conflict`、`roi_status` 非 `original`、适用期结束或快照非当前版本时，确认返回 `409 source_unavailable`。
+
+依据指纹变化由事实版本引起时，`409 basis_changed` 的 `details` 包含 `current_basis_version` 与 `stale_facts`，结构见[旧候选失效](facts.md#73-确认时失效)。
 
 确认成功后：
 
@@ -971,9 +985,11 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | `publisher` | string | 否 | 1—160 字符，默认 `官方公开来源` |
 | `scope` | string | 否 | 最长 200 字符 |
 | `scope_year` | integer | 否 | 2020—2100，须与事项年度一致；省略时使用事项年度 |
-| `confirmed_facts` | object | 否 | 已确认的个人事实，默认空对象 |
+| `confirmed_facts` | object | 否 | 运行级个人事实，默认空对象；`gpa.rank` 以 `core.fact` 当前确认版本为准 |
 | `model_transfer_consent_id` | string | 否 | 最长 200 字符；携带 `confirmed_facts` 或事项含 `scope_attrs` 时必须提供有效同意，否则返回 `422 model_transfer_consent_required` 且不创建运行 |
 | `operation_id` | string | 否 | 1—200 字符；同一事项重复提交时返回首次运行结果 |
+
+成绩排名由后端从 `core.fact` 读取当前确认版本并写入候选依据；运行级 `confirmed_facts` 不形成事实版本，不进入依据指纹。事实版本与运行依据的对应规则见[个人事实接口](facts.md)。
 
 请求示例：
 
@@ -1094,7 +1110,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 
 `plan_id` 可省略，省略时使用运行检查点绑定的候选计划。确认沿用 5.4 的事务语义：重算依据指纹、检查官方期限与来源可用性，再写入决定与任务。
 
-候选存在未解决的关键依据缺口或来源不可用时，响应 `200` 且 `run.status` 保持 `等待确认`，`run.error.details.backend_code` 为 `basis_unresolved` 或 `source_unavailable`；候选计划保持 `pending`，修正依据后可再次确认。依据指纹变化时计划转为 `expired`，运行进入 `失败`。
+候选存在未解决的关键依据缺口或来源不可用时，响应 `200` 且 `run.status` 保持 `等待确认`，`run.error.details.backend_code` 为 `basis_unresolved` 或 `source_unavailable`；候选计划保持 `pending`，修正依据后可再次确认。依据指纹变化时计划转为 `expired`，运行进入 `失败`，事实版本差异按[个人事实接口](facts.md)返回。
 
 响应 `200`：
 
@@ -1150,16 +1166,18 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 事项 | 标识、类型、模板版本、适用年度、适用范围属性、更新时间 |
 | 要求 | 当前事项下全部未拒绝要求的标识、快照、字段、义务性质、提取状态、范围、规范值、置信度和更新时间 |
 | 来源 | 上述要求及计划项所引用快照所属来源的标识、生命周期状态、快照版本、内容哈希、当前标记和获取时间 |
-| 已确认事实 | 当前为空数组 |
+| 已确认事实 | 事项相关事实键对应的当前确认版本：`fact_type`、`fact_id`、`version_no`、`value_hash`；无确认值时保留显式空值 |
 
 确认时在锁定工作区事务、候选计划和依据来源后重新采集同一输入并计算指纹。指纹不一致时：
 
 - 计划状态写为 `expired`，写入 `expired_at`。
 - 不写计划决定。
 - 不写任务。
-- 返回 `409 basis_changed`，`details.current_basis_version` 返回当前指纹。
+- 返回 `409 basis_changed`，`details.current_basis_version` 返回当前指纹，`details.stale_facts` 返回事实版本差异。
 
 候选计划进入 `pending` 后，计划项与来源关联保持不变。需要修改内容时，创建新的候选计划版本。
+
+相关事实键、事实条目结构、类型注册表与指纹变化条件见[个人事实接口](facts.md)。
 
 ## 9. 状态值
 
@@ -1172,7 +1190,9 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 要求 | `obligation_nature` | `required`、`advised`、`optional`、`to_verify` |
 | 要求 | `extract_status` | `extracted`、`checked`、`to_review`、`rejected` |
 | 候选计划 | `status` | `draft`、`pending`、`confirmed`、`rejected`、`expired` |
+| 候选计划 | `basis_status` | `current`、`stale`、`not_applicable` |
 | 计划决定 | `decision` | `confirmed`、`rejected` |
+| 个人事实 | `status` | `confirmed`、`superseded` |
 | 任务 | `status` | `pending`、`ready`、`in_progress`、`blocked`、`done`、`cancelled` |
 | Agent 运行 | `status` | `运行中`、`等待用户`、`等待确认`、`已完成`、`失败`、`已取消`、`已中断` |
 
@@ -1208,6 +1228,8 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | 422 | `evidence_source_mismatch` | 证据来源与快照所属来源不一致 |
 | 422 | `unknown_requirement` | 计划项引用了不属于当前事项的要求 |
 | 422 | `unknown_source_snapshot` | 计划项引用的来源与快照不存在或彼此不匹配 |
+| 422 | `unsupported_fact_type` | 事实类型未注册 |
+| 422 | `invalid_fact_value` | 事实值写法或范围不合法；`details.issues` 列出原因 |
 | 500 | `demo_identity_missing` | 演示用户或工作区不存在 |
 | 500 | `internal_error` | 未预期的服务错误 |
 
@@ -1222,6 +1244,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 | `ops.source`、`ops.snapshot` | 来源与版本化快照 |
 | `core.requirement`、`ops.evidence` | 候选要求与原文证据 |
 | `core.requirement_self_check` | 四态自查结论、原因、缺失信息与缺口 |
+| `core.fact` | 当前确认事实、历史版本与事实版本摘要 |
 | `core.matter_source` | 事项与已读取来源快照的关联 |
 | `core.candidate_plan`、`core.candidate_plan_item` | 候选计划与计划项 |
 | `core.candidate_plan_item_source` | 计划项出处 |
@@ -1236,6 +1259,7 @@ Alpha 向模型发送公开来源正文、事项目标和适用范围，不发�
 
 - 无登录与账户切换，所有请求使用固定演示身份。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
+- 个人事实接口只注册成绩排名 `gpa.rank`，不提供同类型多实例、草稿、撤回、删除与个人材料引用。
 - 来源读取只访问公开 HTML 页面；不解析 PDF 与附件、不生成材料、不执行外部提交。
 - Agent 运行检查点持久化；服务重启时未完成的运行标记为 `已中断`，不恢复原运行。
 - 不提供跨设备、多用户共享与权限管理。

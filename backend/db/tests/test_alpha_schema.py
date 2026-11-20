@@ -50,6 +50,9 @@ PLAN_ID = UUID("44444444-4444-7444-8444-444444444441")
 TEMPLATE_PRE = UUID("10000000-0000-7000-8000-000000000001")
 ITEM_1 = UUID("44444444-4444-7444-8444-444444444442")
 ITEM_2 = UUID("44444444-4444-7444-8444-444444444443")
+FACT_A1 = UUID("66666666-6666-7666-8666-666666666661")
+FACT_A2 = UUID("66666666-6666-7666-8666-666666666662")
+FACT_B1 = UUID("66666666-6666-7666-8666-666666666663")
 FIXED_FETCHED = datetime(2026, 11, 18, 2, 0, tzinfo=UTC)
 HASH = "a" * 64
 HASH_2 = "b" * 64
@@ -133,7 +136,7 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute("RESET app.current_workspace_id")
         self.conn.execute(
             """
-            TRUNCATE core.agent_run, core.matter_source, core.task,
+            TRUNCATE core.fact, core.agent_run, core.matter_source, core.task,
                      core.candidate_plan_item, core.candidate_plan,
                      core.requirement, core.matter, core.workspace, core.app_user,
                      ops.evidence, ops.snapshot, ops.source
@@ -303,6 +306,7 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.matter_source",
             "core.requirement",
             "core.requirement_self_check",
+            "core.fact",
             "core.agent_run",
             "core.candidate_plan",
             "core.candidate_plan_item",
@@ -855,6 +859,120 @@ class AlphaSchemaTest(unittest.TestCase):
                 (MATTER_A, PLAN_ID, ITEM_2, USER_B),
             )
         self.conn.rollback()
+
+    def test_14_fact_current_version_and_rls(self) -> None:
+        self.make_identity(USER_A, WS_A, MATTER_A, "A 的事项")
+        self.make_identity(USER_B, WS_B, MATTER_B, "B 的事项")
+        self.conn.execute(
+            "INSERT INTO core.fact"
+            " (id, owner_id, fact_type, value_text, value_json, value_hash,"
+            "  confirm_status, version_no, confirmed_at)"
+            " VALUES (%s, %s, 'gpa.rank', '5/120', %s, %s, 'confirmed', 1, %s)",
+            (
+                FACT_A1,
+                USER_A,
+                '{"position": 5, "cohort_size": 120, "percentile": 4.1667}',
+                HASH,
+                FIXED_FETCHED,
+            ),
+        )
+        self.conn.commit()
+
+        with self.assertRaises(errors.UniqueViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, 'gpa.rank', '8/120', %s, 'confirmed', 2, %s)",
+                (USER_A, HASH_2, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.UniqueViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, 'gpa.rank', '5/120', %s, 'confirmed', 1, %s)",
+                (USER_A, HASH, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (owner_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no)"
+                " VALUES (%s, 'gpa.rank', '5/120', %s, 'confirmed', 2)",
+                (USER_A, HASH_2),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (id, owner_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, 'gpa.rank', '5/120', %s, 'superseded', 2, %s)",
+                (FACT_A2, USER_A, HASH_2, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        with self.assertRaises(errors.CheckViolation):
+            self.conn.execute(
+                "INSERT INTO core.fact"
+                " (id, owner_id, fact_type, value_text, value_hash,"
+                "  confirm_status, version_no, confirmed_at)"
+                " VALUES (%s, %s, 'gpa.rank', '5/120', 'not-a-hash',"
+                " 'confirmed', 2, %s)",
+                (FACT_A2, USER_A, FIXED_FETCHED),
+            )
+        self.conn.rollback()
+
+        self.conn.execute(
+            "INSERT INTO core.fact"
+            " (id, owner_id, fact_type, value_text, value_hash,"
+            "  confirm_status, version_no, confirmed_at)"
+            " VALUES (%s, %s, 'gpa.rank', '8/120', %s, 'confirmed', 1, %s)",
+            (FACT_B1, USER_B, HASH_2, FIXED_FETCHED),
+        )
+        self.conn.commit()
+
+        self.conn.execute(f"SET ROLE {TEST_ROLE}")
+        try:
+            self.conn.execute(
+                "SELECT set_config('app.current_workspace_id', %s, false)", (str(WS_A),)
+            )
+            self.assertEqual(1, self.count("core.fact"))
+            self.assertEqual(
+                1,
+                fetch_scalar(
+                    self.conn,
+                    "SELECT count(*) FROM core.fact WHERE owner_id = %s",
+                    (USER_A,),
+                ),
+            )
+            self.assertEqual(
+                0,
+                fetch_scalar(
+                    self.conn,
+                    "SELECT count(*) FROM core.fact WHERE owner_id = %s",
+                    (USER_B,),
+                ),
+            )
+            with self.assertRaises(errors.InsufficientPrivilege):
+                self.conn.execute(
+                    "INSERT INTO core.fact"
+                    " (owner_id, fact_type, value_text, value_hash,"
+                    "  confirm_status, version_no, confirmed_at)"
+                    " VALUES (%s, 'gpa.rank', '9/120', %s, 'confirmed', 2, %s)",
+                    (USER_B, HASH, FIXED_FETCHED),
+                )
+        finally:
+            self.conn.rollback()
+            self.conn.execute("RESET ROLE")
+            self.conn.execute("RESET app.current_workspace_id")
+            self.conn.commit()
 
 
 if __name__ == "__main__":

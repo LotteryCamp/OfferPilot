@@ -34,7 +34,9 @@ from backend.agent.schemas import (
 from backend.clock import Clock
 from backend.config import Settings
 from backend.errors import ApiError
+from backend.fact_types import supported_fact_types
 from backend.schemas import AgentRunCreate
+from backend.services import facts as fact_service
 from backend.services.common import require_matter, transaction
 from backend.services.sources import SourceReader, read_public_html
 from backend.tables import agent_run
@@ -183,6 +185,12 @@ class AgentRunService:
                 next_step="完成模型传输授权后提交同意标识",
             )
 
+        expected_fact_versions, agent_facts = self._load_fact_context(
+            matter_id, body.confirmed_facts
+        )
+        confirmed_facts = dict(body.confirmed_facts)
+        confirmed_facts.update(agent_facts)
+
         run_id = f"run-{uuid4().hex[:12]}"
         self._create_run(
             run_id=run_id,
@@ -207,7 +215,10 @@ class AgentRunService:
             model_adapter=self._model_adapter,
             backend=backend,
             persistence=SqlCandidatePersistence(
-                self._settings, self._session_factory, self._clock
+                self._settings,
+                self._session_factory,
+                self._clock,
+                expected_fact_versions=expected_fact_versions,
             ),
             clock=self._clock.now,
         )
@@ -217,7 +228,8 @@ class AgentRunService:
             goal=body.goal or str(matter_row["goal"]),
             workspace_version=backend.get_workspace_version(str(matter_id)),
             source_urls=[str(url) for url in body.source_urls],
-            confirmed_facts=body.confirmed_facts,
+            confirmed_facts=confirmed_facts,
+            model_transfer_facts=body.confirmed_facts,
             model_transfer_consent_id=body.model_transfer_consent_id,
             scope_year=scope_year,
             scope_attrs=dict(matter_row["scope_attrs"] or {}),
@@ -418,6 +430,20 @@ class AgentRunService:
             ),
             clock=self._clock.now,
         )
+
+    def _load_fact_context(
+        self, matter_id: UUID, body_facts: dict[str, Any]
+    ) -> tuple[dict[str, int | None], dict[str, Any]]:
+        with self._session_factory() as session, transaction(session, self._settings):
+            relevant = fact_service.relevant_fact_types(session, matter_id)
+            fact_types = set(relevant) | set(body_facts) | set(supported_fact_types())
+            versions = fact_service.expected_fact_versions(
+                session, self._settings.demo_user_id, fact_types
+            )
+            values = fact_service.agent_fact_values(
+                session, self._settings.demo_user_id, fact_types
+            )
+        return versions, values
 
     def _create_run(
         self,

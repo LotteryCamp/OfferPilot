@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
 
@@ -108,10 +109,13 @@ class SqlCandidatePersistence:
         settings: Settings,
         session_factory: sessionmaker[Session],
         clock: Clock,
+        *,
+        expected_fact_versions: Mapping[str, int | None] | None = None,
     ) -> None:
         self._settings = settings
         self._session_factory = session_factory
         self._clock = clock
+        self._expected_fact_versions = expected_fact_versions
 
     def persist_requirements(
         self, matter_id: str, payload: dict[str, Any]
@@ -152,6 +156,7 @@ class SqlCandidatePersistence:
                     UUID(matter_id),
                     body,
                     now=self._clock.now(),
+                    expected_fact_versions=self._expected_fact_versions,
                 )
         except ApiError as exc:
             raise _to_persistence_error(exc) from exc

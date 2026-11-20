@@ -275,6 +275,7 @@ class RunContext(BaseModel):
     workspace_version: int = Field(ge=0)
     source_urls: list[str] = Field(default_factory=list)
     confirmed_facts: dict[str, Any] = Field(default_factory=dict)
+    model_transfer_facts: dict[str, Any] | None = None
     model_transfer_consent_id: str | None = None
     scope_year: int | None = None
     scope_attrs: dict[str, Any] = Field(default_factory=dict)

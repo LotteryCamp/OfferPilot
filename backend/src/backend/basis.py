@@ -68,6 +68,7 @@ def build_basis_input(
     matter_row: Mapping[str, Any],
     requirement_rows: Iterable[Mapping[str, Any]],
     source_rows: Iterable[Mapping[str, Any]],
+    fact_rows: Iterable[Mapping[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the normalized input that identifies one candidate basis.
 
@@ -82,6 +83,10 @@ def build_basis_input(
     sources = sorted(
         (_source_entry(row) for row in source_rows),
         key=lambda item: (item["source_id"], item["snapshot_id"]),
+    )
+    confirmed_facts = sorted(
+        (_fact_entry(row) for row in (fact_rows or [])),
+        key=lambda item: item["fact_type"],
     )
     return {
         "contract": {
@@ -98,7 +103,7 @@ def build_basis_input(
         },
         "requirements": requirements,
         "sources": sources,
-        "confirmed_facts": [],
+        "confirmed_facts": confirmed_facts,
     }
 
 
@@ -127,6 +132,15 @@ def _source_entry(row: Mapping[str, Any]) -> dict[str, Any]:
         "content_hash": row.get("content_hash"),
         "is_current": row.get("is_current"),
         "fetched_at": _datetime_text(row.get("fetched_at")),
+    }
+
+
+def _fact_entry(row: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "fact_type": row.get("fact_type"),
+        "fact_id": _uuid_text(row.get("fact_id")),
+        "version_no": row.get("version_no"),
+        "value_hash": row.get("value_hash"),
     }
 
 

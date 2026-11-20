@@ -2,9 +2,10 @@
 
 Alpha 核心演示的业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16。
 
-覆盖流程：创建个人事项、发起 Agent 运行读取来源并生成待确认候选、读取或登记来源与快照、写入候选要求、持久化并读取候选计划、确认或拒绝候选计划、读取确认后生成的任务。
+覆盖流程：创建个人事项、保存与读取个人事实、发起 Agent 运行读取来源并生成待确认候选、读取或登记来源与快照、写入候选要求、持久化并读取候选计划、确认或拒绝候选计划、读取确认后生成的任务。
 
 接口说明见 [`docs/backend/api.md`](../docs/backend/api.md)。
+个人事实接口见 [`docs/backend/facts.md`](../docs/backend/facts.md)。
 
 ## 前置条件
 
@@ -13,10 +14,10 @@ Alpha 核心演示的业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16�
 | Python | 3.13 |
 | uv | 最新稳定版 |
 | PostgreSQL | 16 及以上 |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0008` 已应用，参考数据与演示身份已写入 |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0011` 已应用，参考数据与演示身份已写入 |
 | 数据库角色 | 非所有者登录角色 `offerpilot_app`，具备 `core`、`ops` 模式访问权限 |
 
-数据库结构由数据库迁移交付，本模块不包含 DDL 与迁移执行器。目标库须先具备事项、来源、快照、要求、证据、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
+数据库结构由数据库迁移交付，本模块不包含 DDL 与迁移执行器。目标库须先具备事项、来源、快照、要求、证据、个人事实、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
 
 ## 安装
 
@@ -112,6 +113,7 @@ uv run ty check
 | `src/backend/tables.py` | Alpha schema 的 SQLAlchemy 表与视图映射 |
 | `src/backend/schemas.py` | 请求字段校验 |
 | `src/backend/basis.py` | 依据输入规范化与指纹 |
+| `src/backend/fact_types.py` | 个人事实类型注册表、校验与渲染 |
 | `src/backend/sources/` | 公开 HTML 来源读取、来源文档转换与命令行入口 |
 | `src/backend/agent/` | Agent 编排、运行契约与业务端口适配 |
 | `src/backend/services/` | 事项、来源、要求、计划、决定与任务业务 |

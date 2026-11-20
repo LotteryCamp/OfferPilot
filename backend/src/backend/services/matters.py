@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from backend.config import Settings
 from backend.errors import ApiError
 from backend.schemas import MatterCreate
+from backend.services import plans as plan_service
 from backend.services.common import (
     require_matter,
     serialize_matter_overview,
@@ -81,12 +82,22 @@ def create_matter(
 
 def list_matters(session: Session, settings: Settings) -> list[dict]:
     with transaction(session, settings):
-        rows = session.execute(
-            select(v_matter_overview)
-            .where(v_matter_overview.c.workspace_id == settings.demo_workspace_id)
-            .order_by(v_matter_overview.c.updated_at.desc())
-        ).mappings()
-        return [serialize_matter_overview(row) for row in rows]
+        rows = (
+            session.execute(
+                select(v_matter_overview)
+                .where(v_matter_overview.c.workspace_id == settings.demo_workspace_id)
+                .order_by(v_matter_overview.c.updated_at.desc())
+            )
+            .mappings()
+            .all()
+        )
+        latest_plan_ids = {
+            row["latest_plan_id"] for row in rows if row["latest_plan_id"] is not None
+        }
+        states = plan_service.basis_states_for_plan_ids(
+            session, settings, latest_plan_ids
+        )
+        return [_serialize_with_plan_state(row, states) for row in rows]
 
 
 def get_matter(session: Session, settings: Settings, matter_id: UUID) -> dict:
@@ -113,4 +124,23 @@ def _read_overview(session: Session, settings: Settings, matter_id: UUID) -> dic
             "未找到当前工作区中的事项",
             next_step="刷新事项列表后重试",
         )
-    return serialize_matter_overview(row)
+    latest_plan_id = row["latest_plan_id"]
+    states = plan_service.basis_states_for_plan_ids(
+        session,
+        settings,
+        {latest_plan_id} if latest_plan_id is not None else set(),
+    )
+    return _serialize_with_plan_state(row, states)
+
+
+def _serialize_with_plan_state(
+    row: dict,
+    states: dict,
+) -> dict:
+    latest_plan_id = row["latest_plan_id"]
+    basis_status, stale_facts = states.get(latest_plan_id, ("not_applicable", []))
+    return serialize_matter_overview(
+        row,
+        basis_status=basis_status,
+        stale_facts=stale_facts,
+    )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -19,6 +20,7 @@ from backend.basis import (
 from backend.config import Settings
 from backend.errors import ApiError
 from backend.schemas import CandidatePlanCreate, CandidatePlanItemInput
+from backend.services import facts as fact_service
 from backend.services.common import (
     iso,
     require_matter,
@@ -38,6 +40,7 @@ from backend.tables import (
     source,
     task,
     v_plan_detail,
+    workspace,
 )
 
 
@@ -48,9 +51,13 @@ def create_plan(
     body: CandidatePlanCreate,
     *,
     now: datetime,
+    expected_fact_versions: Mapping[str, int | None] | None = None,
 ) -> dict[str, Any]:
     with transaction(session, settings):
         require_matter(session, settings, matter_id, for_update=True)
+        fact_service.assert_fact_versions(
+            session, settings.demo_user_id, expected_fact_versions
+        )
         _validate_requirements(session, matter_id, body.items)
         _validate_sources(session, body.items)
 
@@ -133,29 +140,44 @@ def create_plan(
                 status="pending",
             )
         )
-        return _plan_detail(session, plan_id, settings.demo_workspace_id)
+        return _plan_detail(
+            session,
+            plan_id,
+            settings.demo_workspace_id,
+            settings.demo_user_id,
+        )
 
 
 def list_plans(session: Session, settings: Settings, matter_id: UUID) -> dict[str, Any]:
     with transaction(session, settings):
         require_matter(session, settings, matter_id)
-        rows = session.execute(
-            select(
-                v_plan_detail,
-                candidate_plan_decision.c.decision.label("decision_value"),
-                candidate_plan_decision.c.decided_at.label("decision_at"),
-                candidate_plan_decision.c.decided_by.label("decision_by"),
-                candidate_plan_decision.c.operation_id.label("decision_operation_id"),
+        rows = (
+            session.execute(
+                select(
+                    v_plan_detail,
+                    candidate_plan.c.basis_input,
+                    candidate_plan_decision.c.decision.label("decision_value"),
+                    candidate_plan_decision.c.decided_at.label("decision_at"),
+                    candidate_plan_decision.c.decided_by.label("decision_by"),
+                    candidate_plan_decision.c.operation_id.label(
+                        "decision_operation_id"
+                    ),
+                )
+                .join(candidate_plan, candidate_plan.c.id == v_plan_detail.c.id)
+                .outerjoin(
+                    candidate_plan_decision,
+                    candidate_plan_decision.c.plan_id == v_plan_detail.c.id,
+                )
+                .where(v_plan_detail.c.matter_id == matter_id)
+                .order_by(v_plan_detail.c.version_no.desc())
             )
-            .outerjoin(
-                candidate_plan_decision,
-                candidate_plan_decision.c.plan_id == v_plan_detail.c.id,
-            )
-            .where(v_plan_detail.c.matter_id == matter_id)
-            .order_by(v_plan_detail.c.version_no.desc())
-        ).mappings()
+            .mappings()
+            .all()
+        )
+        states = fact_service.plan_basis_states(session, rows, settings.demo_user_id)
         plans = []
         for row in rows:
+            basis_status, stale_facts = states[row["id"]]
             plans.append(
                 {
                     "id": uuid_text(row["id"]),
@@ -163,6 +185,8 @@ def list_plans(session: Session, settings: Settings, matter_id: UUID) -> dict[st
                     "version_no": row["version_no"],
                     "status": row["status"],
                     "basis_version": row["basis_version"],
+                    "basis_status": basis_status,
+                    "stale_facts": stale_facts,
                     "generated_at": iso(row["generated_at"]),
                     "confirmed_at": iso(row["confirmed_at"]),
                     "expired_at": iso(row["expired_at"]),
@@ -186,7 +210,39 @@ def list_plans(session: Session, settings: Settings, matter_id: UUID) -> dict[st
 
 def get_plan(session: Session, settings: Settings, plan_id: UUID) -> dict[str, Any]:
     with transaction(session, settings):
-        return _plan_detail(session, plan_id, settings.demo_workspace_id)
+        return _plan_detail(
+            session,
+            plan_id,
+            settings.demo_workspace_id,
+            settings.demo_user_id,
+        )
+
+
+def basis_states_for_plan_ids(
+    session: Session,
+    settings: Settings,
+    plan_ids: set[UUID],
+) -> dict[UUID, tuple[str, list[dict[str, Any]]]]:
+    if not plan_ids:
+        return {}
+    rows = (
+        session.execute(
+            select(
+                candidate_plan.c.id,
+                candidate_plan.c.matter_id,
+                candidate_plan.c.status,
+                candidate_plan.c.basis_input,
+            )
+            .join(matter, matter.c.id == candidate_plan.c.matter_id)
+            .where(
+                candidate_plan.c.id.in_(plan_ids),
+                matter.c.workspace_id == settings.demo_workspace_id,
+            )
+        )
+        .mappings()
+        .all()
+    )
+    return fact_service.plan_basis_states(session, rows, settings.demo_user_id)
 
 
 def collect_basis_input(
@@ -195,6 +251,9 @@ def collect_basis_input(
     matter_row = (
         session.execute(select(matter).where(matter.c.id == matter_id)).mappings().one()
     )
+    owner_id = session.execute(
+        select(workspace.c.owner_id).where(workspace.c.id == matter_row["workspace_id"])
+    ).scalar_one()
     requirement_rows = (
         session.execute(
             select(requirement)
@@ -240,10 +299,15 @@ def collect_basis_input(
         .mappings()
         .all()
     )
+    relevant_fact_types = fact_service.relevant_fact_types(session, matter_id)
+    fact_rows = fact_service.current_fact_entries(
+        session, owner_id, relevant_fact_types
+    )
     return build_basis_input(
         matter_row=matter_row,
         requirement_rows=requirement_rows,
         source_rows=source_rows,
+        fact_rows=fact_rows,
     )
 
 
@@ -438,7 +502,12 @@ def _validate_sources(session: Session, items: list[CandidatePlanItemInput]) -> 
             )
 
 
-def _plan_detail(session: Session, plan_id: UUID, workspace_id: UUID) -> dict[str, Any]:
+def _plan_detail(
+    session: Session,
+    plan_id: UUID,
+    workspace_id: UUID,
+    owner_id: UUID,
+) -> dict[str, Any]:
     plan_row = (
         session.execute(
             select(candidate_plan)
@@ -458,6 +527,9 @@ def _plan_detail(session: Session, plan_id: UUID, workspace_id: UUID) -> dict[st
             "未找到当前工作区中的候选计划",
             next_step="刷新候选计划列表后重试",
         )
+    basis_status, stale_facts = fact_service.plan_basis_state(
+        session, plan_row, owner_id
+    )
     matter_row = (
         session.execute(select(matter).where(matter.c.id == plan_row["matter_id"]))
         .mappings()
@@ -617,6 +689,8 @@ def _plan_detail(session: Session, plan_id: UUID, workspace_id: UUID) -> dict[st
         "version_no": plan_row["version_no"],
         "status": plan_row["status"],
         "basis_version": plan_row["basis_version"],
+        "basis_status": basis_status,
+        "stale_facts": stale_facts,
         "generated_at": iso(plan_row["generated_at"]),
         "confirmed_at": iso(plan_row["confirmed_at"]),
         "expired_at": iso(plan_row["expired_at"]),

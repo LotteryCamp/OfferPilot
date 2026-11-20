@@ -345,6 +345,7 @@ def _map_persistence_error(exc: PersistenceApiError) -> AgentError:
         "plan_expired",
         "plan_already_decided",
         "plan_not_pending",
+        "version_conflict",
     }:
         return AgentError(
             code=AgentErrorCode.VERSION_CONFLICT,

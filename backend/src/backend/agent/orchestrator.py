@@ -124,7 +124,12 @@ class AgentOrchestrator:
 
         run_id = run_id or f"run-{uuid4().hex[:12]}"
         records = []
-        requires_transfer_consent = bool(context.confirmed_facts or context.scope_attrs)
+        transfer_facts = (
+            context.model_transfer_facts
+            if context.model_transfer_facts is not None
+            else context.confirmed_facts
+        )
+        requires_transfer_consent = bool(transfer_facts or context.scope_attrs)
 
         if self._persistence is None:
             err = AgentError(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import gzip
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -41,6 +41,8 @@ TRANSFER_CONSENT_ID = "consent-alpha-demo"
 class _ReplayState:
     def __init__(self) -> None:
         self.source: PublicSourceResult | None = None
+        self.requirement_field_key = "application.deadline"
+        self.before_candidate_plan: Callable[[], None] | None = None
 
 
 def _fixture_reader(state: _ReplayState):
@@ -78,7 +80,7 @@ def _replay_call_model(state: _ReplayState):
                         requirement_id="GR-02",
                         title="向学院提交申请材料截止",
                         obligation=ObligationType.OFFICIAL_REQUIRED,
-                        field_key="application.deadline",
+                        field_key=state.requirement_field_key,
                         scope="2027 届、福州大学数学与统计学院、校内推荐申请",
                         value_text="2026-09-10T15:00:00+08:00",
                         value_type="text",
@@ -103,6 +105,9 @@ def _replay_call_model(state: _ReplayState):
                 },
             )
             return response_model.model_validate(extracted.model_dump())
+
+        if state.before_candidate_plan is not None:
+            state.before_candidate_plan()
 
         plan_payload = CandidatePlanDraftPayload(
             tasks=[
@@ -152,6 +157,7 @@ def agent_client(
         model_adapter=StructuredModelAdapter(_replay_call_model(state)),
         agent_source_reader=_fixture_reader(state),
     )
+    app.state.replay_state = state
     with TestClient(app) as client:
         yield client
 
@@ -401,6 +407,94 @@ def test_unknown_run_returns_not_found(agent_client: TestClient) -> None:
     response = agent_client.get("/api/v1/agent-runs/run-missing")
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "agent_run_not_found"
+
+
+def test_agent_run_records_confirmed_rank_fact(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = agent_client.app.state.replay_state
+    state.requirement_field_key = "gpa.rank"
+    saved = agent_client.put(
+        "/api/v1/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+    fact = saved.json()["fact"]
+
+    matter_id = _create_matter(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
+            "operation_id": "rank-fact-operation",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认", run["error"]
+
+    plan_row = admin.execute(
+        "SELECT basis_input FROM core.candidate_plan WHERE id = %s",
+        (UUID(run["persisted_plan_id"]),),
+    ).fetchone()
+    assert plan_row is not None
+    assert plan_row[0]["confirmed_facts"] == [
+        {
+            "fact_type": "gpa.rank",
+            "fact_id": fact["id"],
+            "version_no": 1,
+            "value_hash": fact["value_hash"],
+        }
+    ]
+
+
+def test_agent_run_rejects_fact_version_change(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = agent_client.app.state.replay_state
+    state.requirement_field_key = "gpa.rank"
+    saved = agent_client.put(
+        "/api/v1/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+    matter_id = _create_matter(agent_client)
+
+    def change_fact() -> None:
+        state.before_candidate_plan = None
+        changed = agent_client.put(
+            "/api/v1/facts/gpa.rank",
+            json={"value": {"position": 8, "cohort_size": 120}},
+        )
+        assert changed.status_code == 200, changed.text
+        assert changed.json()["fact"]["version_no"] == 2
+
+    state.before_candidate_plan = change_fact
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "model_transfer_consent_id": TRANSFER_CONSENT_ID,
+            "operation_id": "rank-version-conflict",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "失败"
+    assert run["error"]["code"] == "VERSION_CONFLICT"
+    assert run["persisted_plan_id"] is None
+
+    plan_count = admin.execute(
+        "SELECT count(*) FROM core.candidate_plan WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert plan_count is not None
+    assert plan_count[0] == 0
 
 
 def _create_matter(client: TestClient) -> str:

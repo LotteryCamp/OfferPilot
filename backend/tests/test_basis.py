@@ -94,3 +94,63 @@ def test_basis_changes_when_source_status_changes() -> None:
     assert compute_basis_version(active) != compute_basis_version(withdrawn)
     assert active["matter"]["template_version_id"] == str(TEMPLATE_ID)
     assert active["confirmed_facts"] == []
+
+
+def test_basis_sorts_confirmed_facts_by_type() -> None:
+    rank_fact = {
+        "fact_type": "gpa.rank",
+        "fact_id": UUID("00000000-0000-7000-8000-000000000011"),
+        "version_no": 2,
+        "value_hash": "c" * 64,
+    }
+    english_fact = {
+        "fact_type": "cet6.score",
+        "fact_id": UUID("00000000-0000-7000-8000-000000000012"),
+        "version_no": 1,
+        "value_hash": "d" * 64,
+    }
+    first = build_basis_input(
+        matter_row=_matter(),
+        requirement_rows=[_requirement()],
+        source_rows=[_source()],
+        fact_rows=[rank_fact, english_fact],
+    )
+    second = build_basis_input(
+        matter_row=_matter(),
+        requirement_rows=[_requirement()],
+        source_rows=[_source()],
+        fact_rows=[english_fact, rank_fact],
+    )
+    assert compute_basis_version(first) == compute_basis_version(second)
+    assert [item["fact_type"] for item in first["confirmed_facts"]] == [
+        "cet6.score",
+        "gpa.rank",
+    ]
+
+
+def test_basis_changes_when_fact_version_changes() -> None:
+    first_fact = {
+        "fact_type": "gpa.rank",
+        "fact_id": UUID("00000000-0000-7000-8000-000000000011"),
+        "version_no": 1,
+        "value_hash": "c" * 64,
+    }
+    next_fact = {
+        "fact_type": "gpa.rank",
+        "fact_id": UUID("00000000-0000-7000-8000-000000000012"),
+        "version_no": 2,
+        "value_hash": "d" * 64,
+    }
+    first = build_basis_input(
+        matter_row=_matter(),
+        requirement_rows=[_requirement()],
+        source_rows=[_source()],
+        fact_rows=[first_fact],
+    )
+    second = build_basis_input(
+        matter_row=_matter(),
+        requirement_rows=[_requirement()],
+        source_rows=[_source()],
+        fact_rows=[next_fact],
+    )
+    assert compute_basis_version(first) != compute_basis_version(second)

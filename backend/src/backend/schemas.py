@@ -57,6 +57,12 @@ class AgentRunConfirm(RequestModel):
     plan_id: UUID | None = None
 
 
+class FactSaveRequest(RequestModel):
+    value: dict[str, Any]
+    scope: str | None = Field(default=None, max_length=200)
+    valid_from: date | None = None
+
+
 class SourceFragmentInput(RequestModel):
     locator_kind: Literal["section", "page", "text_span", "table_row", "list_item"]
     locator: str = Field(min_length=1, max_length=300)

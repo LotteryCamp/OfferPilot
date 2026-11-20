@@ -87,7 +87,12 @@ def json_object(value: Any) -> dict[str, Any] | None:
     return None
 
 
-def serialize_matter_overview(row: Mapping[str, Any]) -> dict[str, Any]:
+def serialize_matter_overview(
+    row: Mapping[str, Any],
+    *,
+    basis_status: str = "not_applicable",
+    stale_facts: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "id": uuid_text(row["id"]),
         "workspace_id": uuid_text(row["workspace_id"]),
@@ -110,6 +115,8 @@ def serialize_matter_overview(row: Mapping[str, Any]) -> dict[str, Any]:
                 "id": uuid_text(row["latest_plan_id"]),
                 "status": row["latest_plan_status"],
                 "version_no": row["latest_plan_version"],
+                "basis_status": basis_status,
+                "stale_facts": stale_facts or [],
             }
             if row["latest_plan_id"] is not None
             else None

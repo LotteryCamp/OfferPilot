@@ -73,6 +73,15 @@ plan_status = ENUM(
     schema="core",
     create_type=False,
 )
+fact_status = ENUM(
+    "draft",
+    "confirmed",
+    "superseded",
+    "revoked",
+    name="fact_status",
+    schema="core",
+    create_type=False,
+)
 task_status = ENUM(
     "pending",
     "ready",
@@ -240,6 +249,26 @@ requirement_self_check = Table(
     Column("computed_deadline_at", TIMESTAMPTZ),
     Column("gaps", JSONB, nullable=False),
     Column("evaluated_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
+fact = Table(
+    "fact",
+    metadata,
+    Column("id", UUID_TYPE, primary_key=True),
+    Column("owner_id", UUID_TYPE, nullable=False),
+    Column("fact_type", String(48), nullable=False),
+    Column("value_text", Text, nullable=False),
+    Column("value_json", JSONB, nullable=False),
+    Column("value_hash", CHAR(64), nullable=False),
+    Column("scope", String(200)),
+    Column("valid_from", Date),
+    Column("trust_level", String(16), nullable=False),
+    Column("confirm_status", fact_status, nullable=False),
+    Column("version_no", Integer, nullable=False),
+    Column("confirmed_at", TIMESTAMPTZ),
+    Column("superseded_at", TIMESTAMPTZ),
+    Column("created_at", TIMESTAMPTZ, nullable=False),
     schema="core",
 )
 

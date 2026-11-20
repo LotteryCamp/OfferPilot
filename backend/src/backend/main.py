@@ -17,7 +17,7 @@ from backend.clock import Clock, SystemClock
 from backend.config import Settings
 from backend.db import build_engine, build_session_factory
 from backend.errors import install_exception_handlers
-from backend.routers import agent_runs, matters, plans, sources, tasks
+from backend.routers import agent_runs, facts, matters, plans, sources, tasks
 from backend.routers.deps import SessionDep
 from backend.services.agent_runs import AgentRunService
 from backend.services.sources import SourceReader, read_public_html
@@ -76,6 +76,7 @@ def create_app(
         return {"status": "ok"}
 
     app.include_router(matters.router, prefix=resolved.api_prefix)
+    app.include_router(facts.router, prefix=resolved.api_prefix)
     app.include_router(sources.router, prefix=resolved.api_prefix)
     app.include_router(plans.router, prefix=resolved.api_prefix)
     app.include_router(tasks.router, prefix=resolved.api_prefix)

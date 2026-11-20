@@ -102,6 +102,7 @@ def _decision_response(result: decision_service.DecisionResult):
                 details={
                     "plan_id": str(result.plan_id),
                     "current_basis_version": result.current_basis_version,
+                    "stale_facts": result.stale_facts,
                 },
             ),
         )
