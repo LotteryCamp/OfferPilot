@@ -36,6 +36,27 @@ class MatterCreate(RequestModel):
     scope_attrs: dict[str, Any] = Field(default_factory=dict)
 
 
+class AgentRunCreate(RequestModel):
+    source_urls: list[HttpUrl] = Field(min_length=1, max_length=10)
+    goal: str | None = Field(default=None, min_length=1, max_length=200)
+    publisher: str = Field(default="官方公开来源", min_length=1, max_length=160)
+    scope: str | None = Field(default=None, max_length=200)
+    scope_year: int | None = Field(default=None, ge=2020, le=2100)
+    confirmed_facts: dict[str, Any] = Field(default_factory=dict)
+    model_transfer_consent_id: str | None = Field(default=None, max_length=200)
+    operation_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+    @field_validator("source_urls")
+    @classmethod
+    def check_source_urls(cls, value: list[HttpUrl]) -> list[HttpUrl]:
+        return [_check_public_url(url) for url in value]
+
+
+class AgentRunConfirm(RequestModel):
+    candidate_version: int = Field(ge=1)
+    plan_id: UUID | None = None
+
+
 class SourceFragmentInput(RequestModel):
     locator_kind: Literal["section", "page", "text_span", "table_row", "list_item"]
     locator: str = Field(min_length=1, max_length=300)

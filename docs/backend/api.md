@@ -14,11 +14,12 @@
 
 - 创建个人事项，读取事项列表与事项详情。
 - 读取公开 HTML 来源或登记调用方提供的正文与快照，按事项读取来源链。
+- 创建 Agent 运行，由后端完成来源读取、要求提取、条件自查与候选计划持久化。
 - 持久化候选要求、候选计划、计划项及计划项出处。
 - 读取候选计划，由用户确认或拒绝。
 - 确认后生成个人任务，读取任务及其来源定位。
 
-来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划由 Agent 生成后通过本接口持久化，接口本身不调用模型。
+来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划可以直接写入，也可以由 Agent 运行读取公开来源后生成并持久化。
 
 ## 2. 通用约定
 
@@ -96,6 +97,8 @@ Alpha 当前没有登录能力，接口使用固定演示身份：
 sequenceDiagram
     participant Client as 前端
     participant API as 业务 API
+    participant Agent as Agent 编排
+    participant Model as 模型服务
     participant Web as 公开来源
     participant DB as PostgreSQL
 
@@ -103,31 +106,30 @@ sequenceDiagram
     API->>DB: 写入 core.matter
     API-->>Client: 事项
 
-    Client->>API: POST /matters/{id}/sources/read
-    API->>Web: 读取公开 HTML
-    Web-->>API: HTML
+    Client->>API: POST /matters/{id}/agent-runs
+    API->>Agent: 创建运行
+    Agent->>Web: 读取公开 HTML
+    Web-->>Agent: HTML
+    Agent->>API: 登记来源与快照
     API->>DB: 写入 ops.source / ops.snapshot
-    API-->>Client: 来源、快照与 Agent 来源文档
-
-    Client->>API: POST /matters/{id}/requirements
+    Agent->>Model: 提取要求并生成候选
+    Model-->>Agent: 结构化候选与出处
+    Agent->>API: 提交候选
     API->>DB: 写入 core.requirement / ops.evidence
-    API-->>Client: 候选要求
-
-    Client->>API: POST /matters/{id}/candidate-plans
     API->>DB: 写入候选计划、计划项、项来源、依据指纹
-    API-->>Client: 候选计划
+    API-->>Client: 运行进入等待确认
 
     Client->>API: GET /candidate-plans/{plan_id}
     API-->>Client: 待确认候选及出处
 
     alt 用户确认
-        Client->>API: POST /candidate-plans/{plan_id}/confirm
+        Client->>API: POST /agent-runs/{run_id}/confirm
         API->>DB: 重算依据、记录决定、创建任务
-        API-->>Client: 决定与任务
+        API-->>Client: 运行完成与任务
     else 用户拒绝
-        Client->>API: POST /candidate-plans/{plan_id}/reject
+        Client->>API: POST /agent-runs/{run_id}/reject
         API->>DB: 记录拒绝决定
-        API-->>Client: 拒绝决定
+        API-->>Client: 运行取消
     end
 
     Client->>API: GET /matters/{id}/tasks
@@ -947,7 +949,187 @@ sequenceDiagram
 
 任务读取通过 `plan_item_id` 关联计划项来源，返回快照、定位和引文。仅确认候选计划会创建任务；拒绝、过期或待确认计划不会产生任务。
 
-## 7. 依据指纹
+## 7. Agent 运行
+
+Agent 运行位于后端业务服务之后，以“运行”为单位完成来源读取与登记、结构化要求提取、四态自查和候选计划持久化。运行只生成待确认候选，不创建正式任务；用户确认后才写入任务。
+
+运行检查点保存在业务服务进程内。候选要求、候选计划、计划项和决定持久化在数据库中；进程重启后可以通过候选计划接口继续读取和决定已持久化候选。
+
+### 7.1 创建运行
+
+`POST /api/v1/matters/{matter_id}/agent-runs`
+
+请求字段：
+
+| 字段 | 类型 | 必填 | 约束 |
+| :--- | :--- | :--- | :--- |
+| `source_urls` | string[] | 是 | 1—10 个公开 HTTP/HTTPS URL，单个最长 500 字符，不允许内嵌凭据 |
+| `goal` | string | 否 | 1—200 字符；省略时使用事项目标 |
+| `publisher` | string | 否 | 1—160 字符，默认 `官方公开来源` |
+| `scope` | string | 否 | 最长 200 字符 |
+| `scope_year` | integer | 否 | 2020—2100，须与事项年度一致；省略时使用事项年度 |
+| `confirmed_facts` | object | 否 | 已确认的个人事实，默认空对象 |
+| `model_transfer_consent_id` | string | 否 | 最长 200 字符 |
+| `operation_id` | string | 否 | 1—200 字符；同一事项重复提交时返回首次运行结果 |
+
+请求示例：
+
+```json
+{
+  "source_urls": [
+    "https://math.fzu.edu.cn/info/1171/10393.htm"
+  ],
+  "publisher": "福州大学数学与统计学院",
+  "scope": "2027 届、本院、校内推免推荐",
+  "operation_id": "run-2026-09-09-001"
+}
+```
+
+响应 `200`：
+
+```json
+{
+  "run": {
+    "run_id": "run-6f1c0e37c2ab",
+    "status": "等待确认",
+    "extracted_requirements": [
+      {
+        "requirement_id": "GR-02",
+        "title": "向学院提交申请材料截止",
+        "obligation": "官方必需",
+        "basis": [
+          {
+            "source_version_id": "b0000000-0000-4000-8000-000000000002",
+            "source_id": "b0000000-0000-4000-8000-000000000001",
+            "snapshot_id": "b0000000-0000-4000-8000-000000000002",
+            "locator_kind": "text_span",
+            "locator": "第31段，字符[0:124]",
+            "excerpt": "2026年9月10日下午15:00前"
+          }
+        ]
+      }
+    ],
+    "evaluations": [],
+    "gaps": [],
+    "scope_summary": {
+      "scope_year": 2027,
+      "school": "福州大学",
+      "college": "数学与统计学院"
+    },
+    "candidate_plan": null,
+    "persisted_requirement_ids": [
+      "c0000000-0000-4000-8000-000000000001"
+    ],
+    "persisted_plan_id": "e0000000-0000-4000-8000-000000000001",
+    "written_tasks": [],
+    "error": null,
+    "execution_records": []
+  }
+}
+```
+
+`status` 取值：
+
+| 值 | 含义 |
+| :--- | :--- |
+| `运行中` | 运行正在执行 |
+| `等待用户` | 来源不足或要求存在缺口，等待用户补充 |
+| `等待确认` | 候选计划已持久化，等待用户确认或拒绝 |
+| `已完成` | 用户已确认，正式任务已写入 |
+| `失败` | 运行失败，`error` 给出错误码与说明 |
+| `已取消` | 用户拒绝候选或取消运行 |
+
+运行成功进入 `等待确认` 时：
+
+- 来源与快照按 4.1 的规则登记。
+- 候选要求与证据写入 `core.requirement` 与 `ops.evidence`。
+- 候选计划、计划项与计划项出处写入 `core.candidate_plan`、`core.candidate_plan_item` 与 `core.candidate_plan_item_source`。
+- `persisted_plan_id` 指向可读取、可确认或拒绝的 `pending` 候选计划。
+- 不创建 `core.task`。
+
+运行结果为 `失败` 或 `等待用户` 时，`error.code` 取值：
+
+| `error.code` | 含义 |
+| :--- | :--- |
+| `SOURCE_UNAVAILABLE` | 来源不可用或未取得可用来源 |
+| `MISSING_PERSONAL_FACT` | 缺少个人事实，等待用户补充 |
+| `RULE_CONFLICT_OR_AMBIGUOUS` | 规则冲突或原文存在歧义 |
+| `MODEL_ERROR` | 模型调用失败或输出不符合结构契约 |
+| `TIMEOUT` | 来源、模型或工具调用超时 |
+| `VALIDATION_FAILED` | 候选不符合接口或领域约束 |
+| `VERSION_CONFLICT` | 工作区版本已变化 |
+| `DEADLINE_EXPIRED` | 候选任务对应的官方期限已过 |
+
+### 7.2 读取运行
+
+`GET /api/v1/agent-runs/{run_id}`
+
+响应结构同创建运行的 `run` 对象。运行不存在或不在当前进程中时返回 `404 agent_run_not_found`。
+
+### 7.3 确认运行
+
+`POST /api/v1/agent-runs/{run_id}/confirm`
+
+请求头：
+
+| 请求头 | 必填 | 约束 |
+| :--- | :--- | :--- |
+| `Idempotency-Key` | 是 | UUID 字符串 |
+
+请求体：
+
+```json
+{
+  "candidate_version": 1,
+  "plan_id": "e0000000-0000-4000-8000-000000000001"
+}
+```
+
+`plan_id` 可省略，省略时使用运行检查点绑定的候选计划。确认沿用 5.4 的事务语义：重算依据指纹、检查官方期限与来源可用性，再写入决定与任务。
+
+响应 `200`：
+
+```json
+{
+  "run": {
+    "run_id": "run-6f1c0e37c2ab",
+    "status": "已完成",
+    "written_tasks": [
+      {
+        "task_id": "71000000-0000-4000-8000-000000000001",
+        "matter_id": "a0000000-0000-4000-8000-000000000001",
+        "title": "准备并提交申请表、奖项证明及成绩单",
+        "obligation": "官方必需",
+        "official_deadline": "2026-09-10T15:00:00+08:00",
+        "suggested_date": "2026-09-09",
+        "depends_on": [],
+        "evidence_required": "已准备申请表、科研与竞赛证明、成绩单"
+      }
+    ],
+    "error": null
+  }
+}
+```
+
+### 7.4 拒绝运行
+
+`POST /api/v1/agent-runs/{run_id}/reject`
+
+请求头与确认相同。拒绝只记录 `rejected` 决定，不创建任务。响应 `200`，`run.status` 为 `已取消`，`written_tasks` 为空。
+
+### 7.5 取消运行
+
+`POST /api/v1/agent-runs/{run_id}/cancel`
+
+停止后续工具调用。已经写入的任务或决定保持不变。响应 `200`，运行状态转为 `已取消`。
+
+### 7.6 运行结果与错误
+
+运行生命周期请求返回 `200` 和完整 `run` 对象；`run.status` 与 `run.error` 表达运行结果。请求字段校验失败返回 `422 validation_error`，运行不存在返回 `404 agent_run_not_found`。
+
+Alpha 向模型发送公开来源正文、事项目标和适用范围，不发送个人事实或材料。演示用户身份即本次模型传输的授权范围。
+
+## 8. 依据指纹
 
 `basis_version` 是规范化依据输入的 SHA-256。输入使用对象键排序、数组按稳定标识排序、保留显式空值、紧凑 UTF-8 JSON 编码。生成时间和请求随机标识不进入指纹。
 
@@ -970,7 +1152,7 @@ sequenceDiagram
 
 候选计划进入 `pending` 后，计划项与来源关联保持不变。需要修改内容时，创建新的候选计划版本。
 
-## 8. 状态值
+## 9. 状态值
 
 | 对象 | 字段 | 允许值 |
 | :--- | :--- | :--- |
@@ -983,16 +1165,18 @@ sequenceDiagram
 | 候选计划 | `status` | `draft`、`pending`、`confirmed`、`rejected`、`expired` |
 | 计划决定 | `decision` | `confirmed`、`rejected` |
 | 任务 | `status` | `pending`、`ready`、`in_progress`、`blocked`、`done`、`cancelled` |
+| Agent 运行 | `status` | `运行中`、`等待用户`、`等待确认`、`已完成`、`失败`、`已取消` |
 
 本接口创建的事项为 `draft`，创建的候选计划为 `pending`，确认后创建的任务为 `pending`。
 
-## 9. 错误码
+## 10. 错误码
 
 | HTTP 状态 | `code` | 含义 |
 | :--- | :--- | :--- |
 | 400 | `invalid_idempotency_key` | `Idempotency-Key` 不是 UUID |
 | 404 | `matter_not_found` | 事项不存在或不属于当前工作区 |
 | 404 | `plan_not_found` | 候选计划不存在或不属于当前工作区 |
+| 404 | `agent_run_not_found` | Agent 运行不存在或不在当前进程中 |
 | 409 | `source_conflict` | 同一 URL 的来源元数据不一致，或来源标识冲突 |
 | 409 | `snapshot_conflict` | 快照标识或内容归属冲突 |
 | 409 | `operation_conflict` | 幂等键已用于其他计划或决定 |
@@ -1016,7 +1200,7 @@ sequenceDiagram
 | 500 | `demo_identity_missing` | 演示用户或工作区不存在 |
 | 500 | `internal_error` | 未预期的服务错误 |
 
-## 10. 数据库依赖
+## 11. 数据库依赖
 
 接口依赖以下 Alpha 结构：
 
@@ -1034,11 +1218,12 @@ sequenceDiagram
 
 数据库须启用行级安全，API 使用非所有者角色 `offerpilot_app` 连接。表所有者会绕过行级安全，不应用于 API 连接。
 
-## 11. 演示限制
+## 12. 演示限制
 
 - 无登录与账户切换，所有请求使用固定演示身份。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
-- 来源读取只访问公开 HTML 页面；不解析 PDF 与附件，不调用模型、不生成材料、不执行外部提交。
+- 来源读取只访问公开 HTML 页面；不解析 PDF 与附件、不生成材料、不执行外部提交。
+- Agent 运行检查点保存在进程内；进程重启后通过候选计划接口继续处理已持久化候选。
 - 不提供跨设备、多用户共享与权限管理。
 - 官方期限只按调用方提供的计划项字段判断；接口不推断未给出的时刻。
 
