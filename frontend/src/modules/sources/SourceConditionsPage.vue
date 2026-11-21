@@ -7,6 +7,7 @@ import RequirementList from './RequirementList.vue'
 import SourceImport from './SourceImport.vue'
 import RankingSupplement from './RankingSupplement.vue'
 import AgentAnalysis from '../analysis/AgentAnalysis.vue'
+import { AnalysisNotStartedError } from '../analysis/trigger'
 import type { SourceReadResult } from './contracts'
 import { useSourcesStore } from './store'
 import {
@@ -100,8 +101,13 @@ function sourceChanged() {
 }
 
 async function recheckRanking(sourceId: string | null) {
-  if (!sourceId || analysisSource.value?.id !== sourceId) return null
-  return (await analysisPanel.value?.start(sourceId)) ?? null
+  if (!sourceId)
+    throw new AnalysisNotStartedError('保存排名前尚未选中来源，请选择来源后仅重新自查。')
+  if (analysisSource.value?.id !== sourceId)
+    throw new AnalysisNotStartedError('保存期间选中的来源已变化，请核对后仅重新自查。')
+  if (!analysisPanel.value)
+    throw new AnalysisNotStartedError('分析页面尚未就绪，请稍后仅重新自查。')
+  return analysisPanel.value.startAfterRanking(sourceId)
 }
 
 function selectSource(id: string) {
@@ -162,7 +168,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
       :matter-id="matterId"
       :source-id="analysisSource?.id ?? null"
       :analysis-busy="analysisPanel?.busy ?? false"
-      :recheck-unavailable="analysisPanel?.blockedReason ?? '分析入口正在准备，请稍后重试。'"
+      :recheck-unavailable="analysisPanel?.recheckBlockedReason ?? '分析入口正在准备，请稍后重试。'"
       :recheck="recheckRanking"
       @changed="sourceChanged"
     />

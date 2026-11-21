@@ -8,6 +8,8 @@ import { canStartAnotherRun, runStatusText } from './contracts'
 import { useAnalysis } from './useAnalysis'
 import { useTransferConsent } from './useTransferConsent'
 import { consentBlockReason, transferScopeLabel } from './consentContracts'
+import { AnalysisNotStartedError, analysisTriggerBlockReason } from './trigger'
+import type { AnalysisTrigger } from './trigger'
 
 const props = defineProps<{
   matter: Matter
@@ -38,7 +40,6 @@ const {
 const canStart = computed(
   () =>
     !busy.value &&
-    !props.rankingSaving &&
     !checking.value &&
     storageReady.value &&
     props.source !== null &&
@@ -48,8 +49,7 @@ const canStart = computed(
       run.value?.status ?? (attempt.value?.status === '不可查询' ? null : attempt.value?.status),
     ),
 )
-const blockedReason = computed(() => {
-  if (props.rankingSaving) return '排名正在保存和核对，请稍后重试。'
+const commonBlockedReason = computed(() => {
   if (busy.value || checking.value) return '分析正在执行或查询，请等待当前操作结束。'
   if (!storageReady.value) return '浏览器无法保存运行标识，请先检查会话存储。'
   if (!props.source || !safeSourceUrl(props.source.url)) return '请先选择可分析的公开来源。'
@@ -58,11 +58,25 @@ const blockedReason = computed(() => {
   if (!canStart.value) return '请先核对当前运行状态，再重新发起。'
   return ''
 })
+const blockedReason = computed(() =>
+  analysisTriggerBlockReason(props.rankingSaving, commonBlockedReason.value, 'manual'),
+)
+const recheckBlockedReason = computed(() =>
+  analysisTriggerBlockReason(props.rankingSaving, commonBlockedReason.value, 'saved-ranking'),
+)
 
-async function start(expectedSourceId?: string) {
-  const source = props.source
-  if (!source || blockedReason.value || (expectedSourceId && source.id !== expectedSourceId))
+async function startRun(trigger: AnalysisTrigger, expectedSourceId?: string) {
+  function stop(reason: string): null {
+    error.value = `尚未发起分析：${reason}`
+    if (trigger === 'saved-ranking') throw new AnalysisNotStartedError(reason)
     return null
+  }
+  const source = props.source
+  const reason = trigger === 'manual' ? blockedReason.value : recheckBlockedReason.value
+  if (reason) return stop(reason)
+  if (!source) return stop('当前没有选中的来源，请重新选择。')
+  if (expectedSourceId && source.id !== expectedSourceId)
+    return stop('保存期间选中的来源已变化，请核对后重新自查。')
   if (
     attempt.value &&
     attempt.value.status === null &&
@@ -70,29 +84,38 @@ async function start(expectedSourceId?: string) {
       '上次请求的结果尚未确认，可能仍在执行。重新发起会产生另一批分析，请先核对已保存结果。是否继续？',
     )
   )
-    return null
+    return stop('已取消再次发起，请先核对上次请求的已保存结果。')
   const url = safeSourceUrl(source.url)
-  if (!url) return null
+  if (!url) return stop('来源链接不可分析，请重新选择。')
   const context = props.matter.id
   const currentConsent = await transfer.refresh()
-  if (
-    !currentConsent ||
-    props.matter.id !== context ||
-    props.source?.id !== source.id ||
-    consentBlockReason(currentConsent)
-  )
-    return null
+  if (!currentConsent) return stop(transferError.value || '未能核对模型传输授权，请重新读取。')
+  if (props.matter.id !== context) return stop('当前事项已切换，原事项的自查未发起。')
+  if (props.source?.id !== source.id) return stop('读取授权期间来源已变化，请核对后重新自查。')
+  const consentReason = consentBlockReason(currentConsent)
+  if (consentReason) return stop(consentReason)
+  const previousOperation = attempt.value?.operationId
   const result = await analysis.start(source.id, {
     source_urls: [url],
     publisher: source.publisher,
     scope_year: source.scope_year,
     ...(source.scope ? { scope: source.scope } : {}),
   })
+  if (!result && props.matter.id === context && attempt.value?.operationId === previousOperation)
+    return stop(error.value || '分析入口未建立新请求，请核对运行状态后重试。')
   if (!result && props.matter.id === context) await transfer.refresh()
   return result
 }
+function start() {
+  return startRun('manual')
+}
+function startAfterRanking(sourceId: string) {
+  return startRun('saved-ranking', sourceId)
+}
 defineExpose({
   start,
+  startAfterRanking,
+  recheckBlockedReason,
   busy: computed(() => busy.value || checking.value || consentBusy.value),
   blockedReason,
 })
@@ -224,7 +247,9 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
       >
     </div>
     <p v-if="blockedReason && !busy && !checking" class="muted">{{ blockedReason }}</p>
-    <p v-if="busy" role="status">正在等待分析返回，请勿重复提交。离开页面不会停止后台运行。</p>
+    <p v-if="busy" role="status">
+      正在等待完整分析流程返回，真实模型可能需要数分钟，请勿重复提交。离开页面不会停止后台运行。
+    </p>
     <p v-if="error" class="error-text" role="alert" data-testid="analysis-error">{{ error }}</p>
     <section
       v-if="run"

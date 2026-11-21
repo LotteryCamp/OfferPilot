@@ -63,13 +63,22 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
   }
 
   async function start(sourceId: string, input: Omit<AnalysisInput, 'operation_id'>) {
-    if (busy.value || checking.value || !storageReady.value) return null
+    if (busy.value || checking.value) {
+      error.value = '已有分析正在执行或查询，请等待当前操作结束。'
+      return null
+    }
+    if (!storageReady.value) {
+      error.value = '会话存储不可用，尚未发起分析，请先检查浏览器设置。'
+      return null
+    }
     if (
       !canStartAnotherRun(
         run.value?.status ?? (attempt.value?.status === '不可查询' ? null : attempt.value?.status),
       )
-    )
+    ) {
+      error.value = `当前运行状态不允许再次发起：${run.value?.status ?? attempt.value?.status}`
       return null
+    }
     const context = matterId()
     const ticket = generation
     error.value = ''
