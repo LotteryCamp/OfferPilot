@@ -21,9 +21,9 @@ concurrency:
 
 jobs:
   frontend:
-    name: Lint, format, types, and unit tests
+    name: Lint, format, types, unit, and browser tests
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -54,3 +54,11 @@ jobs:
       - name: Run unit tests
         working-directory: frontend
         run: npm run test:unit
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests
+        working-directory: frontend
+        run: npm run test:e2e
