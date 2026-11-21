@@ -83,8 +83,8 @@ export function usePlanReview(onChanged: () => void) {
     }
   }
 
-  async function load(id: string) {
-    const preferred = matterId === id ? selectedId.value : ''
+  async function load(id: string, linkedId?: string) {
+    const preferred = linkedId ?? (matterId === id ? selectedId.value : '')
     cancelRead()
     const ticket = generation
     if (matterId !== id) submitting.value = false
@@ -104,7 +104,12 @@ export function usePlanReview(onChanged: () => void) {
       const result = await listPlans(id, request.signal)
       if (ticket !== generation) return
       plans.value = result
-      const target = result.find((item) => item.id === preferred) ?? result[0]
+      const selected = result.find((item) => item.id === preferred)
+      if (linkedId !== undefined && !selected) {
+        error.value = '当前事项中找不到链接指向的候选，请手动选择计划版本。'
+        return
+      }
+      const target = selected ?? result[0]
       if (target) await select(target.id)
     } catch (cause) {
       if (ticket === generation) error.value = planError(cause)
@@ -200,7 +205,6 @@ export function usePlanReview(onChanged: () => void) {
     attempt,
     refreshRequired,
     load,
-    select,
     decide,
     reset,
   }

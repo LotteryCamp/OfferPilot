@@ -29,6 +29,7 @@ export const workspaceIntegrations: WorkspaceIntegrations = {
   modules: {
     sources: defineAsyncComponent(() => import('../modules/sources/SourceConditionsPage.vue')),
     plan: defineAsyncComponent(() => import('../modules/plans/PlanReviewPage.vue')),
+    tasks: defineAsyncComponent(() => import('../modules/tasks/MatterTasksPage.vue')),
   },
   ...(enableLocalDemo
     ? {

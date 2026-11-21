@@ -6,3 +6,7 @@ export function agentRunTimeoutMs(seconds?: string) {
     throw new Error('VITE_AGENT_RUN_TIMEOUT_SECONDS 须为有效的正整数秒数。')
   return value * 1000
 }
+
+export function agentRunProxyTimeoutMs(seconds?: string) {
+  return Math.min(agentRunTimeoutMs(seconds) + 30_000, 2_147_483_647)
+}

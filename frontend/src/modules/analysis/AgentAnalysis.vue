@@ -28,6 +28,9 @@ const analysis = useAnalysis(
   () => emit('changed'),
 )
 const { run, attempt, busy, checking, error, storageReady } = analysis
+const linkedPlan = computed(() =>
+  run.value?.status === '等待确认' ? run.value.persisted_plan_id : null,
+)
 const transfer = useTransferConsent(() => props.matter.id)
 const {
   state: consentState,
@@ -81,7 +84,7 @@ async function startRun(trigger: AnalysisTrigger, expectedSourceId?: string) {
     attempt.value &&
     attempt.value.status === null &&
     !window.confirm(
-      '上次请求的结果尚未确认，可能仍在执行。重新发起会产生另一批分析，请先核对已保存结果。是否继续？',
+      '请先点击“刷新已保存结果”，并查看候选计划确认上次结果。若继续，将发起一次新分析，上次分析可能仍在执行。是否继续？',
     )
   )
     return stop('已取消再次发起，请先核对上次请求的已保存结果。')
@@ -241,9 +244,13 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
         >刷新已保存结果</ElButton
       >
       <RouterLink
-        :to="{ name: 'matter-plan', params: { matterId: matter.id } }"
+        :to="{
+          name: 'matter-plan',
+          params: { matterId: matter.id },
+          query: linkedPlan ? { plan: linkedPlan } : undefined,
+        }"
         class="secondary-link"
-        >查看候选计划 →</RouterLink
+        >{{ linkedPlan ? '审阅本次候选计划' : '查看候选计划' }} →</RouterLink
       >
     </div>
     <p v-if="blockedReason && !busy && !checking" class="muted">{{ blockedReason }}</p>
