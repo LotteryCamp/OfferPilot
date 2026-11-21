@@ -883,6 +883,41 @@ def test_candidate_plan_payload_skips_blank_locators_and_truncates_after_trim() 
     ]
 
 
+def test_candidate_plan_payload_deduplicates_locator_after_final_normalization() -> (
+    None
+):
+    snap_id, doc = _fragment_doc()
+    short_locator = "定位" * 149 + "定"
+    long_locator = short_locator + " 后续内容"
+    cite = SourceCitation(
+        source_version_id=snap_id,
+        locator=short_locator,
+        excerpt="（3）成绩排名前 30%。",
+    )
+    plan = CandidatePlan(
+        candidate_id="plan-truncated-locator",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=[
+            CandidateTask(
+                task_id="t1",
+                title="确认成绩排名",
+                basis=[cite, cite.model_copy(update={"locator": long_locator})],
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                evidence_required="成绩排名证明",
+            )
+        ],
+    )
+
+    payload = build_candidate_plan_create_payload(plan, {snap_id: doc})
+
+    assert [source["locator"] for source in payload["items"][0]["sources"]] == [
+        short_locator
+    ]
+    CandidatePlanCreate.model_validate(payload)
+
+
 def test_candidate_plan_create_rejects_duplicate_item_sources() -> None:
     citation = {
         "source_id": str(uuid4()),
