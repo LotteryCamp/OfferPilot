@@ -1,6 +1,6 @@
 import { AxiosError, AxiosHeaders } from 'axios'
 import { describe, expect, it } from 'vitest'
-import { analysisInput, isConsentRejectedStart } from './api'
+import { analysisError, analysisInput, isConsentRejectedStart } from './api'
 
 function failure(status: number, code: string) {
   return new AxiosError('请求被拒绝', 'ERR_BAD_REQUEST', undefined, undefined, {
@@ -13,6 +13,12 @@ function failure(status: number, code: string) {
 }
 
 describe('分析启动的授权拒绝', () => {
+  it.each(['ECONNABORTED', 'ETIMEDOUT'])('前端等待超时 %s 提示读取已保存结果', (code) => {
+    const message = analysisError(new AxiosError('timeout', code))
+    expect(message).toContain('前端时限')
+    expect(message).toContain('后端可能仍在执行')
+    expect(message).toContain('刷新已保存结果')
+  })
   it('运行只发送分析字段，由后端查询全局授权', () => {
     const input = {
       source_urls: ['https://example.edu/notice'],

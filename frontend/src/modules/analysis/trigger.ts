@@ -1,5 +1,9 @@
 export type AnalysisTrigger = 'manual' | 'saved-ranking'
 
+export class AnalysisNotStartedError extends Error {
+  override name = 'AnalysisNotStartedError'
+}
+
 export function analysisTriggerBlockReason(
   rankingSaving: boolean,
   commonReason: string,

@@ -2,9 +2,7 @@ import axios from 'axios'
 import { z } from 'zod'
 import { http } from '../../shared/http'
 import { assertStartedRun, runResponse } from './contracts'
-
-// One run can perform two model calls of up to 300 seconds each, plus source reading.
-const analysisStartTimeoutMs = 650_000
+import { agentRunTimeoutMs } from './timing'
 
 export const analysisInput = z.strictObject({
   source_urls: z.array(z.string().min(1)).min(1),
@@ -21,7 +19,7 @@ export async function startAnalysis(matterId: string, input: AnalysisInput, sign
     analysisInput.parse(input),
     {
       signal,
-      timeout: analysisStartTimeoutMs,
+      timeout: agentRunTimeoutMs(import.meta.env.VITE_AGENT_RUN_TIMEOUT_SECONDS),
     },
   )
   const { run } = runResponse.parse(response.data)
@@ -56,6 +54,8 @@ export function isConsentRejectedStart(cause: unknown) {
 
 export function analysisError(cause: unknown) {
   if (axios.isAxiosError(cause)) {
+    if (!cause.response && ['ECONNABORTED', 'ETIMEDOUT'].includes(cause.code ?? ''))
+      return '等待分析响应已超过前端时限，后端可能仍在执行。请刷新已保存结果并查看候选计划，核对后再决定是否重新发起。'
     const parsed = z
       .object({ error: z.object({ message: z.string(), next: z.string().optional() }) })
       .safeParse(cause.response?.data)
