@@ -8,10 +8,12 @@
     <div id="app"></div>
     <script type="module">
       import { createApp, h, ref } from 'vue'
-      import { createRouter, createWebHistory, RouterView } from 'vue-router'
+      import { RouterView } from 'vue-router'
       import 'element-plus/dist/index.css'
       import AgentAnalysis from '../../../src/modules/analysis/AgentAnalysis.vue'
       import RankingSupplement from '../../../src/modules/sources/RankingSupplement.vue'
+      import { workspaceIntegrations, workspaceKey } from '../../../src/app/integrations'
+      import { router } from '../../../src/router'
       import { http } from '../../../src/shared/http'
 
       const id = new URLSearchParams(location.search).get('matter')
@@ -41,18 +43,11 @@
             ])
         },
       }
-      const router = createRouter({
-        history: createWebHistory(),
-        routes: [
-          { path: '/tests/live/fixtures/ranking-recheck.html', component: view },
-          {
-            name: 'matter-plan',
-            path: '/matters/:matterId/plan',
-            component: { render: () => null },
-          },
-        ],
+      router.addRoute({
+        path: '/tests/live/fixtures/ranking-recheck.html',
+        component: view,
       })
-      createApp(RouterView).use(router).mount('#app')
+      createApp(RouterView).provide(workspaceKey, workspaceIntegrations).use(router).mount('#app')
     </script>
   </body>
 </html>
