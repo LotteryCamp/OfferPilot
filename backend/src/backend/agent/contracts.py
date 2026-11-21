@@ -267,8 +267,11 @@ def build_candidate_plan_create_payload(
         sources_payload: list[dict[str, Any]] = []
         seen_sources: set[tuple[str, str]] = set()
         for cite in task.basis:
+            locator = cite.locator.strip()
+            if not locator:
+                continue
+            locator = locator[:300]
             source_id, snapshot_id = _resolve_citation_uuids(cite, sources_by_id)
-            locator = cite.locator[:300].strip()
             source_key = (snapshot_id, locator)
             if source_key in seen_sources:
                 continue
