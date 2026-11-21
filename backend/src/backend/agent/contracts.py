@@ -265,14 +265,20 @@ def build_candidate_plan_create_payload(
 
     for task in plan.tasks:
         sources_payload: list[dict[str, Any]] = []
+        seen_sources: set[tuple[str, str]] = set()
         for cite in task.basis:
             source_id, snapshot_id = _resolve_citation_uuids(cite, sources_by_id)
+            locator = cite.locator[:300].strip()
+            source_key = (snapshot_id, locator)
+            if source_key in seen_sources:
+                continue
+            seen_sources.add(source_key)
             sources_payload.append(
                 {
                     "source_id": source_id,
                     "snapshot_id": snapshot_id,
                     "locator_kind": normalize_api_locator_kind(cite.locator_kind),
-                    "locator": cite.locator[:300],
+                    "locator": locator,
                     "quote": cite.excerpt,
                 }
             )

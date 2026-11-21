@@ -44,6 +44,7 @@ from backend.agent import (
     source_document_from_backend_record,
     source_document_from_public_result,
 )
+from backend.schemas import CandidatePlanCreate
 
 FX_S4_EXCERPT = (
     "（5）符合推荐条件的学生，由本人自愿向学院提出申请，并于2026年9月10日下午15:00前提交"
@@ -807,6 +808,69 @@ def test_source_bridges_and_pr41_contract_payloads() -> None:
     assert plan_payload["items"][0]["sources"][0]["locator_kind"] == "section"
     assert plan_payload["items"][0]["official_deadline_date"] == "2026-09-10"
     assert "所需证据：电子版PDF" in plan_payload["items"][0]["detail"]
+
+
+def test_candidate_plan_payload_deduplicates_item_sources() -> None:
+    snap_id, doc = _fragment_doc()
+    cite = SourceCitation(
+        source_version_id=snap_id,
+        locator="正文第3段",
+        excerpt="（3）成绩排名前 30%。",
+    )
+    plan = CandidatePlan(
+        candidate_id="plan-duplicate-sources",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=[
+            CandidateTask(
+                task_id="t1",
+                title="确认成绩排名",
+                basis=[cite, cite.model_copy(update={"locator": "正文第3段  "})],
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                evidence_required="成绩排名证明",
+            )
+        ],
+    )
+
+    payload = build_candidate_plan_create_payload(plan, {snap_id: doc})
+
+    assert payload["items"][0]["sources"] == [
+        {
+            "source_id": doc.source_id,
+            "snapshot_id": doc.snapshot_id,
+            "locator_kind": "section",
+            "locator": "正文第3段",
+            "quote": "（3）成绩排名前 30%。",
+        }
+    ]
+
+
+def test_candidate_plan_create_rejects_duplicate_item_sources() -> None:
+    citation = {
+        "source_id": str(uuid4()),
+        "snapshot_id": str(uuid4()),
+        "locator_kind": "section",
+        "locator": "第 3 条",
+        "quote": "成绩排名前 30%",
+    }
+
+    try:
+        CandidatePlanCreate.model_validate(
+            {
+                "items": [
+                    {
+                        "client_item_id": "t1",
+                        "title": "确认成绩排名",
+                        "sources": [citation, citation],
+                    }
+                ]
+            }
+        )
+    except ValueError as exc:
+        assert "sources must be unique by snapshot_id and locator" in str(exc)
+    else:
+        raise AssertionError("Expected duplicate item sources to be rejected")
 
 
 def test_bot_fixes_string_scores_multisnap_and_concurrent_adapter() -> None:
