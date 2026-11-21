@@ -81,5 +81,9 @@ for (const pageKind of ['workspace', 'stale-save-prop'] as const) {
     })
     await expect(page.getByTestId('analysis-result')).toHaveAttribute('data-run-id', result.run_id)
     if (pageKind === 'stale-save-prop') await expect(manual).toBeDisabled()
+    await page.getByTestId('analysis-panel').getByRole('link', { name: '查看候选计划 →' }).click()
+    await expect(page).toHaveURL(new RegExp(`/matters/${matter.id}/plan$`))
+    await expect(page.getByTestId('plan-page')).toBeVisible()
+    await expect(page.getByText('当前事项暂无候选计划', { exact: true })).toBeVisible()
   })
 }
