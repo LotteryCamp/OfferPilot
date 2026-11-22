@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 concurrency:
   group: backend-ci-${{ github.workflow }}-${{ github.ref }}
@@ -48,4 +49,13 @@ jobs:
 
       - name: Run unit tests with coverage
         working-directory: backend
-        run: uv run pytest tests -q --cov --cov-report=term-missing
+        run: uv run pytest tests -q --cov --cov-report=term-missing --cov-report=lcov:lcov.info
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          file: backend/lcov.info
+          format: lcov
+          base-path: backend
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on-error: false

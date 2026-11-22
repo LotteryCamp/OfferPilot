@@ -107,7 +107,7 @@ uv run pytest tests -q --cov --cov-report=term-missing
 
 `.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时运行 Ruff、格式检查、ty 与全部可执行测试。数据库集成测试需要真实 PostgreSQL 与 Alpha schema，不在当前 CI 中执行；未配置测试库时这些用例跳过。
 
-测试步骤使用 `pytest-cov` 统计 `src/backend` 的行覆盖率，门槛为 60%，覆盖率低于门槛时 CI 失败。覆盖率配置位于 `backend/pyproject.toml`。
+测试步骤使用 `pytest-cov` 统计 `src/backend` 的行覆盖率，门槛为 60%，覆盖率低于门槛时 CI 失败。覆盖率配置位于 `backend/pyproject.toml`。覆盖率报告以 LCOV 格式上传到 Coveralls，上传失败不阻断 CI。
 
 ## 检查
 

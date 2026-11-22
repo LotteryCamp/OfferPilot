@@ -134,6 +134,7 @@ venv.bak/
 .coverage
 .coverage.*
 coverage.xml
+lcov.info
 htmlcov/
 
 # API
