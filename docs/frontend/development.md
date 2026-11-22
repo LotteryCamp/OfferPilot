@@ -21,9 +21,12 @@ npm run lint
 npm run format:check
 npm run type-check
 npm run test:unit
+npm run test:unit:coverage
 npm run build
 npm run preview
 ```
+
+覆盖率统计 `src` 下的 TypeScript 与 Vue 源码，报告写入 `coverage/`，终端输出未覆盖行。Frontend CI 使用 `npm run test:unit:coverage`，并将 `coverage/lcov.info` 上传到 Coveralls。
 
 纯逻辑测试检查表单、路由和状态语义。浏览器检查使用实际运行的前端，不拦截请求、不替换业务响应：
 

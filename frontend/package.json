@@ -15,6 +15,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "test:unit": "vitest run",
+    "test:unit:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "test:matters:live": "playwright test --config playwright.matters-live.config.ts"
   },
@@ -30,6 +31,7 @@
     "@playwright/test": "^1.57.0",
     "@types/node": "^24.0.0",
     "@vitejs/plugin-vue": "^6.0.0",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^10.15.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-vue": "^10.0.0",

@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 concurrency:
   group: frontend-ci-${{ github.workflow }}-${{ github.ref }}
@@ -51,9 +52,18 @@ jobs:
         working-directory: frontend
         run: npm run type-check
 
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         working-directory: frontend
-        run: npm run test:unit
+        run: npm run test:unit:coverage
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          file: frontend/coverage/lcov.info
+          format: lcov
+          base-path: frontend
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on-error: false
 
       - name: Install Playwright browsers
         working-directory: frontend

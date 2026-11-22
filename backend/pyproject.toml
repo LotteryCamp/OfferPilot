@@ -28,7 +28,16 @@ build-backend = "uv_build"
 dev = [
     "httpx2>=2.13.1",
     "pytest>=9.2.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.5",
     "semgrep>=1.79.0",
     "ty>=0.0.104",
 ]
+
+[tool.coverage.run]
+source = ["backend"]
+
+[tool.coverage.report]
+show_missing = true
+precision = 2
+fail_under = 60

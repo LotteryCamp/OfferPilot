@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: read
+  checks: write
 
 concurrency:
   group: backend-ci-${{ github.workflow }}-${{ github.ref }}
@@ -21,9 +22,27 @@ concurrency:
 
 jobs:
   backend:
-    name: Lint, types, and unit tests
+    name: Lint, types, and tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      OFFERPILOT_TEST_DATABASE_URL: postgresql://offerpilot_app@127.0.0.1:5432/offerpilot_test
+      OFFERPILOT_TEST_ADMIN_DATABASE_URL: postgresql://ci_admin@127.0.0.1:5432/offerpilot_test
+    services:
+      database:
+        image: postgres:16
+        env:
+          POSTGRES_DB: offerpilot_test
+          POSTGRES_USER: ci_admin
+          POSTGRES_HOST_AUTH_METHOD: trust
+          TZ: UTC
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U ci_admin -d offerpilot_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -46,6 +65,25 @@ jobs:
         working-directory: backend
         run: uv run ty check
 
-      - name: Run unit tests
+      - name: Prepare test database
         working-directory: backend
-        run: uv run pytest tests -q
+        run: |
+          psql "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" -w -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE offerpilot_app LOGIN"
+          uv run python db/migrate.py --dsn "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" migrate
+          uv run python db/migrate.py --dsn "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" seed
+          psql "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" -w -v ON_ERROR_STOP=1 \
+            -f db/dev/roles.sql
+
+      - name: Run tests with coverage
+        working-directory: backend
+        run: uv run pytest tests -q --cov --cov-report=term-missing --cov-report=lcov:lcov.info
+
+      - name: Upload coverage to Coveralls
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          file: backend/lcov.info
+          format: lcov
+          base-path: backend
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on-error: false
