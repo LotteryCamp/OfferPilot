@@ -3,7 +3,15 @@ import tseslint from 'typescript-eslint'
 import prettier from 'eslint-config-prettier/flat'
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'node_modules/**', 'test-results/**', 'playwright-report/**'] },
+  {
+    ignores: [
+      'dist/**',
+      'coverage/**',
+      'node_modules/**',
+      'test-results/**',
+      'playwright-report/**',
+    ],
+  },
   ...tseslint.configs.recommended,
   ...vue.configs['flat/recommended'],
   {
