@@ -46,6 +46,6 @@ jobs:
         working-directory: backend
         run: uv run ty check
 
-      - name: Run unit tests
+      - name: Run unit tests with coverage
         working-directory: backend
-        run: uv run pytest tests -q
+        run: uv run pytest tests -q --cov --cov-report=term-missing

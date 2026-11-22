@@ -130,6 +130,12 @@ venv.bak/
 # PyPI configuration file
 .pypirc
 
+# Coverage
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
 # API
 /backend/.env
 !/backend/.env.example

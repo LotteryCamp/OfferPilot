@@ -43,6 +43,14 @@ uv run ty check
 uv run pytest tests -q
 ```
 
+统计测试覆盖率：
+
+```bash
+uv run pytest tests -q --cov --cov-report=term-missing
+```
+
+覆盖率统计 `src/backend` 的行覆盖率，门槛为 60%，低于门槛时命令失败。
+
 未配置 PostgreSQL 测试数据库环境时，会跳过数据库相关测试。
 
 ## Commit Rules

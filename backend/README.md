@@ -88,6 +88,14 @@ export OFFERPILOT_TEST_ADMIN_DATABASE_URL='postgresql://postgres@127.0.0.1:5432/
 uv run pytest tests -q
 ```
 
+统计测试覆盖率：
+
+```bash
+uv run pytest tests -q --cov --cov-report=term-missing
+```
+
+覆盖率统计 `src/backend` 的行覆盖率，门槛为 60%，未覆盖行会列在报告中。
+
 | 变量 | 用途 |
 | :--- | :--- |
 | `OFFERPILOT_TEST_DATABASE_URL` | 受行级安全约束的应用角色连接，供 API 使用 |
@@ -97,7 +105,9 @@ uv run pytest tests -q
 
 ## CI
 
-`.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时运行 Ruff、ty 与 `tests/test_basis.py`。数据库集成测试需要真实 PostgreSQL 与 Alpha schema，不在当前 CI 中执行。
+`.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时运行 Ruff、格式检查、ty 与全部可执行测试。数据库集成测试需要真实 PostgreSQL 与 Alpha schema，不在当前 CI 中执行；未配置测试库时这些用例跳过。
+
+测试步骤使用 `pytest-cov` 统计 `src/backend` 的行覆盖率，门槛为 60%，覆盖率低于门槛时 CI 失败。覆盖率配置位于 `backend/pyproject.toml`。
 
 ## 检查
 
