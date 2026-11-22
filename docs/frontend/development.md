@@ -64,9 +64,25 @@ npm run test:matters:live
 3. `src/app/integrations.ts` 已通过 `createMattersApi(http)` 接入事项适配器。默认不连接业务服务；开发联调按上述环境配置启用。生产服务连接由集成负责人配置。
 4. 若接入 #41 的固定演示身份，同时提供 `identity: { mode: 'single-user-local', label: '单用户本地演示' }`，明确展示运行限制。客户端不得自行伪造登录状态。实际身份变更后应重新挂载应用并清理业务状态。
 5. `.env.local` 中的 `API_PROXY_TARGET` 指向实际启动的后端；只在显式指定时启用开发代理。生产部署须提供 `/api` 的同源反向代理，以及 Vue Router 的 SPA 深链接回退。`npm run preview` 只检查静态构建，不承担业务服务转发。
-6. 来源与条件、候选计划审阅已分别通过 `workspaceIntegrations.modules.sources`、`plan` 注册，由张锦昊维护。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。同事项重读保持业务组件，事项变化时清除旧上下文。陈常群负责的整体任务页继续使用 `tasks` 注册点。
+6. 来源与条件、候选计划审阅及正式任务分别通过 `workspaceIntegrations.modules.sources`、`plan`、`tasks` 注册。各组件接收 `matterId` 和只读用途的 `matter`，写入完成后触发 `changed`，父工作区重读事项。同事项重读保持业务组件，事项变化时清除旧上下文。正式任务页读取当前事项的任务列表，展示进度及前置任务，并可回到产生任务的候选版本。
 
 接口和模块约定见[工作区集成约定](workspace-integration.md)。
+
+## Agent 分析超时与反向代理
+
+Agent 启动请求同步返回，浏览器默认等待 420 秒。后端的 `OFFERPILOT_MODEL_TIMEOUT_SECONDS` 是单次模型调用的上限，端到端时限还要覆盖抽取、规划、来源读取和持久化。Vite 开发代理为 Agent 启动路由使用 `VITE_AGENT_RUN_TIMEOUT_SECONDS` 加 30 秒余量，其他 API 沿用共享代理配置。
+
+生产部署需在实际反向代理和入口网关为分析请求提供相同或更长的响应等待时间。使用默认浏览器预算时，Nginx 可将下例放入现有同源 `server` 配置，并保留现有通用 `/api/` 转发、鉴权及 SPA 回退。确认这条规则实际匹配 Agent 启动路由。
+
+```nginx
+location ~ ^/api/v1/matters/[^/]+/agent-runs/?$ {
+    proxy_pass http://127.0.0.1:8000;
+    proxy_read_timeout 450s;
+    proxy_send_timeout 450s;
+}
+```
+
+修改浏览器预算后应重新构建，并同步核对每层网关的空闲和总响应时限。通过实际部署地址复测慢速分析，记录 HTTP 状态、耗时、运行 ID 和候选 ID。遇到 502、504 或前端等待超时，先读取已保存的来源和候选结果，核对后再尝试。如入口平台存在不可调整的短时限，需要由后端提供立即返回运行 ID 并支持状态查询的接口，再将前端切换为按 ID 查询。
 
 ## 交互约束
 

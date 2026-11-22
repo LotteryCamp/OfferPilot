@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElAlert, ElButton, ElCheckbox, ElEmpty, ElSkeleton, ElTag } from 'element-plus'
+import { isMatterId } from '../../router/paths'
 import type { Matter } from '../matters/types'
 import { displayDate, normalizeMatterId, safeSourceUrl, statusLabel } from '../sources/presentation'
 import { usePlanReview } from './usePlanReview'
@@ -8,7 +10,14 @@ import { canConfirmBasis } from './contracts'
 
 const props = defineProps<{ matterId: string; matter: Matter }>()
 const emit = defineEmits<{ changed: [] }>()
+const route = useRoute()
+const router = useRouter()
 const matterId = computed(() => normalizeMatterId(props.matterId))
+const linkedPlanId = computed(() => {
+  const value = route.query.plan
+  if (value === undefined) return undefined
+  return isMatterId(value) ? value.toLowerCase() : ''
+})
 const review = usePlanReview(() => emit('changed'))
 const {
   plans,
@@ -26,9 +35,9 @@ const {
   refreshRequired,
 } = review
 watch(
-  matterId,
-  (id) => {
-    if (id) void review.load(id)
+  [matterId, linkedPlanId],
+  ([id, planId]) => {
+    if (id) void review.load(id, planId)
     else review.reset()
   },
   { immediate: true },
@@ -44,7 +53,10 @@ const canDecide = computed(
 const items = computed(() => [...(plan.value?.items ?? [])].sort((a, b) => a.seq - b.seq))
 const staleBasis = computed(() => !!plan.value && !canConfirmBasis(plan.value))
 function reload() {
-  if (matterId.value && !submitting.value) void review.load(matterId.value)
+  if (matterId.value && !submitting.value) void review.load(matterId.value, linkedPlanId.value)
+}
+function selectVersion(planId: string) {
+  void router.replace({ query: { ...route.query, plan: planId } })
 }
 function itemName(id: string) {
   return plan.value?.items.find((item) => item.id === id)?.title ?? `条目标识 ${id}`
@@ -88,8 +100,9 @@ function itemName(id: string) {
         id="plan-version"
         :value="selectedId"
         :disabled="submitting || loading"
-        @change="review.select(($event.target as HTMLSelectElement).value)"
+        @change="selectVersion(($event.target as HTMLSelectElement).value)"
       >
+        <option v-if="!selectedId" disabled value="">选择计划版本</option>
         <option v-for="entry in plans" :key="entry.id" :value="entry.id">
           v{{ entry.version_no }} · {{ statusLabel('plan', entry.status) }} ·
           {{ displayDate(entry.generated_at) }}
@@ -209,7 +222,16 @@ function itemName(id: string) {
         >
           <div class="section-heading">
             <h2>本计划的个人任务</h2>
-            <ElButton :disabled="submitting" :loading="loading" @click="reload">刷新任务</ElButton>
+            <div class="module-actions">
+              <RouterLink
+                :to="{ name: 'matter-tasks', params: { matterId } }"
+                class="secondary-link"
+                >查看全部正式任务 →</RouterLink
+              >
+              <ElButton :disabled="submitting" :loading="loading" @click="reload"
+                >刷新任务</ElButton
+              >
+            </div>
           </div>
           <p v-if="taskError" role="alert" class="error-text">
             决定已记录，任务列表读取未完成：{{ taskError }}

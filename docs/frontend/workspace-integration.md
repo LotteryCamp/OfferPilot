@@ -21,7 +21,7 @@
 | `/matters/:matterId/overview` | 读取事项并展示概览   |
 | `/matters/:matterId/sources`  | 来源与条件组件入口   |
 | `/matters/:matterId/plan`     | 候选计划审阅组件入口 |
-| `/matters/:matterId/tasks`    | 正式任务组件入口     |
+| `/matters/:matterId/tasks`    | 当前事项的正式任务和前置依赖 |
 
 `matterId` 为 UUID，导航统一小写。刷新和直接访问先读取事项；读取失败不挂载业务子组件。前端路由校验不承担后端权限职责。
 
@@ -41,7 +41,7 @@
 
 事项响应包含服务端 ID、工作区 ID、类型/类型名、目标、状态、年度、范围、归档/创建/更新时间、`tasks {total,done,open}`、可空的 `latest_plan {id,status,version_no}`。已有事项允许年度和范围为 `null`，页面显示未填写，创建仍要求有效年度。事项、候选及正式任务状态保持独立。
 
-`SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。事项适配器已接入 `src/shared/http.ts` 的 Axios 客户端，与来源及计划共用配置。`workspaceIntegrations.modules.sources`、`plan` 已注册业务组件，`tasks` 保留注册点。`VITE_LOCAL_DEMO_MATTERS=1` 启用开发模式的真实 Alpha API；生产连接由集成负责人配置。各组件遵守 `WorkspaceModule` 约束，接收事项 ID 与只读事项，并声明 `changed` 事件。
+`SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。事项适配器已接入 `src/shared/http.ts` 的 Axios 客户端，与来源、计划及正式任务共用配置。`workspaceIntegrations.modules.sources`、`plan`、`tasks` 均已注册。`VITE_LOCAL_DEMO_MATTERS=1` 启用开发模式的真实 Alpha API；生产连接由集成负责人配置。各组件遵守 `WorkspaceModule` 约束，接收事项 ID 与只读事项，并声明 `changed` 事件。
 
 业务错误体为 `{error:{code,message,next?,details?}}`，422 的字段问题位于 `details.issues`。创建遇到 `409 template_version_missing` 时保留表单并提示补齐已发布模板。网络中断、超时（含 HTTP 408）或创建结果无法核验时，保留表单、停用提交并提示先重读列表。未知错误使用前端提供的通用文案。
 

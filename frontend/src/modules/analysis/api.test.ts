@@ -19,6 +19,12 @@ describe('分析启动的授权拒绝', () => {
     expect(message).toContain('后端可能仍在执行')
     expect(message).toContain('刷新已保存结果')
   })
+  it.each([502, 504])('HTTP %s 提示从持久化结果核对分析', (status) => {
+    const error = failure(status, 'gateway_error')
+    expect(isConsentRejectedStart(error)).toBe(false)
+    expect(analysisError(error)).toContain('后端可能仍在执行')
+    expect(analysisError(error)).toContain('刷新已保存结果')
+  })
   it('运行只发送分析字段，由后端查询全局授权', () => {
     const input = {
       source_urls: ['https://example.edu/notice'],

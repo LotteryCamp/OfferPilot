@@ -54,6 +54,8 @@ export function isConsentRejectedStart(cause: unknown) {
 
 export function analysisError(cause: unknown) {
   if (axios.isAxiosError(cause)) {
+    if (cause.response?.status === 502 || cause.response?.status === 504)
+      return '分析服务未能通过网关返回结果，后端可能仍在执行。请刷新已保存结果并查看候选计划，核对后再决定是否重新发起。'
     if (!cause.response && ['ECONNABORTED', 'ETIMEDOUT'].includes(cause.code ?? ''))
       return '等待分析响应已超过前端时限，后端可能仍在执行。请刷新已保存结果并查看候选计划，核对后再决定是否重新发起。'
     const parsed = z
