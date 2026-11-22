@@ -255,6 +255,14 @@ class CandidatePlanCreate(RequestModel):
             raise ValueError("client_item_id must be unique within a plan")
         known = set(keys)
         for item in self.items:
+            source_keys = [
+                (item_source.snapshot_id, item_source.locator)
+                for item_source in item.sources
+            ]
+            if len(set(source_keys)) != len(source_keys):
+                raise ValueError(
+                    "sources must be unique by snapshot_id and locator within an item"
+                )
             if len(set(item.depends_on)) != len(item.depends_on):
                 raise ValueError("depends_on must not contain duplicates")
             if item.client_item_id in item.depends_on:

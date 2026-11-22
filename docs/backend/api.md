@@ -659,6 +659,7 @@ sequenceDiagram
 - `official_deadline_at` 存在时，按 `Asia/Shanghai` 换算出的日期必须与 `official_deadline_date` 一致；省略日期时自动写入该换算日期。
 - `requirement_id` 必须属于当前事项。
 - `sources` 中的来源与快照必须匹配；来源状态必须为 `active`，快照必须为当前版本。
+- 同一计划项内 `sources` 按 `snapshot_id` 与 `locator` 唯一。
 
 响应 `201`：
 
