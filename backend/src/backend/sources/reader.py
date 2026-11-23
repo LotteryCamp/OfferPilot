@@ -216,9 +216,9 @@ def _connect_public(
                 )
             raw_socket.settimeout(remaining)
             if url.scheme == "https":
-                raw_socket = ssl.create_default_context().wrap_socket(
-                    raw_socket, server_hostname=hostname
-                )
+                context = ssl.create_default_context()
+                context.minimum_version = ssl.TLSVersion.TLSv1_2
+                raw_socket = context.wrap_socket(raw_socket, server_hostname=hostname)
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise SourceReadError(
