@@ -4,9 +4,9 @@
 | :--- | :--- |
 | 接口前缀 | `/api/v1` |
 | 数据格式 | JSON，UTF-8 |
-| 适用范围 | Alpha 单用户本地演示 |
+| 适用范围 | Alpha 多用户后端 |
 | 业务契约 | [`docs/development/alpha-scope-contract.md`](../development/alpha-scope-contract.md) |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0012` |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0016` |
 
 ## 1. 范围
 
@@ -19,8 +19,10 @@
 - 持久化候选要求、候选计划、计划项及计划项出处。
 - 读取候选计划，由用户确认或拒绝。
 - 确认后生成个人任务，读取任务及其来源定位。
+- 注册、登录、退出、读取当前账户、修改密码，以及管理员账户管理。
 
 个人事实按事项保存与读取，版本规则、类型注册表与候选失效语义见[个人事实接口](facts.md)（迁移 `0012`）。
+账户、会话与管理员接口见[账户、登录与管理员接口](accounts.md)（迁移 `0016`）。
 
 来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划可以直接写入，也可以由 Agent 运行读取公开来源后生成并持久化。
 
@@ -37,16 +39,18 @@
 
 ### 2.2 身份与数据边界
 
-Alpha 当前没有登录能力，接口使用固定演示身份：
+除注册、登录、退出与健康检查外，所有业务接口要求有效登录会话。认证使用服务端会话 Cookie：
 
-| 配置 | 环境变量 | 默认值 |
-| :--- | :--- | :--- |
-| 演示用户 | `OFFERPILOT_DEMO_USER_ID` | `00000000-0000-7000-8000-000000000001` |
-| 演示工作区 | `OFFERPILOT_DEMO_WORKSPACE_ID` | `00000000-0000-7000-8000-000000000002` |
+| 项目 | 值 |
+| :--- | :--- |
+| Cookie | `offerpilot_session` |
+| 普通会话有效期 | 12 小时 |
+| 记住登录会话有效期 | 30 天 |
+| Cookie 属性 | `HttpOnly`、`SameSite=Lax`、`Path=/`，HTTPS 部署启用 `Secure` |
 
-每次数据库事务都会设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实按当前事项过滤，并要求事项位于当前工作区、记录所有者等于工作区所有者；模型传输同意按当前用户过滤，并要求记录所有者等于工作区所有者。事项、个人事实、候选计划与任务的读取同时校验事项归属。
+每次请求由 Cookie 解析当前账户及其个人工作区。数据库事务设置 `app.current_workspace_id`，行级安全策略按该工作区过滤事项、要求、候选计划、计划项、计划项来源、计划和任务。个人事实按当前事项过滤，并要求事项位于当前工作区、记录所有者等于工作区所有者；模型传输同意按当前用户过滤，并要求记录所有者等于工作区所有者。事项、个人事实、候选计划与任务的读取同时校验事项归属。
 
-固定身份仅用于本地演示。它不等同于多用户认证，也不构成跨账户安全边界。演示用户或工作区不存在时，接口返回 `500 demo_identity_missing`。
+缺失、过期或已撤销的会话统一返回 `401 authentication_required`。普通用户访问管理员接口返回 `403 admin_required`。管理员访问业务接口时仍使用自己的个人工作区，不能读取其他用户的私人数据。
 
 ### 2.3 错误结构
 
@@ -105,6 +109,10 @@ sequenceDiagram
     participant Web as 公开来源
     participant DB as PostgreSQL
 
+    Client->>API: POST /auth/register 或 /auth/login
+    API->>DB: 创建或读取账户与个人工作区
+    API-->>Client: 账户、会话与 Cookie
+
     Client->>API: POST /matters
     API->>DB: 写入 core.matter
     API-->>Client: 事项
@@ -143,6 +151,25 @@ sequenceDiagram
     Client->>API: GET /matters/{id}/tasks
     API-->>Client: 已确认任务及来源定位
 ```
+
+### 2.5 账户接口
+
+账户接口均相对 `/api/v1`：
+
+| 方法与路径 | 作用 | 认证 |
+| :--- | :--- | :--- |
+| `POST /auth/register` | 注册普通用户、创建个人工作区并登录 | 无 |
+| `POST /auth/login` | 登录；`remember=true` 使用 30 天持久会话 | 无 |
+| `POST /auth/logout` | 撤销当前会话并清除 Cookie | 可选 |
+| `GET /auth/me` | 读取当前账户与当前会话 | 登录 |
+| `POST /auth/password` | 修改本人密码并撤销全部会话 | 登录 |
+| `GET /admin/users` | 管理员搜索与分页读取账户 | 管理员 |
+| `PATCH /admin/users/{id}/status` | 启用或停用账户 | 管理员 |
+| `PATCH /admin/users/{id}/role` | 调整普通用户与管理员角色 | 管理员 |
+| `POST /admin/users/{id}/password-reset` | 重置目标账户密码 | 管理员 |
+| `DELETE /admin/users/{id}` | 软删除目标账户 | 管理员 |
+
+注册后账户立即生效。管理员不能通过管理员接口实际修改自己的状态、角色、密码或删除自己；系统始终保留至少一个有效管理员。详细请求、响应、筛选参数与错误码见[账户、登录与管理员接口](accounts.md)。
 
 ## 3. 事项
 
@@ -210,7 +237,7 @@ sequenceDiagram
 
 `GET /api/v1/matters`
 
-返回当前演示工作区中的事项，按 `updated_at` 倒序排列：
+返回当前账户个人工作区中的事项，按 `updated_at` 倒序排列：
 
 ```json
 {
@@ -1212,10 +1239,19 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 | HTTP 状态 | `code` | 含义 |
 | :--- | :--- | :--- |
 | 400 | `invalid_idempotency_key` | `Idempotency-Key` 不是 UUID |
+| 401 | `authentication_required` | 缺少有效会话，或会话已过期、撤销、账户停用 |
+| 401 | `invalid_credentials` | 登录邮箱或密码错误，账户停用或已删除 |
+| 401 | `invalid_current_password` | 修改密码时当前密码不正确 |
+| 403 | `admin_required` | 当前账户不具备管理员身份 |
 | 404 | `matter_not_found` | 事项不存在或不属于当前工作区；事项、事实、来源与任务接口均拒绝 |
 | 404 | `plan_not_found` | 候选计划不存在或不属于当前工作区 |
 | 404 | `agent_run_not_found` | Agent 运行不存在或不属于当前工作区 |
 | 404 | `transfer_consent_not_found` | 模型传输同意不存在或不属于当前用户 |
+| 404 | `user_not_found` | 管理员接口指定的账户不存在 |
+| 409 | `email_already_registered` | 邮箱已注册 |
+| 409 | `self_administration_forbidden` | 管理员试图通过管理员接口实际修改自己的账户 |
+| 409 | `last_admin_required` | 操作会导致没有有效管理员 |
+| 409 | `account_deleted` | 目标账户已软删除 |
 | 409 | `source_conflict` | 同一 URL 的来源元数据不一致，或来源标识冲突 |
 | 409 | `snapshot_conflict` | 快照标识或内容归属冲突 |
 | 409 | `operation_conflict` | 幂等键已用于其他计划或决定 |
@@ -1241,7 +1277,6 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 | 422 | `unsupported_fact_type` | 事实类型未注册 |
 | 422 | `invalid_fact_value` | 事实值写法或范围不合法；`details.issues` 列出原因 |
 | 422 | `managed_fact_type` | Agent 运行的 `confirmed_facts` 包含已注册事实类型；`details.fact_types` 列出冲突键 |
-| 500 | `demo_identity_missing` | 演示用户或工作区不存在 |
 | 500 | `internal_error` | 未预期的服务错误 |
 
 ## 11. 数据库依赖
@@ -1250,7 +1285,8 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 
 | 结构 | 用途 |
 | :--- | :--- |
-| `core.app_user`、`core.workspace` | 演示身份与工作区 |
+| `core.app_user`、`core.workspace` | 账户、角色与个人工作区 |
+| `core.user_session` | 服务端登录会话、持久登录标记与撤销时间 |
 | `core.matter_type`、`core.matter` | 事项类型与事项 |
 | `ops.source`、`ops.snapshot` | 来源与版本化快照 |
 | `core.requirement`、`ops.evidence` | 候选要求与原文证据 |
@@ -1267,14 +1303,15 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 
 数据库须启用行级安全，API 使用非所有者角色 `offerpilot_app` 连接。表所有者会绕过行级安全，不应用于 API 连接。
 
-## 12. 演示限制
+## 12. 范围限制
 
-- 无登录与账户切换，所有请求使用固定演示身份。
+- 所有业务请求要求登录；每个账户拥有独立个人工作区。
+- 不提供邮件验证、找回密码、MFA、登录限流、账户锁定、管理员操作审计、个人信息编辑与第三方登录。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
 - 个人事实接口按事项注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`，不提供同类型多实例、跨事项共享、草稿、撤回、删除与个人材料引用。
 - 模型传输同意按用户授予并覆盖全部事项，不绑定服务商；不提供有效期、按用途分别授予、第三方服务商条款绑定与历史列表。
 - 来源读取只访问公开 HTML 页面；不解析 PDF 与附件、不生成材料、不执行外部提交。
 - Agent 运行检查点持久化；服务重启时未完成的运行标记为 `已中断`，不恢复原运行。
-- 不提供跨设备、多用户共享与权限管理。
+- 不提供跨账户数据共享与团队工作区。
 - 官方期限只按调用方提供的计划项字段判断；接口不推断未给出的时刻。
 

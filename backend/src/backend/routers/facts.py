@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from backend.routers.deps import ClockDep, SessionDep, SettingsDep
+from backend.routers.deps import ClockDep, CurrentUserDep, SessionDep
 from backend.schemas import FactSaveRequest
 from backend.services import facts as fact_service
 
@@ -18,13 +18,13 @@ def save_fact(
     matter_id: UUID,
     fact_type: str,
     body: FactSaveRequest,
+    current_user: CurrentUserDep,
     session: SessionDep,
-    settings: SettingsDep,
     clock: ClockDep,
 ) -> dict:
     return fact_service.save_fact(
         session,
-        settings,
+        current_user,
         matter_id,
         fact_type,
         body,
@@ -33,8 +33,10 @@ def save_fact(
 
 
 @router.get("")
-def list_facts(matter_id: UUID, session: SessionDep, settings: SettingsDep) -> dict:
-    return fact_service.list_facts(session, settings, matter_id)
+def list_facts(
+    matter_id: UUID, session: SessionDep, current_user: CurrentUserDep
+) -> dict:
+    return fact_service.list_facts(session, current_user, matter_id)
 
 
 @router.get("/{fact_type}")
@@ -42,6 +44,6 @@ def get_fact(
     matter_id: UUID,
     fact_type: str,
     session: SessionDep,
-    settings: SettingsDep,
+    current_user: CurrentUserDep,
 ) -> dict:
-    return fact_service.get_fact(session, settings, matter_id, fact_type)
+    return fact_service.get_fact(session, current_user, matter_id, fact_type)

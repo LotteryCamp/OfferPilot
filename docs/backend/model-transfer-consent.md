@@ -4,7 +4,7 @@
 | :--- | :--- |
 | 接口前缀 | `/api/v1` |
 | 数据格式 | JSON，UTF-8 |
-| 适用范围 | Alpha 单用户本地演示 |
+| 适用范围 | Alpha 多用户后端 |
 | 业务契约 | [`api.md`](api.md) |
 | 数据库结构 | 迁移 `0015_global_model_transfer_consent.sql` |
 

@@ -315,13 +315,16 @@ def test_basis_change_expires_plan(
     assert detail["tasks"] == []
 
 
-def test_official_deadline_passed_blocks_confirm(client: TestClient, clock) -> None:
+def test_official_deadline_passed_blocks_confirm(
+    client: TestClient, clock, login
+) -> None:
     matter_id = _create_matter(client)
     source = _create_source(client, matter_id)
     requirement = _create_requirement(client, matter_id, source)
     plan = _create_plan(client, matter_id, source, requirement)
     plan_id = plan["plan"]["id"]
     clock.value = datetime(2026, 9, 11, 0, 0, tzinfo=UTC)
+    login(client)
 
     response = client.post(
         f"/api/v1/candidate-plans/{plan_id}/confirm",

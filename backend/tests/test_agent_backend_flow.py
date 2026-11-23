@@ -34,7 +34,6 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "sources"
 NOTICE_HTML = FIXTURES / "fzu_notice.html.gz"
 FETCHED_AT = datetime.fromisoformat("2026-09-09T01:00:00+00:00")
 USER_ID = UUID("00000000-0000-7000-8000-000000000001")
-WORKSPACE_ID = UUID("00000000-0000-7000-8000-000000000002")
 
 
 class _ReplayState:
@@ -143,12 +142,11 @@ def agent_client(
     database_urls: tuple[str, str],
     admin: psycopg.Connection,
     clock,
+    login,
 ) -> Iterator[TestClient]:
     app_url, _ = database_urls
     settings = Settings(
         database_url=app_url,
-        demo_user_id=USER_ID,
-        demo_workspace_id=WORKSPACE_ID,
         demo_timezone="Asia/Shanghai",
     )
     state = _ReplayState()
@@ -160,6 +158,7 @@ def agent_client(
     )
     app.state.replay_state = state
     with TestClient(app) as client:
+        login(client)
         yield client
 
 
@@ -378,6 +377,7 @@ def test_consent_survives_model_provider_change(
     agent_client: TestClient,
     database_urls: tuple[str, str],
     clock,
+    login,
 ) -> None:
     matter_id = _create_matter(agent_client)
     _grant_consent(agent_client)
@@ -387,8 +387,6 @@ def test_consent_survives_model_provider_change(
     changed_app: FastAPI = create_app(
         Settings(
             database_url=app_url,
-            demo_user_id=USER_ID,
-            demo_workspace_id=WORKSPACE_ID,
             demo_timezone="Asia/Shanghai",
             model_provider="另一模型服务",
             model_name="another-model",
@@ -398,6 +396,7 @@ def test_consent_survives_model_provider_change(
         agent_source_reader=_fixture_reader(state),
     )
     with TestClient(changed_app) as changed_client:
+        login(changed_client)
         current = changed_client.get("/api/v1/model-transfer-consent")
         assert current.status_code == 200, current.text
         assert current.json()["consent"] is not None
@@ -445,6 +444,7 @@ def test_agent_run_reads_and_confirms_after_restart(
     agent_client: TestClient,
     database_urls: tuple[str, str],
     clock,
+    login,
 ) -> None:
     matter_id = _create_matter(agent_client)
     _grant_consent(agent_client)
@@ -465,13 +465,12 @@ def test_agent_run_reads_and_confirms_after_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_user_id=USER_ID,
-            demo_workspace_id=WORKSPACE_ID,
             demo_timezone="Asia/Shanghai",
         ),
         clock=clock,
     )
     with TestClient(restarted_app) as restarted:
+        login(restarted)
         fetched = restarted.get(f"/api/v1/agent-runs/{run['run_id']}")
         assert fetched.status_code == 200, fetched.text
         fetched_run = fetched.json()["run"]
@@ -501,6 +500,7 @@ def test_interrupted_run_is_reported_and_can_restart(
     admin: psycopg.Connection,
     database_urls: tuple[str, str],
     clock,
+    login,
 ) -> None:
     matter_id = _create_matter(agent_client)
     _grant_consent(agent_client)
@@ -517,13 +517,12 @@ def test_interrupted_run_is_reported_and_can_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_user_id=USER_ID,
-            demo_workspace_id=WORKSPACE_ID,
             demo_timezone="Asia/Shanghai",
         ),
         clock=clock,
     )
     with TestClient(restarted_app) as restarted:
+        login(restarted)
         fetched = restarted.get("/api/v1/agent-runs/run-interrupted")
         assert fetched.status_code == 200, fetched.text
         interrupted = fetched.json()["run"]
@@ -551,6 +550,7 @@ def test_blocked_candidate_stays_pending_after_restart(
     admin: psycopg.Connection,
     database_urls: tuple[str, str],
     clock,
+    login,
 ) -> None:
     matter_id = _create_matter(agent_client)
     _grant_consent(agent_client)
@@ -573,13 +573,12 @@ def test_blocked_candidate_stays_pending_after_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_user_id=USER_ID,
-            demo_workspace_id=WORKSPACE_ID,
             demo_timezone="Asia/Shanghai",
         ),
         clock=clock,
     )
     with TestClient(restarted_app) as restarted:
+        login(restarted)
         confirmed = restarted.post(
             f"/api/v1/agent-runs/{run['run_id']}/confirm",
             json={"candidate_version": 1},

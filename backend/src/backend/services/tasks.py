@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
+from backend.identity import CurrentUser
 from backend.services.common import (
     iso,
     require_matter,
@@ -26,9 +26,11 @@ from backend.tables import (
 )
 
 
-def list_tasks(session: Session, settings: Settings, matter_id: UUID) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+def list_tasks(
+    session: Session, current_user: CurrentUser, matter_id: UUID
+) -> dict[str, Any]:
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
         task_rows = (
             session.execute(
                 select(task)

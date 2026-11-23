@@ -17,8 +17,8 @@ from backend.basis import (
     compute_basis_version,
     is_source_basis_usable,
 )
-from backend.config import Settings
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.schemas import CandidatePlanCreate, CandidatePlanItemInput
 from backend.services import facts as fact_service
 from backend.services.common import (
@@ -45,15 +45,15 @@ from backend.tables import (
 
 def create_plan(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     matter_id: UUID,
     body: CandidatePlanCreate,
     *,
     now: datetime,
     expected_fact_versions: Mapping[str, int | None] | None = None,
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id, for_update=True)
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id, for_update=True)
         fact_service.assert_fact_versions(session, matter_id, expected_fact_versions)
         _validate_requirements(session, matter_id, body.items)
         _validate_sources(session, body.items)
@@ -140,13 +140,15 @@ def create_plan(
         return _plan_detail(
             session,
             plan_id,
-            settings.demo_workspace_id,
+            current_user.workspace_id,
         )
 
 
-def list_plans(session: Session, settings: Settings, matter_id: UUID) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+def list_plans(
+    session: Session, current_user: CurrentUser, matter_id: UUID
+) -> dict[str, Any]:
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
         rows = (
             session.execute(
                 select(
@@ -204,18 +206,20 @@ def list_plans(session: Session, settings: Settings, matter_id: UUID) -> dict[st
         return {"plans": plans}
 
 
-def get_plan(session: Session, settings: Settings, plan_id: UUID) -> dict[str, Any]:
-    with transaction(session, settings):
+def get_plan(
+    session: Session, current_user: CurrentUser, plan_id: UUID
+) -> dict[str, Any]:
+    with transaction(session, current_user):
         return _plan_detail(
             session,
             plan_id,
-            settings.demo_workspace_id,
+            current_user.workspace_id,
         )
 
 
 def basis_states_for_plan_ids(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     plan_ids: set[UUID],
 ) -> dict[UUID, tuple[str, list[dict[str, Any]]]]:
     if not plan_ids:
@@ -231,7 +235,7 @@ def basis_states_for_plan_ids(
             .join(matter, matter.c.id == candidate_plan.c.matter_id)
             .where(
                 candidate_plan.c.id.in_(plan_ids),
-                matter.c.workspace_id == settings.demo_workspace_id,
+                matter.c.workspace_id == current_user.workspace_id,
             )
         )
         .mappings()

@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from backend.errors import error_payload
 from backend.routers.deps import (
     ClockDep,
+    CurrentUserDep,
     IdempotencyKeyDep,
     SessionDep,
     SettingsDep,
@@ -28,41 +29,43 @@ router = APIRouter(tags=["candidate plans"])
 def create_candidate_plan(
     matter_id: UUID,
     body: CandidatePlanCreate,
+    current_user: CurrentUserDep,
     session: SessionDep,
-    settings: SettingsDep,
     clock: ClockDep,
 ) -> dict:
     return {
         "plan": plan_service.create_plan(
-            session, settings, matter_id, body, now=clock.now()
+            session, current_user, matter_id, body, now=clock.now()
         )
     }
 
 
 @router.get("/matters/{matter_id}/candidate-plans")
 def list_candidate_plans(
-    matter_id: UUID, session: SessionDep, settings: SettingsDep
+    matter_id: UUID, session: SessionDep, current_user: CurrentUserDep
 ) -> dict:
-    return plan_service.list_plans(session, settings, matter_id)
+    return plan_service.list_plans(session, current_user, matter_id)
 
 
 @router.get("/candidate-plans/{plan_id}")
 def get_candidate_plan(
-    plan_id: UUID, session: SessionDep, settings: SettingsDep
+    plan_id: UUID, session: SessionDep, current_user: CurrentUserDep
 ) -> dict:
-    return {"plan": plan_service.get_plan(session, settings, plan_id)}
+    return {"plan": plan_service.get_plan(session, current_user, plan_id)}
 
 
 @router.post("/candidate-plans/{plan_id}/confirm")
 def confirm_candidate_plan(
     plan_id: UUID,
     operation_id: IdempotencyKeyDep,
+    current_user: CurrentUserDep,
     session: SessionDep,
     settings: SettingsDep,
     clock: ClockDep,
 ):
     result = decision_service.decide_plan(
         session,
+        current_user,
         settings,
         plan_id,
         decision="confirmed",
@@ -76,12 +79,14 @@ def confirm_candidate_plan(
 def reject_candidate_plan(
     plan_id: UUID,
     operation_id: IdempotencyKeyDep,
+    current_user: CurrentUserDep,
     session: SessionDep,
     settings: SettingsDep,
     clock: ClockDep,
 ):
     result = decision_service.decide_plan(
         session,
+        current_user,
         settings,
         plan_id,
         decision="rejected",

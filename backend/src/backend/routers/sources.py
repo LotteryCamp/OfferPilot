@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, status
 
-from backend.routers.deps import ClockDep, SessionDep, SettingsDep, SourceReaderDep
+from backend.routers.deps import ClockDep, CurrentUserDep, SessionDep, SourceReaderDep
 from backend.schemas import RequirementBatchCreate, SourceCreate, SourceReadRequest
 from backend.services import requirements as requirement_service
 from backend.services import sources as source_service
@@ -21,12 +21,12 @@ router = APIRouter(prefix="/matters/{matter_id}", tags=["sources"])
 def register_source(
     matter_id: UUID,
     body: SourceCreate,
+    current_user: CurrentUserDep,
     session: SessionDep,
-    settings: SettingsDep,
     clock: ClockDep,
 ) -> dict:
     return source_service.register_source(
-        session, settings, matter_id, body, now=clock.now()
+        session, current_user, matter_id, body, now=clock.now()
     )
 
 
@@ -37,14 +37,14 @@ def register_source(
 def read_public_source(
     matter_id: UUID,
     body: SourceReadRequest,
+    current_user: CurrentUserDep,
     session: SessionDep,
-    settings: SettingsDep,
     clock: ClockDep,
     reader: SourceReaderDep,
 ) -> dict:
     return source_service.read_and_register_source(
         session,
-        settings,
+        current_user,
         matter_id,
         body,
         now=clock.now(),
@@ -53,8 +53,10 @@ def read_public_source(
 
 
 @router.get("/sources")
-def list_sources(matter_id: UUID, session: SessionDep, settings: SettingsDep) -> dict:
-    return source_service.list_matter_sources(session, settings, matter_id)
+def list_sources(
+    matter_id: UUID, session: SessionDep, current_user: CurrentUserDep
+) -> dict:
+    return source_service.list_matter_sources(session, current_user, matter_id)
 
 
 @router.post(
@@ -64,10 +66,10 @@ def list_sources(matter_id: UUID, session: SessionDep, settings: SettingsDep) ->
 def create_requirements(
     matter_id: UUID,
     body: RequirementBatchCreate,
+    current_user: CurrentUserDep,
     session: SessionDep,
-    settings: SettingsDep,
     clock: ClockDep,
 ) -> dict:
     return requirement_service.create_requirements(
-        session, settings, matter_id, body, now=clock.now()
+        session, current_user, matter_id, body, now=clock.now()
     )

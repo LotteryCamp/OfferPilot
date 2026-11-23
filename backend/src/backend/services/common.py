@@ -12,45 +12,45 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
 from backend.db import workspace_transaction
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.tables import matter, workspace
 
 
 @contextmanager
-def transaction(session: Session, settings: Settings) -> Generator[None]:
-    with workspace_transaction(session, settings.demo_workspace_id):
-        _ensure_demo_identity(session, settings)
+def transaction(session: Session, current_user: CurrentUser) -> Generator[None]:
+    with workspace_transaction(session, current_user.workspace_id):
+        _ensure_workspace(session, current_user)
         yield
 
 
-def _ensure_demo_identity(session: Session, settings: Settings) -> None:
+def _ensure_workspace(session: Session, current_user: CurrentUser) -> None:
     row = session.execute(
         select(workspace.c.id).where(
-            workspace.c.id == settings.demo_workspace_id,
-            workspace.c.owner_id == settings.demo_user_id,
+            workspace.c.id == current_user.workspace_id,
+            workspace.c.owner_id == current_user.user_id,
         )
     ).first()
     if row is None:
         raise ApiError(
             500,
-            "demo_identity_missing",
-            "演示用户或工作区不存在",
-            next_step="先执行数据库种子脚本，或检查 OFFERPILOT_DEMO_USER_ID 与 OFFERPILOT_DEMO_WORKSPACE_ID",
+            "account_workspace_missing",
+            "当前账户的个人工作区不存在",
+            next_step="联系管理员修复账户工作区关联",
         )
 
 
 def require_matter(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     matter_id: UUID,
     *,
     for_update: bool = False,
 ) -> Mapping[str, Any]:
     statement = select(matter).where(
         matter.c.id == matter_id,
-        matter.c.workspace_id == settings.demo_workspace_id,
+        matter.c.workspace_id == current_user.workspace_id,
     )
     if for_update:
         statement = statement.with_for_update()

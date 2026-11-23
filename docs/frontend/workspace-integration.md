@@ -1,6 +1,6 @@
 # 个人事项工作区集成约定
 
-本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`ad77166`）](https://github.com/LotteryCamp/OfferPilot/blob/ad77166ba66e483e4a50b6cef640a0b650185dcf/docs/backend/api.md)，完整联调依赖截至 `0015_global_model_transfer_consent.sql` 的数据库迁移，包括事项级排名事实及模型传输同意。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
+本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`ad77166`）](https://github.com/LotteryCamp/OfferPilot/blob/ad77166ba66e483e4a50b6cef640a0b650185dcf/docs/backend/api.md)，完整联调依赖截至 `0016_account_management.sql` 的数据库迁移，包括账户会话、事项级排名事实及模型传输同意。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
 
 ## 责任与文件边界
 
@@ -63,7 +63,9 @@
 
 ## 身份与接口边界
 
-Alpha 使用服务端固定演示用户及工作区，应用显示单用户本地演示。演示身份不存在时返回 `500 demo_identity_missing`。前端不发送自造身份头。服务启动后可通过 `/openapi.json` 核对实际部署的接口。
+账户接口相对 `/api/v1` 提供注册、登录、退出、读取当前账户与修改密码。登录成功后后端设置 `offerpilot_session` Cookie；业务请求依赖该 Cookie，缺失或失效时返回 `401 authentication_required`。前端不发送自造身份头，收到 401 时清除本地账户状态并跳转登录。
+
+开发服务器通过同源 `/api` 代理携带 Cookie。跨源直连时，共享客户端需要启用凭据，并由部署层配置精确的 CORS 来源；HTTPS 部署必须启用安全 Cookie。切换账户后重新挂载工作区并清理旧事项状态。管理员接口使用同一 Cookie，仅管理员账户可调用。服务启动后可通过 `/openapi.json` 核对实际部署的接口。
 
 事项详情提供事项与任务摘要及最新计划引用。来源、自查和运行详情由对应业务端点读取。基础 PR 提供事项列表、创建、概览和模块挂载点。整体任务页、候选决定、来源与条件和 Agent 运行验收分别跟进 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31) 和 [#32](https://github.com/LotteryCamp/OfferPilot/issues/32)。
 

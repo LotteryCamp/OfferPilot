@@ -7,34 +7,38 @@
 INSERT INTO core.app_user (id, email, display_name, password_hash, account_type, status)
 VALUES (
     '00000000-0000-7000-8000-000000000001',
-    'demo@offerpilot.local',
+    'demo@example.com',
     '演示用户',
-    '!alpha-demo-no-login',
+    '$argon2id$v=19$m=65536,t=3,p=4$RtEVEy/CqbRYYEo8juA+xg$2/lN22T/DxtLt7TVP9nNagH7LU55hMSHNvWWee6tZ8U',
     'applicant',
     'active'
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+    SET email = EXCLUDED.email,
+        password_hash = EXCLUDED.password_hash
+    WHERE core.app_user.password_hash = '!alpha-demo-no-login';
 
 INSERT INTO core.workspace (id, owner_id)
 VALUES (
     '00000000-0000-7000-8000-000000000002',
     '00000000-0000-7000-8000-000000000001'
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;
 
 INSERT INTO core.matter (
     id, workspace_id, type_code, template_version_id, goal, status, scope_year, scope_attrs
 )
-VALUES (
+SELECT
     '00000000-0000-7000-8000-000000000003',
-    '00000000-0000-7000-8000-000000000002',
+    w.id,
     'pre_recommend',
     '10000000-0000-7000-8000-000000000001',
     '申请 2027 年示例大学计算机学院推免',
     'active',
     2027,
     '{"school": "示例大学", "college": "计算机学院", "program": "计算机科学与技术", "degree": "academic"}'::jsonb
-)
+FROM core.workspace w
+WHERE w.owner_id = '00000000-0000-7000-8000-000000000001'
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO ops.source (

@@ -8,8 +8,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.schemas import MatterCreate
 from backend.services import plans as plan_service
 from backend.services.common import (
@@ -22,12 +22,12 @@ from backend.tables import matter, matter_type, template_version, v_matter_overv
 
 def create_matter(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     body: MatterCreate,
     *,
     now: datetime,
 ) -> dict:
-    with transaction(session, settings):
+    with transaction(session, current_user):
         type_row = session.execute(
             select(matter_type.c.id).where(
                 matter_type.c.type_code == body.type_code,
@@ -66,7 +66,7 @@ def create_matter(
         session.execute(
             insert(matter).values(
                 id=matter_id,
-                workspace_id=settings.demo_workspace_id,
+                workspace_id=current_user.workspace_id,
                 type_code=body.type_code,
                 template_version_id=template_row,
                 goal=body.goal,
@@ -77,15 +77,15 @@ def create_matter(
                 updated_at=now,
             )
         )
-        return _read_overview(session, settings, matter_id)
+        return _read_overview(session, current_user, matter_id)
 
 
-def list_matters(session: Session, settings: Settings) -> list[dict]:
-    with transaction(session, settings):
+def list_matters(session: Session, current_user: CurrentUser) -> list[dict]:
+    with transaction(session, current_user):
         rows = (
             session.execute(
                 select(v_matter_overview)
-                .where(v_matter_overview.c.workspace_id == settings.demo_workspace_id)
+                .where(v_matter_overview.c.workspace_id == current_user.workspace_id)
                 .order_by(v_matter_overview.c.updated_at.desc())
             )
             .mappings()
@@ -95,23 +95,25 @@ def list_matters(session: Session, settings: Settings) -> list[dict]:
             row["latest_plan_id"] for row in rows if row["latest_plan_id"] is not None
         }
         states = plan_service.basis_states_for_plan_ids(
-            session, settings, latest_plan_ids
+            session, current_user, latest_plan_ids
         )
         return [_serialize_with_plan_state(row, states) for row in rows]
 
 
-def get_matter(session: Session, settings: Settings, matter_id: UUID) -> dict:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
-        return _read_overview(session, settings, matter_id)
+def get_matter(session: Session, current_user: CurrentUser, matter_id: UUID) -> dict:
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
+        return _read_overview(session, current_user, matter_id)
 
 
-def _read_overview(session: Session, settings: Settings, matter_id: UUID) -> dict:
+def _read_overview(
+    session: Session, current_user: CurrentUser, matter_id: UUID
+) -> dict:
     row = (
         session.execute(
             select(v_matter_overview).where(
                 v_matter_overview.c.id == matter_id,
-                v_matter_overview.c.workspace_id == settings.demo_workspace_id,
+                v_matter_overview.c.workspace_id == current_user.workspace_id,
             )
         )
         .mappings()
@@ -127,7 +129,7 @@ def _read_overview(session: Session, settings: Settings, matter_id: UUID) -> dic
     latest_plan_id = row["latest_plan_id"]
     states = plan_service.basis_states_for_plan_ids(
         session,
-        settings,
+        current_user,
         {latest_plan_id} if latest_plan_id is not None else set(),
     )
     return _serialize_with_plan_state(row, states)

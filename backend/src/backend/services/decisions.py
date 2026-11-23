@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from backend.basis import compute_basis_version
 from backend.config import Settings
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.services import facts as fact_service
 from backend.services.common import iso, serialize_task_row, transaction, uuid_text
 from backend.services.plans import (
@@ -48,6 +49,7 @@ class DecisionResult:
 
 def decide_plan(
     session: Session,
+    current_user: CurrentUser,
     settings: Settings,
     plan_id: UUID,
     *,
@@ -55,11 +57,11 @@ def decide_plan(
     operation_id: UUID,
     now: datetime,
 ) -> DecisionResult:
-    with transaction(session, settings):
+    with transaction(session, current_user):
         session.execute(
             select(
                 func.pg_advisory_xact_lock(
-                    func.hashtext(f"offerpilot:workspace:{settings.demo_workspace_id}")
+                    func.hashtext(f"offerpilot:workspace:{current_user.workspace_id}")
                 )
             )
         )
@@ -69,7 +71,7 @@ def decide_plan(
                 .join(matter, matter.c.id == candidate_plan.c.matter_id)
                 .where(
                     candidate_plan.c.id == plan_id,
-                    matter.c.workspace_id == settings.demo_workspace_id,
+                    matter.c.workspace_id == current_user.workspace_id,
                 )
                 .with_for_update(of=candidate_plan)
             )
@@ -146,6 +148,7 @@ def decide_plan(
         if decision == "confirmed":
             return _confirm(
                 session,
+                current_user,
                 settings,
                 plan_row,
                 operation_id=operation_id,
@@ -153,7 +156,7 @@ def decide_plan(
             )
         return _reject(
             session,
-            settings,
+            current_user,
             plan_row,
             operation_id=operation_id,
             now=now,
@@ -162,6 +165,7 @@ def decide_plan(
 
 def _confirm(
     session: Session,
+    current_user: CurrentUser,
     settings: Settings,
     plan_row: Any,
     *,
@@ -249,7 +253,7 @@ def _confirm(
             status="confirmed",
             confirmed_at=now,
             expired_at=None,
-            confirmed_by=settings.demo_user_id,
+            confirmed_by=current_user.user_id,
             op_id=operation_id,
         )
     )
@@ -257,7 +261,7 @@ def _confirm(
         session,
         plan_id=plan_id,
         decision="confirmed",
-        decided_by=settings.demo_user_id,
+        decided_by=current_user.user_id,
         decided_at=now,
         operation_id=operation_id,
     )
@@ -269,7 +273,7 @@ def _confirm(
                 matter_id=matter_id,
                 plan_id=plan_id,
                 plan_item_id=row["id"],
-                executor_id=settings.demo_user_id,
+                executor_id=current_user.user_id,
                 title=row["title"],
                 due_at=row["official_deadline_at"],
                 official_deadline_date=row["official_deadline_date"],
@@ -295,7 +299,7 @@ def _confirm(
 
 def _reject(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     plan_row: Any,
     *,
     operation_id: UUID,
@@ -317,7 +321,7 @@ def _reject(
         session,
         plan_id=plan_id,
         decision="rejected",
-        decided_by=settings.demo_user_id,
+        decided_by=current_user.user_id,
         decided_at=now,
         operation_id=operation_id,
     )

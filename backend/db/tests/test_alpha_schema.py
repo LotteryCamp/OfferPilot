@@ -139,7 +139,8 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute("RESET app.current_workspace_id")
         self.conn.execute(
             """
-            TRUNCATE core.fact, core.agent_run, core.matter_source, core.task,
+            TRUNCATE core.user_session, core.fact, core.agent_run,
+                     core.matter_source, core.task,
                      core.candidate_plan_item, core.candidate_plan,
                      core.requirement, core.matter, core.workspace, core.app_user,
                      ops.evidence, ops.snapshot, ops.source
@@ -302,6 +303,7 @@ class AlphaSchemaTest(unittest.TestCase):
         }
         expected_tables = {
             "core.app_user",
+            "core.user_session",
             "core.workspace",
             "core.matter_type",
             "core.template_version",
@@ -352,6 +354,7 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.model_transfer_consent": "SELECT, INSERT, UPDATE",
             "core.matter_source": "SELECT, INSERT, UPDATE, DELETE",
             "core.agent_run": "SELECT, INSERT, UPDATE, DELETE",
+            "core.user_session": "SELECT, INSERT, UPDATE, DELETE",
         }.items():
             self.assertTrue(
                 fetch_scalar(
@@ -361,6 +364,13 @@ class AlphaSchemaTest(unittest.TestCase):
                 ),
                 f"{APP_ROLE} lacks {privileges} on {table}",
             )
+        self.assertTrue(
+            fetch_scalar(
+                self.conn,
+                "SELECT has_function_privilege(%s, %s, 'EXECUTE')",
+                (APP_ROLE, "core.mark_interrupted_agent_runs()"),
+            )
+        )
 
     def test_02_matter_persists_and_can_be_reread(self) -> None:
         self.make_identity(USER_A, WS_A, MATTER_A, "申请 2027 推免")
