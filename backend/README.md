@@ -15,10 +15,10 @@ Alpha 多用户业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16。
 | Python | 3.13 |
 | uv | 最新稳定版 |
 | PostgreSQL | 16 及以上 |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0016` 已应用，参考数据已写入 |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0017` 已应用，参考数据已写入 |
 | 数据库角色 | 非所有者登录角色 `offerpilot_app`，具备 `core`、`ops` 模式访问权限与账户表授权 |
 
-数据库结构由本模块的迁移交付。目标库须先具备账户、登录会话、个人工作区、事项、来源、快照、要求、证据、个人事实、模型传输同意、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
+数据库结构由本模块的迁移交付。目标库须先具备账户、登录会话、登录限流计数、个人工作区、事项、来源、快照、要求、证据、个人事实、模型传输同意、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
 
 ## 安装
 
@@ -36,6 +36,11 @@ uv sync
 | `OFFERPILOT_SESSION_TTL_SECONDS` | 否 | `43200` | 普通登录会话有效期，单位秒 |
 | `OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS` | 否 | `2592000` | 记住登录会话有效期，单位秒 |
 | `OFFERPILOT_COOKIE_SECURE` | 否 | `false` | 是否给会话 Cookie 设置 `Secure`；HTTPS 部署设为 `true` |
+| `OFFERPILOT_LOGIN_IP_WINDOW_SECONDS` | 否 | `300` | IP 限流固定窗口，单位秒 |
+| `OFFERPILOT_LOGIN_IP_LIMIT` | 否 | `60` | 窗口内允许的登录请求数；`0` 关闭 IP 维度 |
+| `OFFERPILOT_LOGIN_EMAIL_WINDOW_SECONDS` | 否 | `900` | 邮箱失败计数固定窗口，单位秒 |
+| `OFFERPILOT_LOGIN_EMAIL_LIMIT` | 否 | `5` | 窗口内允许的失败次数；`0` 关闭邮箱维度 |
+| `OFFERPILOT_LOGIN_LOCK_SECONDS` | 否 | `900` | 邮箱达到阈值后的临时锁定时长，单位秒 |
 | `OFFERPILOT_HOST` | 否 | `127.0.0.1` | 监听地址 |
 | `OFFERPILOT_PORT` | 否 | `8000` | 监听端口 |
 | `OFFERPILOT_MODEL_API_URL` | 否 | 无 | OpenAI 兼容模型服务地址；未配置时 Agent 运行返回 `MODEL_ERROR` |
@@ -64,6 +69,10 @@ uv run offerpilot-admin create --email admin@example.com --display-name 系统�
 演示种子账户为 `demo@example.com`，口令为 `demo-password-2026`。执行 `uv run python db/migrate.py seed --demo` 后，可使用该账户登录并读取种子中的演示事项。该账户只用于本地演示数据。
 
 登录成功后服务端设置 `offerpilot_session` Cookie。普通会话有效 12 小时，登录请求携带 `"remember": true` 时有效 30 天。所有业务接口要求有效会话；详细接口与错误码见[账户、登录与管理员接口](../docs/backend/accounts.md)。
+
+登录接口按客户端 IP 与邮箱地址两级限流，默认同一 IP 每 5 分钟最多 60 次登录请求，同一邮箱每 15 分钟累计 5 次失败后临时锁定 15 分钟。阈值、窗口与锁定时长可通过 `OFFERPILOT_LOGIN_*` 环境变量调整；次数上限设为 `0` 时关闭对应维度。超限返回 `429 too_many_login_attempts` 与 `Retry-After`。邮箱维度按提交的邮箱计数，账户不存在时行为一致。
+
+客户端 IP 取自 ASGI 服务器处理后的 `request.client.host`，应用不自行解析 `X-Forwarded-For`。uvicorn 默认信任来自 `127.0.0.1` 与 `::1` 的代理头；反向代理位于其他主机或容器时，须将 `FORWARDED_ALLOW_IPS` 设为代理地址或网段，不得设为 `*`。
 
 ## 启动
 
@@ -146,7 +155,7 @@ uv run ty check
 | `src/backend/fact_types.py` | 个人事实类型注册表、校验与渲染 |
 | `src/backend/sources/` | 公开 HTML 来源读取、来源文档转换与命令行入口 |
 | `src/backend/agent/` | Agent 编排、运行契约与业务端口适配 |
-| `src/backend/services/` | 账户、会话、管理员与事项等业务 |
+| `src/backend/services/` | 账户、会话、管理员、登录限流与事项等业务 |
 | `src/backend/routers/` | HTTP 路由与认证依赖 |
 | `tests/` | 真实数据库集成测试 |
 
@@ -154,7 +163,8 @@ uv run ty check
 
 - 注册、登录、退出、记住登录与管理员账户管理已提供后端接口；前端登录界面由独立任务交付。
 - 每个账户拥有独立个人工作区；管理员只能管理账户元数据，不能读取其他用户的私人业务数据。
-- 不提供邮件验证、找回密码、MFA、登录限流、账户锁定、管理员操作审计、个人信息编辑与第三方登录。
+- 登录失败按 IP 与邮箱计数并临时拒绝登录，不修改账户状态，也不撤销已有会话。
+- 不提供邮件验证、找回密码、MFA、管理员操作审计、个人信息编辑与第三方登录。
 - 来源读取只访问公开 HTML 页面；Agent 运行调用外部模型生成待确认候选，不解析 PDF 与附件、不生成材料、不执行外部提交。
 - 不提供任务状态更新、事项归档或候选计划内容修改接口。
 - 数据隔离依赖会话认证、工作区校验与行级安全。

@@ -18,6 +18,11 @@ class Settings:
     session_ttl_seconds: int = 43_200
     remember_session_ttl_seconds: int = 2_592_000
     cookie_secure: bool = False
+    login_ip_window_seconds: int = 300
+    login_ip_limit: int = 60
+    login_email_window_seconds: int = 900
+    login_email_limit: int = 5
+    login_lock_seconds: int = 900
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -38,6 +43,13 @@ class Settings:
                 "OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS", 2_592_000
             ),
             cookie_secure=_bool_env("OFFERPILOT_COOKIE_SECURE", False),
+            login_ip_window_seconds=_int_env("OFFERPILOT_LOGIN_IP_WINDOW_SECONDS", 300),
+            login_ip_limit=_non_negative_int_env("OFFERPILOT_LOGIN_IP_LIMIT", 60),
+            login_email_window_seconds=_int_env(
+                "OFFERPILOT_LOGIN_EMAIL_WINDOW_SECONDS", 900
+            ),
+            login_email_limit=_non_negative_int_env("OFFERPILOT_LOGIN_EMAIL_LIMIT", 5),
+            login_lock_seconds=_int_env("OFFERPILOT_LOGIN_LOCK_SECONDS", 900),
         )
 
 
@@ -48,6 +60,16 @@ def _int_env(name: str, default: int) -> int:
     value = int(raw.strip())
     if value <= 0:
         raise RuntimeError(f"{name} must be a positive integer")
+    return value
+
+
+def _non_negative_int_env(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    value = int(raw.strip())
+    if value < 0:
+        raise RuntimeError(f"{name} must be a non-negative integer")
     return value
 
 

@@ -13,12 +13,14 @@ from fastapi.testclient import TestClient
 
 from backend.admin_cli import ADMIN_PASSWORD_ENV
 from backend.admin_cli import main as admin_cli_main
+from backend.config import Settings
 
 USER_PASSWORD = "user" + str(2026) + "!"
 NEW_PASSWORD = "newuser" + str(2026) + "!"
 ADMIN_EMAIL = "admin@example.com"
 ADMIN_DISPLAY_NAME = "系统管理员"
 ADMIN_PASSWORD = "admin" + str(2026) + "!"
+EMAIL_LIMIT = Settings(database_url="").login_email_limit
 
 
 def test_registration_immediately_authenticates(
@@ -311,6 +313,55 @@ def test_administrator_account_lifecycle(
     with pytest.raises(SystemExit) as duplicate:
         _create_admin(monkeypatch, app_url)
     assert duplicate.value.code == 1
+
+
+def test_administrator_password_reset_clears_login_lockout(
+    app: FastAPI,
+    admin: psycopg.Connection,
+    database_urls: tuple[str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    app_url, _ = database_urls
+    _create_admin(monkeypatch, app_url)
+
+    with TestClient(app, client=("203.0.113.60", 50000)) as applicant_client:
+        applicant = _register(applicant_client, "locked@example.com", "锁定用户")
+
+    for index in range(EMAIL_LIMIT):
+        with TestClient(app, client=(f"198.51.100.{index + 120}", 50000)) as client:
+            response = client.post(
+                "/api/v1/auth/login",
+                json={
+                    "email": "locked@example.com",
+                    "password": "wrong" + "-password",
+                },
+            )
+            if index < EMAIL_LIMIT - 1:
+                assert response.status_code == 401, response.text
+            else:
+                assert response.status_code == 429, response.text
+
+    with TestClient(app, client=("198.51.100.130", 50000)) as locked:
+        response = locked.post(
+            "/api/v1/auth/login",
+            json={"email": "locked@example.com", "password": USER_PASSWORD},
+        )
+        assert response.status_code == 429, response.text
+
+    with TestClient(app, client=("198.51.100.131", 50000)) as admin_client:
+        _login(admin_client, ADMIN_EMAIL, ADMIN_PASSWORD)
+        reset = admin_client.post(
+            f"/api/v1/admin/users/{applicant['id']}/password-reset",
+            json={"new_password": NEW_PASSWORD},
+        )
+        assert reset.status_code == 200, reset.text
+
+    with TestClient(app, client=("198.51.100.132", 50000)) as recovered:
+        response = recovered.post(
+            "/api/v1/auth/login",
+            json={"email": "locked@example.com", "password": NEW_PASSWORD},
+        )
+        assert response.status_code == 200, response.text
 
 
 def test_administrator_cannot_read_another_users_private_data(

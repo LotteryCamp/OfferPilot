@@ -5,7 +5,7 @@
 | 接口前缀 | `/api/v1` |
 | 数据格式 | JSON，UTF-8 |
 | 适用范围 | Alpha 多用户后端 |
-| 数据库结构 | 迁移 `0016_account_management.sql` |
+| 数据库结构 | 迁移 `0016_account_management.sql`、`0017_login_throttle.sql` |
 | 业务接口 | [Alpha 核心业务流程 API](api.md) |
 
 ## 1. 账户模型
@@ -24,6 +24,10 @@
 | `core.user_session` | `remember` | 是否使用持久 Cookie |
 | `core.user_session` | `expires_at` | 服务端会话失效时间 |
 | `core.user_session` | `revoked_at` | 退出、停用、删除或重置密码后的撤销时间 |
+| `core.login_throttle` | `bucket_key` | `ip:` 前缀保存规范化 IP 或 IPv6 /64 网段；`email:` 前缀保存邮箱 SHA-256 摘要 |
+| `core.login_throttle` | `window_start` | 固定计数窗口起点 |
+| `core.login_throttle` | `attempts` | 当前窗口内的尝试次数 |
+| `core.login_throttle` | `blocked_until` | 邮箱桶的临时锁定结束时间 |
 
 注册成功后账户立即生效，不需要邮件验证或管理员审批。注册同时创建个人工作区和登录会话，响应携带登录 Cookie。
 
@@ -104,13 +108,40 @@
 
 响应 `200` 与注册响应结构相同。邮箱不存在、密码错误、账户停用或已删除时统一返回 `401 invalid_credentials`，不区分具体原因。
 
-### 3.3 退出
+### 3.3 登录限流与临时锁定
+
+登录接口在核验密码前执行两级计数：
+
+| 维度 | 计数对象 | 默认阈值 | 默认窗口 | 超限行为 |
+| :--- | :--- | :--- | :--- | :--- |
+| 客户端 IP | 全部登录请求 | 60 次 | 5 分钟固定窗口 | 返回 `429 too_many_login_attempts`，`Retry-After` 为窗口剩余秒数 |
+| 邮箱 | 密码错误或账户不可用 | 5 次 | 15 分钟固定窗口 | 第 5 次失败立即锁定 15 分钟，期间即使密码正确也返回 429 |
+
+参数在进程启动时从环境变量读取，修改后需重启：
+
+| 参数 | 环境变量 | 默认值 | 约束 |
+| :--- | :--- | :--- | :--- |
+| IP 窗口 | `OFFERPILOT_LOGIN_IP_WINDOW_SECONDS` | `300` | 正整数 |
+| IP 登录请求上限 | `OFFERPILOT_LOGIN_IP_LIMIT` | `60` | 非负整数；`0` 关闭 IP 维度 |
+| 邮箱窗口 | `OFFERPILOT_LOGIN_EMAIL_WINDOW_SECONDS` | `900` | 正整数 |
+| 邮箱失败次数上限 | `OFFERPILOT_LOGIN_EMAIL_LIMIT` | `5` | 非负整数；`0` 关闭邮箱维度 |
+| 邮箱锁定时长 | `OFFERPILOT_LOGIN_LOCK_SECONDS` | `900` | 正整数 |
+
+次数上限为 `0` 时跳过对应维度的计数、锁定检查与失败记录；窗口与锁定时长仍须为正数。非法值导致服务启动失败。
+
+邮箱维度按提交的邮箱计算，账户不存在时同样计数，响应与真实账户一致，不暴露邮箱是否注册。登录成功清除该邮箱的失败计数。管理员重置密码或将账户状态设为 `active` 时清除该邮箱的计数与锁定。临时锁定不修改 `core.app_user.status`，也不撤销已有会话。
+
+`ip:` 桶保存规范化地址：IPv4 映射的 IPv6 地址归一为 IPv4，其他 IPv6 地址按 /64 网段聚合。`email:` 桶保存邮箱规范化后的 SHA-256 摘要，不保存明文邮箱。
+
+客户端 IP 取自 ASGI 服务器的 `request.client.host`。uvicorn 的代理头中间件默认只信任 `127.0.0.1` 与 `::1`；反向代理位于其他主机或容器时，须通过 `FORWARDED_ALLOW_IPS` 指定代理地址或网段。应用不读取 `X-Forwarded-For`，客户端无法通过伪造该头绕过限流。
+
+### 3.4 退出
 
 `POST /api/v1/auth/logout`
 
 撤销当前 Cookie 对应的会话并清除 Cookie。响应 `204`。重复退出或 Cookie 已失效时同样返回 `204`。
 
-### 3.4 当前账户
+### 3.5 当前账户
 
 `GET /api/v1/auth/me`
 
@@ -136,7 +167,7 @@
 }
 ```
 
-### 3.5 修改密码
+### 3.6 修改密码
 
 `POST /api/v1/auth/password`
 
@@ -212,7 +243,7 @@
 | :--- | :--- | :--- | :--- |
 | `status` | string | 是 | `active` 或 `disabled` |
 
-响应 `200` 为 `{ "user": {...} }`。停用账户时撤销其全部会话。管理员不能通过该接口修改自己的状态。
+响应 `200` 为 `{ "user": {...} }`。停用账户时撤销其全部会话；将状态设为 `active` 时清除该邮箱的登录失败计数与临时锁定。管理员不能通过该接口修改自己的状态。
 
 ### 5.3 调整账户角色
 
@@ -236,7 +267,7 @@
 | :--- | :--- | :--- | :--- |
 | `new_password` | string | 是 | 8—128 字符 |
 
-响应 `200` 为 `{ "user": {...} }`。重置成功后撤销目标账户的全部会话。管理员不能通过该接口重置自己的密码，应使用 `POST /api/v1/auth/password`。
+响应 `200` 为 `{ "user": {...} }`。重置成功后撤销目标账户的全部会话，并清除该邮箱的登录失败计数与临时锁定。管理员不能通过该接口重置自己的密码，应使用 `POST /api/v1/auth/password`。
 
 ### 5.5 删除账户
 
@@ -289,19 +320,21 @@ uv run offerpilot-admin create \
 | 409 | `last_admin_required` | 操作会导致没有有效管理员 |
 | 409 | `account_deleted` | 目标账户已软删除 |
 | 422 | `validation_error` | 请求字段未通过校验 |
+| 429 | `too_many_login_attempts` | 登录尝试超过 IP 或邮箱维度阈值；响应携带 `Retry-After` |
 
 ## 9. 部署与兼容影响
 
 - 除 `/healthz` 外，所有业务接口都要求登录；未携带有效 Cookie 的请求返回 `401 authentication_required`。
 - 固定演示用户与工作区配置已移除。依赖 `OFFERPILOT_DEMO_USER_ID`、`OFFERPILOT_DEMO_WORKSPACE_ID` 或 `demo_identity_missing` 的客户端与部署脚本需要更新。
 - HTTPS 部署必须设置 `OFFERPILOT_COOKIE_SECURE=true`，并让前端与 API 同源，或由部署层提供精确的 CORS 凭据策略。
+- 部署在反向代理后方时，uvicorn 默认只信任 `127.0.0.1` 与 `::1` 的代理头。代理位于其他主机或容器时，将 `FORWARDED_ALLOW_IPS` 设为代理地址或网段；该变量不得设为 `*`。
 - 服务启动时会将数据库中所有 `running` 状态的 Agent 运行标记为 `interrupted`。多进程部署需要保证只有一个进程执行该启动步骤，或改用实例级运行心跳后再扩展为多实例。
 - 演示种子账户为 `demo@example.com`，口令为 `demo-password-2026`，仅用于本地演示数据。种子脚本会把旧版不可登录的演示账户升级为可登录账户。
-- 当前不提供邮件验证、找回密码、MFA、登录限流、账户锁定、管理员操作审计、个人信息编辑与第三方登录。
+- 当前不提供邮件验证、找回密码、MFA、管理员操作审计、个人信息编辑与第三方登录。
 
 ## 10. 验证
 
-账户接口集成测试覆盖注册即用、重复邮箱、普通与持久会话、Cookie 属性、退出、改密撤销、管理员列表与筛选、状态与角色调整、密码重置、软删除、自操作保护、管理员数据边界与匿名请求拒绝。
+账户接口集成测试覆盖注册即用、重复邮箱、普通与持久会话、Cookie 属性、退出、改密撤销、管理员列表与筛选、状态与角色调整、密码重置、软删除、自操作保护、管理员数据边界、匿名请求拒绝、IP 限流、邮箱临时锁定、成功登录清除失败计数、管理员重置清除锁定与代理头信任边界。
 
 ```bash
 cd backend

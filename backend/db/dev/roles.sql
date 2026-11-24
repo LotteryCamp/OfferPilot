@@ -31,6 +31,7 @@ GRANT UPDATE (
 GRANT SELECT, INSERT ON core.workspace TO offerpilot_app;
 GRANT SELECT ON core.matter_type, core.template_version TO offerpilot_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON core.user_session TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core.login_throttle TO offerpilot_app;
 GRANT SELECT ON core.v_matter_overview, core.v_plan_detail, core.v_task_list TO offerpilot_app;
 
 -- 共享来源层：应用登记来源、追加快照与证据；快照与证据写入后不可修改。

@@ -20,6 +20,7 @@ from backend.security import (
     session_token_hash,
     verify_password,
 )
+from backend.services import login_throttle
 from backend.services.common import iso
 from backend.tables import app_user, user_session, workspace
 
@@ -111,61 +112,105 @@ def login(
     body: LoginRequest,
     *,
     now: datetime,
+    client_ip: str | None = None,
 ) -> AuthSession:
-    with session.begin():
-        row = (
-            session.execute(
-                select(
-                    app_user.c.id,
-                    app_user.c.email,
-                    app_user.c.display_name,
-                    app_user.c.password_hash,
-                    app_user.c.account_type,
-                    app_user.c.status,
-                    app_user.c.created_at,
-                    app_user.c.updated_at,
-                    app_user.c.deleted_at,
-                    workspace.c.id.label("workspace_id"),
-                )
-                .join(workspace, workspace.c.owner_id == app_user.c.id)
-                .where(app_user.c.email == str(body.email))
-            )
-            .mappings()
-            .first()
-        )
-        if (
-            row is None
-            or row["status"] != "active"
-            or row["deleted_at"] is not None
-            or not verify_password(body.password, row["password_hash"])
-        ):
-            raise _invalid_credentials()
+    ip_key = login_throttle.ip_bucket_key(client_ip)
+    email_key = login_throttle.email_bucket_key(str(body.email))
+    ip_limit = settings.login_ip_limit
+    email_limit = settings.login_email_limit
 
-        token = new_session_token()
-        expires_at = _session_expiry(settings, body_remember=body.remember, now=now)
-        session.execute(
-            delete(user_session).where(
-                user_session.c.user_id == row["id"],
-                user_session.c.expires_at <= now,
+    if ip_limit > 0 and ip_key is not None:
+        with session.begin():
+            retry_after = login_throttle.consume_ip_attempt(
+                session,
+                ip_key,
+                now=now,
+                window=timedelta(seconds=settings.login_ip_window_seconds),
+                limit=ip_limit,
             )
-        )
-        session.execute(
-            insert(user_session).values(
-                id=uuid4(),
-                user_id=row["id"],
-                token_hash=session_token_hash(token),
-                remember=body.remember,
-                created_at=now,
+        if retry_after is not None:
+            raise login_throttle.too_many_attempts(retry_after)
+
+    if email_limit > 0:
+        with session.begin():
+            retry_after = login_throttle.email_blocked_for(session, email_key, now=now)
+        if retry_after is not None:
+            raise login_throttle.too_many_attempts(retry_after)
+
+    auth_session: AuthSession | None = None
+    try:
+        with session.begin():
+            row = (
+                session.execute(
+                    select(
+                        app_user.c.id,
+                        app_user.c.email,
+                        app_user.c.display_name,
+                        app_user.c.password_hash,
+                        app_user.c.account_type,
+                        app_user.c.status,
+                        app_user.c.created_at,
+                        app_user.c.updated_at,
+                        app_user.c.deleted_at,
+                        workspace.c.id.label("workspace_id"),
+                    )
+                    .join(workspace, workspace.c.owner_id == app_user.c.id)
+                    .where(app_user.c.email == str(body.email))
+                )
+                .mappings()
+                .first()
+            )
+            if (
+                row is None
+                or row["status"] != "active"
+                or row["deleted_at"] is not None
+                or not verify_password(body.password, row["password_hash"])
+            ):
+                raise _InvalidCredentials
+
+            token = new_session_token()
+            expires_at = _session_expiry(settings, body_remember=body.remember, now=now)
+            session.execute(
+                delete(user_session).where(
+                    user_session.c.user_id == row["id"],
+                    user_session.c.expires_at <= now,
+                )
+            )
+            session.execute(
+                insert(user_session).values(
+                    id=uuid4(),
+                    user_id=row["id"],
+                    token_hash=session_token_hash(token),
+                    remember=body.remember,
+                    created_at=now,
+                    expires_at=expires_at,
+                    revoked_at=None,
+                )
+            )
+            login_throttle.clear_email(session, email_key)
+            auth_session = AuthSession(
+                user=_serialize_user(row),
+                token=token,
                 expires_at=expires_at,
-                revoked_at=None,
+                remember=body.remember,
             )
-        )
-    return AuthSession(
-        user=_serialize_user(row),
-        token=token,
-        expires_at=expires_at,
-        remember=body.remember,
-    )
+    except _InvalidCredentials:
+        if email_limit > 0:
+            with session.begin():
+                retry_after = login_throttle.record_email_failure(
+                    session,
+                    email_key,
+                    now=now,
+                    window=timedelta(seconds=settings.login_email_window_seconds),
+                    limit=email_limit,
+                    lock_duration=timedelta(seconds=settings.login_lock_seconds),
+                )
+            if retry_after is not None:
+                raise login_throttle.too_many_attempts(retry_after) from None
+        raise _invalid_credentials() from None
+
+    assert auth_session is not None
+    return auth_session
 
 
 def authenticate_session(
@@ -291,6 +336,10 @@ def _invalid_credentials() -> ApiError:
         "邮箱或密码错误",
         next_step="核对邮箱和密码后重试",
     )
+
+
+class _InvalidCredentials(Exception):
+    """Internal signal for the failed-credential path."""
 
 
 def _session_expiry(

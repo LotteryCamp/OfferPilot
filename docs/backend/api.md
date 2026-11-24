@@ -6,7 +6,7 @@
 | 数据格式 | JSON，UTF-8 |
 | 适用范围 | Alpha 多用户后端 |
 | 业务契约 | [`docs/development/alpha-scope-contract.md`](../development/alpha-scope-contract.md) |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0016` |
+| 数据库结构 | Alpha schema 迁移 `0001`—`0017` |
 
 ## 1. 范围
 
@@ -22,7 +22,7 @@
 - 注册、登录、退出、读取当前账户、修改密码，以及管理员账户管理。
 
 个人事实按事项保存与读取，版本规则、类型注册表与候选失效语义见[个人事实接口](facts.md)（迁移 `0012`）。
-账户、会话与管理员接口见[账户、登录与管理员接口](accounts.md)（迁移 `0016`）。
+账户、会话与管理员接口见[账户、登录与管理员接口](accounts.md)（迁移 `0017`）。
 
 来源可以通过两种方式进入事项：调用方提供已取得的正文、发布信息和原文片段，或由本接口读取公开 HTML 页面后登记。读取只访问公开 HTTP/HTTPS 地址，不解析 PDF、附件或需要登录的页面。候选要求与候选计划可以直接写入，也可以由 Agent 运行读取公开来源后生成并持久化。
 
@@ -1277,6 +1277,7 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 | 422 | `unsupported_fact_type` | 事实类型未注册 |
 | 422 | `invalid_fact_value` | 事实值写法或范围不合法；`details.issues` 列出原因 |
 | 422 | `managed_fact_type` | Agent 运行的 `confirmed_facts` 包含已注册事实类型；`details.fact_types` 列出冲突键 |
+| 429 | `too_many_login_attempts` | 登录尝试超过 IP 或邮箱维度阈值；响应携带 `Retry-After` |
 | 500 | `internal_error` | 未预期的服务错误 |
 
 ## 11. 数据库依赖
@@ -1287,6 +1288,7 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 | :--- | :--- |
 | `core.app_user`、`core.workspace` | 账户、角色与个人工作区 |
 | `core.user_session` | 服务端登录会话、持久登录标记与撤销时间 |
+| `core.login_throttle` | 登录尝试的 IP 与邮箱维度计数、固定窗口与临时锁定 |
 | `core.matter_type`、`core.matter` | 事项类型与事项 |
 | `ops.source`、`ops.snapshot` | 来源与版本化快照 |
 | `core.requirement`、`ops.evidence` | 候选要求与原文证据 |
@@ -1306,7 +1308,7 @@ Alpha 向模型发送事项目标、白名单公开范围字段与公开来源�
 ## 12. 范围限制
 
 - 所有业务请求要求登录；每个账户拥有独立个人工作区。
-- 不提供邮件验证、找回密码、MFA、登录限流、账户锁定、管理员操作审计、个人信息编辑与第三方登录。
+- 不提供邮件验证、找回密码、MFA、管理员操作审计、个人信息编辑与第三方登录。
 - 不提供任务状态更新、事项归档或候选计划修改接口。
 - 个人事实接口按事项注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`，不提供同类型多实例、跨事项共享、草稿、撤回、删除与个人材料引用。
 - 模型传输同意按用户授予并覆盖全部事项，不绑定服务商；不提供有效期、按用途分别授予、第三方服务商条款绑定与历史列表。

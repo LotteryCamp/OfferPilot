@@ -17,6 +17,7 @@ from backend.schemas import (
     AdminUserStatusUpdate,
 )
 from backend.security import hash_password
+from backend.services import login_throttle
 from backend.services.common import iso
 from backend.tables import app_user, user_session, workspace
 
@@ -164,6 +165,8 @@ def update_status(
         )
         if body.status == "disabled":
             _revoke_all_sessions(session, user_id, now)
+        else:
+            login_throttle.clear_email_for(session, target["email"])
         return _serialize_user(_load_account(session, user_id))
 
 
@@ -212,6 +215,7 @@ def reset_password(
             .values(password_hash=hash_password(body.new_password), updated_at=now)
         )
         _revoke_all_sessions(session, user_id, now)
+        login_throttle.clear_email_for(session, target["email"])
         return _serialize_user(_load_account(session, user_id))
 
 

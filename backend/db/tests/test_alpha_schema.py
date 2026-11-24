@@ -139,7 +139,7 @@ class AlphaSchemaTest(unittest.TestCase):
         self.conn.execute("RESET app.current_workspace_id")
         self.conn.execute(
             """
-            TRUNCATE core.user_session, core.fact, core.agent_run,
+            TRUNCATE core.login_throttle, core.user_session, core.fact, core.agent_run,
                      core.matter_source, core.task,
                      core.candidate_plan_item, core.candidate_plan,
                      core.requirement, core.matter, core.workspace, core.app_user,
@@ -304,6 +304,7 @@ class AlphaSchemaTest(unittest.TestCase):
         expected_tables = {
             "core.app_user",
             "core.user_session",
+            "core.login_throttle",
             "core.workspace",
             "core.matter_type",
             "core.template_version",
@@ -355,6 +356,7 @@ class AlphaSchemaTest(unittest.TestCase):
             "core.matter_source": "SELECT, INSERT, UPDATE, DELETE",
             "core.agent_run": "SELECT, INSERT, UPDATE, DELETE",
             "core.user_session": "SELECT, INSERT, UPDATE, DELETE",
+            "core.login_throttle": "SELECT, INSERT, UPDATE, DELETE",
         }.items():
             self.assertTrue(
                 fetch_scalar(

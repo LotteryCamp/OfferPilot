@@ -35,6 +35,7 @@ def register(
 
 @router.post("/login")
 def login(
+    request: Request,
     body: LoginRequest,
     response: Response,
     session: SessionDep,
@@ -46,6 +47,7 @@ def login(
         settings,
         body,
         now=clock.now(),
+        client_ip=request.client.host if request.client else None,
     )
     _set_session_cookie(response, auth_session, settings)
     return {

@@ -139,6 +139,17 @@ user_session = Table(
     schema="core",
 )
 
+login_throttle = Table(
+    "login_throttle",
+    metadata,
+    Column("bucket_key", Text, primary_key=True),
+    Column("window_start", TIMESTAMPTZ, nullable=False),
+    Column("attempts", Integer, nullable=False),
+    Column("blocked_until", TIMESTAMPTZ),
+    Column("updated_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
 workspace = Table(
     "workspace",
     metadata,

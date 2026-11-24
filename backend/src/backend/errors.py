@@ -22,6 +22,7 @@ class ApiError(Exception):
         *,
         next_step: str | None = None,
         details: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -29,6 +30,7 @@ class ApiError(Exception):
         self.message = message
         self.next_step = next_step
         self.details = details or {}
+        self.headers = headers or {}
 
 
 def error_payload(
@@ -57,6 +59,7 @@ def install_exception_handlers(app: FastAPI) -> None:
                 next_step=exc.next_step,
                 details=exc.details,
             ),
+            headers=exc.headers or None,
         )
 
     @app.exception_handler(RequestValidationError)
