@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from backend.config import Settings
 from backend.routers.deps import ClockDep, CurrentUserDep, SessionDep, SettingsDep
-from backend.schemas import LoginRequest, PasswordChangeRequest, RegisterRequest
+from backend.schemas import (
+    LoginRequest,
+    PasswordChangeRequest,
+    ProfileUpdateRequest,
+    RegisterRequest,
+)
 from backend.services import auth as auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -80,6 +86,28 @@ def get_current_account(current_user: CurrentUserDep) -> dict:
             "remember": current_user.remember,
         },
     }
+
+
+@router.patch("/me")
+def update_current_account(
+    body: ProfileUpdateRequest,
+    current_user: CurrentUserDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    clock: ClockDep,
+) -> JSONResponse:
+    user, session_revoked = auth_service.update_profile(
+        session,
+        current_user,
+        body,
+        now=clock.now(),
+    )
+    response = JSONResponse(
+        {"user": user, "session_revoked": session_revoked},
+    )
+    if session_revoked:
+        _clear_session_cookie(response, settings)
+    return response
 
 
 @router.post("/password", status_code=status.HTTP_204_NO_CONTENT)

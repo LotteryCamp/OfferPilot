@@ -170,6 +170,136 @@ def test_password_change_revokes_every_session(app: FastAPI) -> None:
         assert invalid_current.json()["error"]["code"] == "invalid_current_password"
 
 
+def test_profile_update_changes_display_name_without_ending_session(
+    app: FastAPI, admin: psycopg.Connection
+) -> None:
+    with TestClient(app) as user_client:
+        _register(user_client, "profile@example.com", "旧名称")
+
+        updated = user_client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "  新名称  "},
+        )
+        assert updated.status_code == 200, updated.text
+        body = updated.json()
+        assert body["session_revoked"] is False
+        assert body["user"]["display_name"] == "新名称"
+        assert body["user"]["email"] == "profile@example.com"
+
+        current = user_client.get("/api/v1/auth/me")
+        assert current.status_code == 200
+        assert current.json()["user"]["display_name"] == "新名称"
+
+        row = admin.execute(
+            "SELECT display_name, email FROM core.app_user WHERE email = %s",
+            ("profile@example.com",),
+        ).fetchone()
+        assert row == ("新名称", "profile@example.com")
+
+
+def test_email_change_requires_password_and_revokes_every_session(
+    app: FastAPI,
+) -> None:
+    with TestClient(app) as first_client, TestClient(app) as second_client:
+        _register(first_client, "old-mail@example.com", "改邮箱用户")
+        _login(second_client, "old-mail@example.com", USER_PASSWORD)
+
+        missing_password = first_client.patch(
+            "/api/v1/auth/me",
+            json={"email": "new-mail@example.com"},
+        )
+        assert missing_password.status_code == 422, missing_password.text
+        assert missing_password.json()["error"]["code"] == "validation_error"
+
+        wrong_password = first_client.patch(
+            "/api/v1/auth/me",
+            json={
+                "email": "new-mail@example.com",
+                "current_password": "wrong" + "-password",
+            },
+        )
+        assert wrong_password.status_code == 401, wrong_password.text
+        assert wrong_password.json()["error"]["code"] == "invalid_current_password"
+        assert first_client.get("/api/v1/auth/me").status_code == 200
+
+        changed = first_client.patch(
+            "/api/v1/auth/me",
+            json={
+                "email": " NEW-MAIL@example.com ",
+                "display_name": "新邮箱用户",
+                "current_password": USER_PASSWORD,
+            },
+        )
+        assert changed.status_code == 200, changed.text
+        body = changed.json()
+        assert body["session_revoked"] is True
+        assert body["user"]["email"] == "new-mail@example.com"
+        assert body["user"]["display_name"] == "新邮箱用户"
+        assert "max-age=0" in changed.headers["set-cookie"].lower()
+        assert first_client.get("/api/v1/auth/me").status_code == 401
+        assert second_client.get("/api/v1/auth/me").status_code == 401
+
+        old_login = first_client.post(
+            "/api/v1/auth/login",
+            json={"email": "old-mail@example.com", "password": USER_PASSWORD},
+        )
+        assert old_login.status_code == 401
+
+        _login(first_client, "new-mail@example.com", USER_PASSWORD)
+        assert first_client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_email_change_rejects_registered_email(app: FastAPI) -> None:
+    with TestClient(app) as user_client, TestClient(app) as other_client:
+        _register(user_client, "owner@example.com", "本人")
+        _register(other_client, "taken@example.com", "他人")
+
+        response = user_client.patch(
+            "/api/v1/auth/me",
+            json={
+                "email": "TAKEN@example.com",
+                "current_password": USER_PASSWORD,
+            },
+        )
+        assert response.status_code == 409, response.text
+        assert response.json()["error"]["code"] == "email_already_registered"
+
+        current = user_client.get("/api/v1/auth/me")
+        assert current.status_code == 200
+        assert current.json()["user"]["email"] == "owner@example.com"
+
+
+def test_profile_update_with_unchanged_email_keeps_session(app: FastAPI) -> None:
+    with TestClient(app) as user_client:
+        _register(user_client, "same-mail@example.com", "同名用户")
+
+        response = user_client.patch(
+            "/api/v1/auth/me",
+            json={"email": "SAME-MAIL@example.com"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["session_revoked"] is False
+        assert body["user"]["email"] == "same-mail@example.com"
+        assert user_client.get("/api/v1/auth/me").status_code == 200
+
+
+def test_profile_update_validates_request(app: FastAPI) -> None:
+    with TestClient(app) as user_client:
+        _register(user_client, "invalid-profile@example.com", "校验用户")
+
+        empty = user_client.patch("/api/v1/auth/me", json={})
+        assert empty.status_code == 422, empty.text
+        assert empty.json()["error"]["code"] == "validation_error"
+
+        blank = user_client.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "   "},
+        )
+        assert blank.status_code == 422, blank.text
+        assert blank.json()["error"]["code"] == "validation_error"
+
+
 def test_administrator_account_lifecycle(
     app: FastAPI,
     admin: psycopg.Connection,
@@ -413,6 +543,13 @@ def test_anonymous_requests_are_rejected(app: FastAPI) -> None:
         invalid = anonymous.get("/api/v1/matters")
         assert invalid.status_code == 401
         assert invalid.json()["error"]["code"] == "authentication_required"
+
+        anonymous_update = anonymous.patch(
+            "/api/v1/auth/me",
+            json={"display_name": "匿名用户"},
+        )
+        assert anonymous_update.status_code == 401
+        assert anonymous_update.json()["error"]["code"] == "authentication_required"
 
         health = anonymous.get("/healthz")
         assert health.status_code == 200

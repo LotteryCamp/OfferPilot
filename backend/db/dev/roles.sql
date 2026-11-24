@@ -25,7 +25,8 @@ GRANT INSERT (
 )
     ON core.app_user TO offerpilot_app;
 GRANT UPDATE (
-    password_hash, account_type, status, deleted_at, updated_at
+    display_name, email, password_hash, account_type, status, deleted_at,
+    updated_at
 )
     ON core.app_user TO offerpilot_app;
 GRANT SELECT, INSERT ON core.workspace TO offerpilot_app;

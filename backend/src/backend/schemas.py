@@ -85,6 +85,38 @@ class PasswordChangeRequest(AuthRequestModel):
         return self
 
 
+class ProfileUpdateRequest(AuthRequestModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=60)
+    email: EmailStr | None = None
+    current_password: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if len(normalized) > 160:
+                raise ValueError("email exceeds 160 characters")
+            return normalized
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display_name must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def check_profile_fields(self) -> ProfileUpdateRequest:
+        if self.display_name is None and self.email is None:
+            raise ValueError("display_name or email is required")
+        return self
+
+
 class AdminUserStatusUpdate(AuthRequestModel):
     status: Literal["active", "disabled"]
 

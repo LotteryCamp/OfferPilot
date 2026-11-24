@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from backend.config import Settings
 from backend.errors import ApiError
 from backend.identity import CurrentUser
-from backend.schemas import LoginRequest, PasswordChangeRequest, RegisterRequest
+from backend.schemas import (
+    LoginRequest,
+    PasswordChangeRequest,
+    ProfileUpdateRequest,
+    RegisterRequest,
+)
 from backend.security import (
     hash_password,
     new_session_token,
@@ -306,6 +311,82 @@ def change_password(
             .values(password_hash=hash_password(body.new_password), updated_at=now)
         )
         _revoke_all_sessions(session, current_user.user_id, now)
+
+
+def update_profile(
+    session: Session,
+    current_user: CurrentUser,
+    body: ProfileUpdateRequest,
+    *,
+    now: datetime,
+) -> tuple[dict[str, Any], bool]:
+    with session.begin():
+        row = (
+            session.execute(
+                select(
+                    app_user.c.email,
+                    app_user.c.display_name,
+                    app_user.c.password_hash,
+                ).where(app_user.c.id == current_user.user_id)
+            )
+            .mappings()
+            .one()
+        )
+
+        values: dict[str, Any] = {}
+        if body.display_name is not None and body.display_name != row["display_name"]:
+            values["display_name"] = body.display_name
+
+        email_changed = body.email is not None and str(body.email) != row["email"]
+        if email_changed:
+            if body.current_password is None:
+                raise ApiError(
+                    422,
+                    "validation_error",
+                    "修改邮箱需要当前密码",
+                    next_step="提供当前密码后重试",
+                )
+            if not verify_password(body.current_password, row["password_hash"]):
+                raise ApiError(
+                    401,
+                    "invalid_current_password",
+                    "当前密码不正确",
+                    next_step="重新输入当前密码",
+                )
+            session.execute(
+                select(
+                    func.pg_advisory_xact_lock(
+                        func.hashtext(f"offerpilot:email:{body.email}")
+                    )
+                )
+            )
+            existing = session.execute(
+                select(app_user.c.id).where(
+                    app_user.c.email == str(body.email),
+                    app_user.c.id != current_user.user_id,
+                )
+            ).first()
+            if existing is not None:
+                raise ApiError(
+                    409,
+                    "email_already_registered",
+                    "该邮箱已注册",
+                    next_step="更换邮箱后重试",
+                )
+            values["email"] = str(body.email)
+
+        if values:
+            values["updated_at"] = now
+            session.execute(
+                update(app_user)
+                .where(app_user.c.id == current_user.user_id)
+                .values(**values)
+            )
+        if email_changed:
+            _revoke_all_sessions(session, current_user.user_id, now)
+
+        row = _load_account(session, current_user.user_id)
+    return _serialize_user(row), email_changed
 
 
 def serialize_current_user(current_user: CurrentUser) -> dict[str, Any]:
