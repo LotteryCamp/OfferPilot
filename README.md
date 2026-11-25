@@ -18,17 +18,20 @@
 
 ## Highlights
 
-（待写）
+- 🐍 Python 驱动的网络服务和 Agent 框架，提供高效性能
+- 🌈 MIT 开源，隐私优先
 
 ## Installation
 
-（待定）
+本地开发环境的依赖、数据库初始化、环境变量与启动命令见[本地安装与配置](docs/getting-started.md)。
 
 ## For Developers
 
-请查阅文档和 [Contributing](CONTRIBUTING.md) 以获取项目信息。注意当前不接受 LotteryCamp（鹦伟达）组织外的 PR。
+请查阅文档和 [Contributing](CONTRIBUTING.md) 以获取项目信息。注意当前不接受 LotteryCamp（鹦伟达）组织外的 PR，如有不便敬请谅解。
 
-前端需要 Node.js 24 和 npm 11。在 `frontend/` 运行 `npm ci` 和 `npm run dev` 后，按终端地址打开个人事项工作台。集成和接口约定见[工作区设计](docs/frontend/workspace-integration.md)。
+## Contributors
+
+[![](https://contrib.rocks/image?repo=LotteryCamp/OfferPilot)](https://github.com/LotteryCamp/OfferPilot/graphs/contributors)
 
 ## License
 

@@ -2,6 +2,7 @@
 
 欢迎阅读开发者文档！以下是目录：
 
+- [本地安装与配置](getting-started.md)：依赖、数据库初始化、环境变量与启动命令
 - `agent/`： Agent 相关文档
 - `backend/`: 后端相关文档
 - `frontend/`: 前端相关文档

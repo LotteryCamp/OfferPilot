@@ -10,10 +10,14 @@
 
 ### 前端
 
+- [Node.js](https://nodejs.org/) (=24)
+- [npm](https://www.npmjs.com/) (=11)
+
 ### 后端
 
 - [Python](https://www.python.org/) (=3.13)
 - [UV](https://docs.astral.sh/uv/) (latest)
+- [PostgreSQL](https://www.postgresql.org/) (>=16)
 
 ## Workflow
 
@@ -22,36 +26,7 @@ git clone https://github.com/LotteryCamp/OfferPilot.git
 cd OfferPilot
 ```
 
-### 后端
-
-```bash
-cd backend/
-uv sync
-```
-
-静态代码检查：
-
-```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run ty check
-```
-
-运行后端测试用例：
-
-```bash
-uv run pytest tests -q
-```
-
-统计测试覆盖率：
-
-```bash
-uv run pytest tests -q --cov --cov-report=term-missing
-```
-
-覆盖率统计 `src/backend` 的行覆盖率，门槛为 60%，低于门槛时命令失败。
-
-未配置 PostgreSQL 测试数据库环境时，会跳过数据库相关测试。
+下见[本地安装与配置](docs/getting-started.md)。
 
 ## Commit Rules
 
