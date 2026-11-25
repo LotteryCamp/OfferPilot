@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from pydantic import BaseModel
 
 from backend.agent import (
@@ -1335,7 +1336,7 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
     from backend.agent import validate_candidate_plan
     from backend.agent.model_bridge import _resolve_task_dependency_prefixes
 
-    snap_id, _ = _fragment_doc()
+    snap_id, doc = _fragment_doc()
     cite = SourceCitation(source_version_id=snap_id, locator="正文第3段")
     t1 = CandidateTask(
         task_id="T01-check-eligibility",
@@ -1411,26 +1412,25 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         obligation=ObligationType.OFFICIAL_REQUIRED,
         evidence_required="说明",
     )
-    t_blank_dep = CandidateTask(
-        task_id="T04-blank",
-        title="空白依赖",
-        basis=[cite],
-        obligation=ObligationType.OFFICIAL_REQUIRED,
-        depends_on=["   "],
-        evidence_required="说明",
-    )
-    blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
-    assert blank_resolved[1].depends_on == ["   "]
-    assert validate_candidate_plan(
-        CandidatePlan(
-            candidate_id="cand-m1",
-            workspace_version=1,
-            candidate_version=1,
-            input_snapshot_id=snap_id,
-            tasks=blank_resolved,
-        ),
-        1,
-    )
+    for empty_dep in ("", "   "):
+        t_blank_dep = CandidateTask(
+            task_id="T04-blank",
+            title="空白依赖",
+            basis=[cite],
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            depends_on=[empty_dep],
+            evidence_required="说明",
+        )
+        blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
+        assert blank_resolved[1].depends_on == [empty_dep]
+        assert (
+            len(
+                validate_candidate_plan(
+                    plan.model_copy(update={"tasks": blank_resolved}), 1
+                )
+            )
+            == 1
+        )
 
     # Long task_id (>80 chars) truncates client_item_id and depends_on consistently
     long_id = "T01-" + ("x" * 90)
@@ -1458,9 +1458,138 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
             input_snapshot_id=snap_id,
             tasks=long_resolved,
         ),
-        {snap_id: _fragment_doc()[1]},
+        {snap_id: doc},
     )
-    assert (
-        long_plan_payload["items"][1]["depends_on"][0]
-        == long_plan_payload["items"][0]["client_item_id"]
+    CandidatePlanCreate.model_validate(long_plan_payload)
+    assert long_plan_payload["items"][0]["client_item_id"] == long_id[:80]
+    assert long_plan_payload["items"][1]["depends_on"] == [long_id[:80]]
+
+    for first_id, second_id in (
+        ("T-" + "a" * 80 + "-1", "T-" + "a" * 80 + "-2"),
+        ("T-" + "a" * 77 + " x", "T-" + "a" * 77),
+    ):
+        conflicting_plan = plan.model_copy(
+            update={
+                "tasks": [
+                    t1.model_copy(update={"task_id": first_id}),
+                    t_dup.model_copy(update={"task_id": second_id}),
+                ]
+            }
+        )
+        assert any("冲突" in v for v in validate_candidate_plan(conflicting_plan, 1))
+        with pytest.raises(ValueError, match="冲突"):
+            build_candidate_plan_create_payload(conflicting_plan, {snap_id: doc})
+
+
+def test_colliding_task_ids_rejected_before_persisting_requirements() -> None:
+    source_uuid = "b0000000-0000-4000-8000-000000000011"
+    snapshot_uuid = "b0000000-0000-4000-8000-000000000012"
+    matter_uuid = "a0000000-0000-4000-8000-000000000011"
+    user_uuid = "00000000-0000-7000-8000-000000000011"
+
+    doc = SourceDocument(
+        source_version_id=snapshot_uuid,
+        source_id=source_uuid,
+        snapshot_id=snapshot_uuid,
+        title="测试通知",
+        publisher="测试学院",
+        content="申请者须提交申请表。",
+        fragments=[
+            SourceFragmentRecord(
+                locator_kind="section",
+                locator="正文第1段",
+                quote="申请者须提交申请表。",
+            )
+        ],
     )
+    cite = SourceCitation(
+        source_version_id=snapshot_uuid,
+        source_id=source_uuid,
+        snapshot_id=snapshot_uuid,
+        locator_kind="section",
+        locator="正文第1段",
+        excerpt="申请者须提交申请表。",
+    )
+    req = ExtractedRequirement(
+        requirement_id="GR-01",
+        title="提交申请表",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+    )
+    colliding_tasks = [
+        CandidateTask(
+            task_id="T-" + ("a" * 80) + "-1",
+            title="任务一",
+            basis=[cite],
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            evidence_required="申请表一",
+        ),
+        CandidateTask(
+            task_id="T-" + ("a" * 80) + "-2",
+            title="任务二",
+            basis=[cite],
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            evidence_required="申请表二",
+        ),
+    ]
+
+    class _CollidingModelAdapter:
+        def extract_requirements(
+            self, goal: str, sources: list[SourceDocument]
+        ) -> list[ExtractedRequirement]:
+            return [req]
+
+        def generate_candidate_plan(
+            self,
+            context: RunContext,
+            sources: list[SourceDocument],
+            evaluations: list[Any],
+        ) -> CandidatePlan:
+            return CandidatePlan(
+                candidate_id=f"cand-{context.matter_id}",
+                workspace_version=context.workspace_version,
+                candidate_version=1,
+                input_snapshot_id=snapshot_uuid,
+                tasks=colliding_tasks,
+            )
+
+    persistence = InMemoryPersistence()
+    orch = AgentOrchestrator(
+        source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
+        model_adapter=_CollidingModelAdapter(),
+        backend=InMemoryWorkspaceBackend(workspace_version=1),
+        persistence=persistence,
+    )
+    ctx = RunContext(
+        user_id=user_uuid,
+        matter_id=matter_uuid,
+        goal="核对申请材料",
+        workspace_version=1,
+    )
+
+    result = orch.start_run(ctx)
+    assert result.status == RunStatus.FAILED
+    assert result.error is not None
+    assert result.error.code == AgentErrorCode.VALIDATION_FAILED
+    assert any("冲突" in v for v in result.error.details.get("violations", []))
+    assert len(persistence.requirement_payloads) == 0
+    assert len(persistence.plan_payloads) == 0
+
+    evals, _ = evaluate_requirements([req], {snapshot_uuid: doc}, {})
+    colliding_plan = CandidatePlan(
+        candidate_id=f"cand-{matter_uuid}",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snapshot_uuid,
+        tasks=colliding_tasks,
+    )
+    with pytest.raises(ValueError, match="冲突"):
+        orch._persist_candidates(
+            matter_uuid,
+            [req],
+            evals,
+            colliding_plan,
+            {snapshot_uuid: doc},
+        )
+    assert len(persistence.requirement_payloads) == 0
+    assert len(persistence.plan_payloads) == 0
