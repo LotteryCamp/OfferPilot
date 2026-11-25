@@ -36,19 +36,22 @@ uv sync
 ### 启动数据库
 
 ```bash
+export POSTGRES_PASSWORD='postgres'
 cd db
-docker compose up -d
+docker compose up -d --wait
 cd ..
 ```
 
-Compose 定义位于 `backend/db/docker-compose.yml`，启动 PostgreSQL 16，创建 `offerpilot` 数据库，超级用户为 `postgres`，默认口令为 `postgres`，仅监听 `127.0.0.1:5432`，数据保存在命名卷 `offerpilot_pgdata`。需要覆盖默认口令时，在执行 `docker compose up -d` 前设置 `POSTGRES_PASSWORD`。
+Compose 定义位于 `backend/db/docker-compose.yml`，启动 PostgreSQL 16，创建 `offerpilot` 数据库，超级用户为 `postgres`，仅监听 `127.0.0.1:5432`，数据保存在命名卷 `offerpilot_pgdata`。`--wait` 会等到 Compose 中的健康检查通过后再返回，确保后续迁移与 `psql` 可以连接。`POSTGRES_PASSWORD` 是数据库所有者口令，示例值为默认口令 `postgres`；自定义时就地替换，后文连接串通过该变量取值。该变量只在数据卷首次初始化时生效，修改已有数据卷的口令需要使用 PostgreSQL 的 `ALTER ROLE`。
 
-使用已有 PostgreSQL 16 实例时跳过此步，自行创建 `offerpilot` 数据库。
+PowerShell 使用 `$env:POSTGRES_PASSWORD = 'postgres'`。
+
+使用已有 PostgreSQL 16 实例时跳过此步，自行创建 `offerpilot` 数据库，并以实际口令设置 `POSTGRES_PASSWORD`。
 
 ### 应用迁移与参考数据
 
 ```bash
-export DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/offerpilot'
+export DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/offerpilot"
 uv run python db/migrate.py migrate
 uv run python db/migrate.py seed
 ```
@@ -126,7 +129,7 @@ uv run python db/migrate.py seed --demo
 
 ```bash
 docker exec offerpilot-db createdb -U postgres offerpilot_test
-export OFFERPILOT_TEST_ADMIN_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:5432/offerpilot_test'
+export OFFERPILOT_TEST_ADMIN_DATABASE_URL="postgresql://postgres:${POSTGRES_PASSWORD}@127.0.0.1:5432/offerpilot_test"
 uv run python db/migrate.py --dsn "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" migrate
 uv run python db/migrate.py --dsn "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" seed
 psql "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" -f db/dev/roles.sql
@@ -159,11 +162,11 @@ uv run ty check
 ```bash
 cd frontend
 npm ci
-cp .env.example .env.local
+test -e .env.local || cp .env.example .env.local
 npm run dev
 ```
 
-PowerShell 使用 `Copy-Item .env.example .env.local`。开发服务器监听 `127.0.0.1:5173`，打开终端输出的地址。`.env.local` 只保存可公开的前端配置，模型密钥与身份凭据由后端管理。默认配置不连接业务服务，页面可以导航、填写与校验表单，不会产生事项数据。
+PowerShell 使用 `if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }`。已存在的 `.env.local` 不会被覆盖；需要重新生成时，先删除或移走现有文件再执行复制。开发服务器监听 `127.0.0.1:5173`，打开终端输出的地址。`.env.local` 只保存可公开的前端配置，模型密钥与身份凭据由后端管理。默认配置不连接业务服务，页面可以导航、填写与校验表单，不会产生事项数据。
 
 ### 连接本地后端
 
