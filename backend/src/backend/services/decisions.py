@@ -185,7 +185,7 @@ def _confirm(
     )
 
     lock_basis_sources(session, matter_id, plan_id)
-    blocked = _first_expired_deadline(item_rows, now, ZoneInfo(settings.demo_timezone))
+    blocked = _first_expired_deadline(item_rows, now, ZoneInfo(settings.timezone))
     if blocked is not None:
         raise ApiError(
             409,
@@ -235,7 +235,7 @@ def _confirm(
         session,
         matter_id,
         plan_id,
-        today=now.astimezone(ZoneInfo(settings.demo_timezone)).date(),
+        today=now.astimezone(ZoneInfo(settings.timezone)).date(),
     )
     if unavailable_source_ids:
         raise ApiError(

@@ -32,7 +32,7 @@ uv sync
 | 环境变量 | 必填 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `OFFERPILOT_DATABASE_URL` | 是 | 无 | API 数据库连接串；未设置时回退读取 `DATABASE_URL` |
-| `OFFERPILOT_DEMO_TIMEZONE` | 否 | `Asia/Shanghai` | 官方日期期限的比较时区 |
+| `OFFERPILOT_TIMEZONE` | 否 | `Asia/Shanghai` | 官方日期期限的比较时区 |
 | `OFFERPILOT_SESSION_TTL_SECONDS` | 否 | `43200` | 普通登录会话有效期，单位秒 |
 | `OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS` | 否 | `2592000` | 记住登录会话有效期，单位秒 |
 | `OFFERPILOT_COOKIE_SECURE` | 否 | `false` | 是否给会话 Cookie 设置 `Secure`；HTTPS 部署设为 `true` |

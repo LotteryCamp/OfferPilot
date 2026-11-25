@@ -147,7 +147,7 @@ def agent_client(
     app_url, _ = database_urls
     settings = Settings(
         database_url=app_url,
-        demo_timezone="Asia/Shanghai",
+        timezone="Asia/Shanghai",
     )
     state = _ReplayState()
     app: FastAPI = create_app(
@@ -387,7 +387,7 @@ def test_consent_survives_model_provider_change(
     changed_app: FastAPI = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
             model_provider="另一模型服务",
             model_name="another-model",
         ),
@@ -465,7 +465,7 @@ def test_agent_run_reads_and_confirms_after_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
         ),
         clock=clock,
     )
@@ -517,7 +517,7 @@ def test_interrupted_run_is_reported_and_can_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
         ),
         clock=clock,
     )
@@ -573,7 +573,7 @@ def test_blocked_candidate_stays_pending_after_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
         ),
         clock=clock,
     )

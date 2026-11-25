@@ -99,7 +99,7 @@ def app(
     app_url, _ = database_urls
     settings = Settings(
         database_url=app_url,
-        demo_timezone="Asia/Shanghai",
+        timezone="Asia/Shanghai",
     )
     return create_app(settings, clock=clock)
 

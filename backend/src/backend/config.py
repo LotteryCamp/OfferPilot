@@ -12,7 +12,7 @@ class Settings:
 
     database_url: str
     api_prefix: str = "/api/v1"
-    demo_timezone: str = "Asia/Shanghai"
+    timezone: str = "Asia/Shanghai"
     model_provider: str = "OpenAI 兼容模型服务"
     model_name: str = ""
     session_ttl_seconds: int = 43_200
@@ -33,7 +33,7 @@ class Settings:
             raise RuntimeError("OFFERPILOT_DATABASE_URL or DATABASE_URL must be set")
         return cls(
             database_url=database_url,
-            demo_timezone=os.environ.get("OFFERPILOT_DEMO_TIMEZONE", "Asia/Shanghai"),
+            timezone=os.environ.get("OFFERPILOT_TIMEZONE", "Asia/Shanghai"),
             model_provider=os.environ.get(
                 "OFFERPILOT_MODEL_PROVIDER", "OpenAI 兼容模型服务"
             ),

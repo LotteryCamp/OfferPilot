@@ -342,7 +342,7 @@ def test_facts_survive_application_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
         ),
         clock=clock,
     )

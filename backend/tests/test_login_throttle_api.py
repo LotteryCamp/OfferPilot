@@ -161,7 +161,7 @@ def test_custom_thresholds_take_effect(
     custom_app = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
             login_ip_limit=2,
             login_email_limit=2,
             login_lock_seconds=60,
@@ -207,7 +207,7 @@ def test_zero_limits_disable_throttling(
     disabled_app = create_app(
         Settings(
             database_url=app_url,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
             login_ip_limit=0,
             login_email_limit=0,
         ),
