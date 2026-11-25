@@ -55,4 +55,4 @@ GRANT SELECT, INSERT, UPDATE ON core.task TO offerpilot_app;
 GRANT EXECUTE ON FUNCTION core.mark_interrupted_agent_runs() TO offerpilot_app;
 
 COMMENT ON ROLE offerpilot_app IS
-    'OfferPilot Alpha 应用角色；受 RLS 约束，快照与证据只增不改';
+    'OfferPilot 应用角色；受 RLS 约束，快照与证据只增不改';

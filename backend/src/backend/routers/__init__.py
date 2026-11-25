@@ -1,1 +1,1 @@
-"""HTTP routers for the Alpha business API."""
+"""HTTP routers for the business API."""

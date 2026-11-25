@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test'
 
 const backendTarget = process.env.API_PROXY_TARGET
-if (!backendTarget) throw new Error('请先将 API_PROXY_TARGET 设置为可写的 Alpha 测试后端。')
+if (!backendTarget) throw new Error('请先将 API_PROXY_TARGET 设置为可写的测试后端。')
 
 const frontendUrl = 'http://127.0.0.1:5174'
 

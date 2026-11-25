@@ -16,7 +16,7 @@ function waitForApi(page: Page, method: string, path: string) {
 }
 
 test('真实建项后可从列表打开同一事项，刷新后重新读取', async ({ page }, testInfo) => {
-  const goal = `Alpha 联调 ${randomUUID()}`
+  const goal = `联调 ${randomUUID()}`
   const year = 2027
 
   const [initialList] = await Promise.all([

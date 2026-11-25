@@ -242,7 +242,7 @@ class StructuredModelAdapter:
         self,
         call_model_fn: CallModelFn,
         *,
-        strategy_version: str = "alpha-1",
+        strategy_version: str = "1.0",
     ) -> None:
         self._call_model = call_model_fn
         self._strategy_version = strategy_version
@@ -251,7 +251,7 @@ class StructuredModelAdapter:
 
     @classmethod
     def from_backend_adapter(
-        cls, *, strategy_version: str = "alpha-1"
+        cls, *, strategy_version: str = "1.0"
     ) -> StructuredModelAdapter:
         """Construct adapter using PR #38 backend.model_adapter.call_model."""
         try:

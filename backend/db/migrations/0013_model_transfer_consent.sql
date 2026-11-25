@@ -1,5 +1,5 @@
 -- 0013_model_transfer_consent.sql
--- OfferPilot Alpha · 模型传输同意
+-- OfferPilot · 模型传输同意
 --
 -- 同意记录归属于用户与事项，绑定服务商、用途、字段类别与授权版本。
 -- 同一事项同时只有一条 active 记录；撤回后保留历史版本。

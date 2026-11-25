@@ -1,4 +1,4 @@
-"""OfferPilot Alpha backend package."""
+"""OfferPilot backend package."""
 
 
 def main() -> None:

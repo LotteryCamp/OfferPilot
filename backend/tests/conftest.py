@@ -1,4 +1,4 @@
-"""Integration test fixtures for the Alpha business API."""
+"""Integration test fixtures for the business API."""
 
 from __future__ import annotations
 

@@ -1,5 +1,5 @@
 -- 0010_persistence_recovery.sql
--- OfferPilot Alpha · 事项来源关联与 Agent 运行检查点
+-- OfferPilot · 事项来源关联与 Agent 运行检查点
 --
 -- 来源读取成功后立即关联当前事项，使尚未生成要求或计划的来源仍可在事项内读取。
 -- Agent 运行检查点与运行状态持久化；进程重启后读取已保存结果，并明确标记中断运行。

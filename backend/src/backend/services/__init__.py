@@ -1,1 +1,1 @@
-"""Business services for the Alpha core flow."""
+"""Business services for the core flow."""

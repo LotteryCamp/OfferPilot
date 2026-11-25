@@ -1,4 +1,4 @@
-"""End-to-end Alpha contract, fixed-fixture replay, teammate bridge, and regression tests."""
+"""End-to-end contract, fixed-fixture replay, teammate bridge, and regression tests."""
 
 from __future__ import annotations
 
@@ -1224,9 +1224,7 @@ def test_model_inputs_carry_source_fragments_for_exact_locators() -> None:
     from backend.agent.model_bridge import build_extraction_input, build_planning_input
 
     snap_id, doc = _fragment_doc()
-    extraction = build_extraction_input(
-        "整理推免要求", [doc], strategy_version="alpha-1"
-    )
+    extraction = build_extraction_input("整理推免要求", [doc], strategy_version="1.0")
     assert extraction["sources"][0]["content"] == ""
     assert extraction["sources"][0]["fragments"] == [
         {
@@ -1239,7 +1237,7 @@ def test_model_inputs_carry_source_fragments_for_exact_locators() -> None:
     ctx = RunContext(
         user_id="u1", matter_id="m1", goal="整理推免要求", workspace_version=1
     )
-    planning = build_planning_input(ctx, [doc], [], strategy_version="alpha-1")
+    planning = build_planning_input(ctx, [doc], [], strategy_version="1.0")
     assert planning["sources"][0]["fragments"] == [
         {"locator_kind": "section", "locator": "正文第3段"}
     ]
@@ -1250,9 +1248,7 @@ def test_model_inputs_carry_source_fragments_for_exact_locators() -> None:
         publisher="某校",
         content="完整正文",
     )
-    fallback = build_extraction_input(
-        "g", [no_fragment_doc], strategy_version="alpha-1"
-    )
+    fallback = build_extraction_input("g", [no_fragment_doc], strategy_version="1.0")
     assert fallback["sources"][0]["content"] == "完整正文"
     assert fallback["sources"][0]["fragments"] == []
 

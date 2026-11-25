@@ -1,5 +1,5 @@
 -- 0011_core_fact.sql
--- OfferPilot Alpha · 个人事实与版本
+-- OfferPilot · 个人事实与版本
 --
 -- 每个用户、每种事实只有一条确认版本；历史版本保留为 superseded。
 -- 事实属于用户，不绑定事项；事项通过当前确认版本参与依据指纹。

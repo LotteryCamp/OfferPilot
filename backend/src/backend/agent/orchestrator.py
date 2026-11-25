@@ -113,7 +113,7 @@ class AgentOrchestrator:
     ) -> AgentRunResult:
         """Execute retrieval, extraction, four-state check, candidate generation, and persistence.
 
-        Alpha normal path requires candidate persistence to succeed before returning WAITING_CONFIRMATION.
+        The normal path requires candidate persistence to succeed before returning WAITING_CONFIRMATION.
         Never creates formal tasks prior to user confirmation.
         """
         if context.operation_id:
