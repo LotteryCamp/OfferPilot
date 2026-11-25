@@ -13,18 +13,30 @@ class ExtractionResult(BaseModel):
 
 
 @pytest.mark.parametrize(
-    ("content", "expected_code"),
+    ("content", "status", "finish_reason", "expected_code"),
     [
-        (None, "TIMEOUT"),
-        ("这不是 JSON", "INVALID_RESPONSE"),
-        ('{"requirements": "成绩单"}', "INVALID_RESPONSE"),
+        (None, 200, "stop", "TIMEOUT"),
+        ("这不是 JSON", 200, "stop", "INVALID_RESPONSE"),
+        ('{"requirements": "成绩单"}', 200, "stop", "INVALID_RESPONSE"),
+        ('{"requirements": ["成绩单"]}', 200, "stop", None),
+        (None, 500, "stop", "SERVICE_ERROR"),
+        ('{"requirements": []}', 200, "length", "INVALID_RESPONSE"),
     ],
-    ids=["timeout", "invalid-json", "wrong-field-type"],
+    ids=[
+        "timeout",
+        "invalid-json",
+        "wrong-field-type",
+        "valid-response",
+        "server-error",
+        "truncated-response",
+    ],
 )
-def test_model_adapter_reports_request_failure(
+def test_model_adapter_handles_model_response(
     monkeypatch: pytest.MonkeyPatch,
     content: str | None,
-    expected_code: str,
+    status: int,
+    finish_reason: str,
+    expected_code: str | None,
 ) -> None:
     request_received = Event()
     release = Event()
@@ -34,7 +46,7 @@ def test_model_adapter_reports_request_failure(
             self.rfile.read(int(self.headers.get("Content-Length", "0")))
             request_received.set()
 
-            if content is None:
+            if status == 200 and content is None:
                 # 等客户端按适配器配置超时；测试结束后立即释放。
                 release.wait(timeout=45)
                 return
@@ -48,14 +60,14 @@ def test_model_adapter_reports_request_failure(
                     "choices": [
                         {
                             "index": 0,
-                            "finish_reason": "stop",
+                            "finish_reason": finish_reason,
                             "message": {"role": "assistant", "content": content},
                         }
                     ],
                 }
             ).encode("utf-8")
 
-            self.send_response(200)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -74,11 +86,15 @@ def test_model_adapter_reports_request_failure(
             )
             monkeypatch.setenv("OFFERPILOT_MODEL_NAME", "local-test-model")
 
-            with pytest.raises(ModelAdapterError) as error:
-                call_model("提取材料", "申请人须提交成绩单。", ExtractionResult)
+            if expected_code is None:
+                result = call_model("提取材料", "申请人须提交成绩单。", ExtractionResult)
+                assert result.requirements == ["成绩单"]
+            else:
+                with pytest.raises(ModelAdapterError) as error:
+                    call_model("提取材料", "申请人须提交成绩单。", ExtractionResult)
+                assert error.value.code == expected_code
 
             assert request_received.is_set()
-            assert error.value.code == expected_code
         finally:
             release.set()
             server.shutdown()
