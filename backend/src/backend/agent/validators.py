@@ -6,6 +6,7 @@ import math
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from backend.agent.contracts import build_client_item_id_map
 from backend.agent.schemas import (
     SHANGHAI,
     AgentError,
@@ -38,6 +39,10 @@ def validate_candidate_plan(
     task_ids = [t.task_id for t in plan.tasks]
     if len(task_ids) != len(set(task_ids)):
         violations.append("候选任务存在重复的 task_id")
+    try:
+        build_client_item_id_map(plan.tasks)
+    except ValueError as exc:
+        violations.append(str(exc))
 
     known_ids = set(task_ids)
     adjacency: dict[str, list[str]] = {}

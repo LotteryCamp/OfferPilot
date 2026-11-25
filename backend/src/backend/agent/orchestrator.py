@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from backend.agent.contracts import (
     PersistenceApiError,
     build_candidate_plan_create_payload,
+    build_client_item_id_map,
     build_requirements_batch_payload,
 )
 from backend.agent.gateway import GatewayError, ToolGateway
@@ -797,6 +798,7 @@ class AgentOrchestrator:
         operation_id: str | None = None,
     ) -> tuple[list[str], str | None]:
         assert self._persistence is not None
+        build_client_item_id_map(candidate_plan.tasks)
         cache_key = (matter_id, operation_id) if operation_id else None
         if cache_key is not None and cache_key in self._persisted_req_cache:
             persisted_ids, req_id_map = self._persisted_req_cache[cache_key]
