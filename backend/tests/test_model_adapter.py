@@ -5,7 +5,7 @@ from threading import Event, Thread
 import pytest
 from pydantic import BaseModel
 
-from backend.model_adapter import ModelAdapterError, call_model
+from backend.model_adapter import ModelAdapterError, _model_timeout, call_model
 
 
 class ExtractionResult(BaseModel):
@@ -83,3 +83,28 @@ def test_model_adapter_reports_request_failure(
             release.set()
             server.shutdown()
             thread.join()
+
+@pytest.mark.parametrize("raw_timeout", ["abc", "0", "-1", "nan", "inf"])
+def test_model_timeout_rejects_invalid_values(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_timeout: str,
+) -> None:
+    monkeypatch.setenv("OFFERPILOT_MODEL_TIMEOUT_SECONDS", raw_timeout)
+
+    with pytest.raises(ModelAdapterError) as error:
+        _model_timeout()
+
+    assert error.value.code == "CONFIG_ERROR"
+
+@pytest.mark.parametrize(
+    ("raw_timeout", "expected_timeout"),
+    [("", 180.0), ("2.5", 2.5)],
+)
+def test_model_timeout_uses_default_or_configured_value(
+    monkeypatch: pytest.MonkeyPatch,
+    raw_timeout: str,
+    expected_timeout: float,
+) -> None:
+    monkeypatch.setenv("OFFERPILOT_MODEL_TIMEOUT_SECONDS", raw_timeout)
+
+    assert _model_timeout() == expected_timeout

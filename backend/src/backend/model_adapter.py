@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 
 from openai import APIError, APIResponseValidationError, APITimeoutError, OpenAI
@@ -27,8 +28,10 @@ def _model_timeout() -> float:
         timeout = float(raw)
     except ValueError:
         raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须为秒数。") from None
-    if timeout <= 0:
-        raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须大于 0 秒。")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ModelAdapterError(
+            "CONFIG_ERROR", "模型请求超时须为有限且大于 0 的秒数。"
+        )
     return timeout
 
 
