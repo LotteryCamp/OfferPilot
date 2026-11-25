@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter
 
-from backend.routers.deps import ClockDep, SessionDep, SettingsDep
+from backend.routers.deps import ClockDep, CurrentUserDep, SessionDep, SettingsDep
 from backend.services import consents as consent_service
 
 router = APIRouter(
@@ -18,19 +18,22 @@ router = APIRouter(
 @router.get("")
 def get_consent(
     session: SessionDep,
+    current_user: CurrentUserDep,
     settings: SettingsDep,
 ) -> dict:
-    return consent_service.get_consent(session, settings)
+    return consent_service.get_consent(session, current_user, settings)
 
 
 @router.post("")
 def grant_consent(
     session: SessionDep,
+    current_user: CurrentUserDep,
     settings: SettingsDep,
     clock: ClockDep,
 ) -> dict:
     return consent_service.grant_consent(
         session,
+        current_user,
         settings,
         now=clock.now(),
     )
@@ -40,12 +43,13 @@ def grant_consent(
 def revoke_consent(
     consent_id: UUID,
     session: SessionDep,
+    current_user: CurrentUserDep,
     settings: SettingsDep,
     clock: ClockDep,
 ) -> dict:
     return consent_service.revoke_consent(
         session,
-        settings,
+        current_user,
         consent_id,
         now=clock.now(),
     )

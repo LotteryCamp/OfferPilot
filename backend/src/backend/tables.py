@@ -126,6 +126,30 @@ app_user = Table(
     schema="core",
 )
 
+user_session = Table(
+    "user_session",
+    metadata,
+    Column("id", UUID_TYPE, primary_key=True),
+    Column("user_id", UUID_TYPE, nullable=False),
+    Column("token_hash", CHAR(64), nullable=False),
+    Column("remember", Boolean, nullable=False),
+    Column("created_at", TIMESTAMPTZ, nullable=False),
+    Column("expires_at", TIMESTAMPTZ, nullable=False),
+    Column("revoked_at", TIMESTAMPTZ),
+    schema="core",
+)
+
+login_throttle = Table(
+    "login_throttle",
+    metadata,
+    Column("bucket_key", Text, primary_key=True),
+    Column("window_start", TIMESTAMPTZ, nullable=False),
+    Column("attempts", Integer, nullable=False),
+    Column("blocked_until", TIMESTAMPTZ),
+    Column("updated_at", TIMESTAMPTZ, nullable=False),
+    schema="core",
+)
+
 workspace = Table(
     "workspace",
     metadata,

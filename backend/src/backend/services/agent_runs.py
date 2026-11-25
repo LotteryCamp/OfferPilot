@@ -6,7 +6,7 @@ import threading
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from backend.agent import (
@@ -35,6 +35,7 @@ from backend.clock import Clock
 from backend.config import Settings
 from backend.errors import ApiError
 from backend.fact_types import supported_fact_types
+from backend.identity import CurrentUser
 from backend.schemas import AgentRunCreate
 from backend.services import facts as fact_service
 from backend.services.common import require_matter, transaction
@@ -117,17 +118,18 @@ class AgentRunService:
 
     def mark_interrupted_runs(self) -> None:
         """Mark runs left executing by a previous process as interrupted."""
-        with self._session_factory() as session, transaction(session, self._settings):
-            session.execute(
-                update(agent_run)
-                .where(agent_run.c.status == "running")
-                .values(status="interrupted", updated_at=self._clock.now())
-            )
+        with self._session_factory() as session, session.begin():
+            session.execute(text("SELECT core.mark_interrupted_agent_runs()"))
 
-    def start(self, matter_id: UUID, body: AgentRunCreate) -> AgentRunResult:
+    def start(
+        self,
+        matter_id: UUID,
+        body: AgentRunCreate,
+        current_user: CurrentUser,
+    ) -> AgentRunResult:
         operation_key = (
             (
-                str(self._settings.demo_user_id),
+                str(current_user.user_id),
                 str(matter_id),
                 body.operation_id,
             )
@@ -140,8 +142,11 @@ class AgentRunService:
             if cached is not None:
                 return cached
 
-        with self._session_factory() as session, transaction(session, self._settings):
-            matter_row = require_matter(session, self._settings, matter_id)
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
+            matter_row = require_matter(session, current_user, matter_id)
             replay_row = (
                 session.execute(
                     select(agent_run)
@@ -188,14 +193,16 @@ class AgentRunService:
                 details={"fact_types": managed_fact_types},
             )
 
-        expected_fact_versions, agent_facts = self._load_fact_context(matter_id)
+        expected_fact_versions, agent_facts = self._load_fact_context(
+            matter_id, current_user
+        )
         requires_transfer_consent = bool(
             body.confirmed_facts or agent_facts or matter_row["scope_attrs"]
         )
-        backend = SqlWorkspaceBackend(self._settings, self._session_factory)
+        backend = SqlWorkspaceBackend(current_user, self._session_factory)
         if requires_transfer_consent and any(
             not backend.has_valid_transfer_consent(
-                str(self._settings.demo_user_id),
+                str(current_user.user_id),
                 purpose=purpose,
                 field_categories=field_categories,
             )
@@ -215,12 +222,12 @@ class AgentRunService:
         self._create_run(
             run_id=run_id,
             matter_id=matter_id,
-            user_id=self._settings.demo_user_id,
             operation_id=body.operation_id,
+            current_user=current_user,
         )
 
         source_reader = BackendSourceReader(
-            self._settings,
+            current_user,
             self._session_factory,
             self._clock,
             matter_id=matter_id,
@@ -234,6 +241,7 @@ class AgentRunService:
             model_adapter=self._model_adapter,
             backend=backend,
             persistence=SqlCandidatePersistence(
+                current_user,
                 self._settings,
                 self._session_factory,
                 self._clock,
@@ -242,7 +250,7 @@ class AgentRunService:
             clock=self._clock.now,
         )
         context = RunContext(
-            user_id=str(self._settings.demo_user_id),
+            user_id=str(current_user.user_id),
             matter_id=str(matter_id),
             goal=body.goal or str(matter_row["goal"]),
             workspace_version=backend.get_workspace_version(str(matter_id)),
@@ -256,14 +264,15 @@ class AgentRunService:
         try:
             result = orchestrator.start_run(context, run_id=run_id)
         except Exception:
-            self._mark_interrupted(run_id)
+            self._mark_interrupted(run_id, current_user)
             raise
         saved = self._save_result(
             run_id=run_id,
             result=result,
             matter_id=str(matter_id),
-            user_id=str(self._settings.demo_user_id),
+            user_id=str(current_user.user_id),
             workspace_version=context.workspace_version,
+            current_user=current_user,
         )
         with self._lock:
             self._runs[run_id] = orchestrator
@@ -271,8 +280,8 @@ class AgentRunService:
                 self._operations[operation_key] = saved
         return saved
 
-    def get(self, run_id: str) -> AgentRunResult:
-        row = self._load_run(run_id)
+    def get(self, run_id: str, current_user: CurrentUser) -> AgentRunResult:
+        row = self._load_run(run_id, current_user)
         if row is None:
             raise _run_not_found()
         return self._result_from_row(row)
@@ -280,12 +289,13 @@ class AgentRunService:
     def confirm(
         self,
         run_id: str,
+        current_user: CurrentUser,
         *,
         candidate_version: int,
         operation_id: str,
         plan_id: str | None = None,
     ) -> AgentRunResult:
-        row = self._require_run(run_id)
+        row = self._require_run(run_id, current_user)
         checkpoint = self._checkpoint_from_row(row)
         target_plan_id = plan_id or (
             checkpoint.persisted_plan_id if checkpoint is not None else None
@@ -319,11 +329,11 @@ class AgentRunService:
         if row["status"] == "interrupted" or target_plan_id is None:
             return self._interrupted_result(row)
 
-        orchestrator = self._runtime_orchestrator(run_id)
+        orchestrator = self._runtime_orchestrator(run_id, current_user)
         matter_id = str(row["matter_id"])
         user_id = str(row["user_id"])
         workspace_version = SqlWorkspaceBackend(
-            self._settings, self._session_factory
+            current_user, self._session_factory
         ).get_workspace_version(matter_id)
         result = orchestrator.confirm_plan(
             run_id,
@@ -340,15 +350,17 @@ class AgentRunService:
             matter_id=matter_id,
             user_id=user_id,
             workspace_version=workspace_version,
+            current_user=current_user,
         )
 
     def reject(
         self,
         run_id: str,
+        current_user: CurrentUser,
         *,
         operation_id: str,
     ) -> AgentRunResult:
-        row = self._require_run(run_id)
+        row = self._require_run(run_id, current_user)
         checkpoint = self._checkpoint_from_row(row)
         target_plan_id = (
             checkpoint.persisted_plan_id if checkpoint is not None else None
@@ -375,11 +387,11 @@ class AgentRunService:
         if row["status"] == "interrupted" or target_plan_id is None:
             return self._interrupted_result(row)
 
-        orchestrator = self._runtime_orchestrator(run_id)
+        orchestrator = self._runtime_orchestrator(run_id, current_user)
         matter_id = str(row["matter_id"])
         user_id = str(row["user_id"])
         workspace_version = SqlWorkspaceBackend(
-            self._settings, self._session_factory
+            current_user, self._session_factory
         ).get_workspace_version(matter_id)
         result = orchestrator.reject_plan(
             run_id,
@@ -395,10 +407,11 @@ class AgentRunService:
             matter_id=matter_id,
             user_id=user_id,
             workspace_version=workspace_version,
+            current_user=current_user,
         )
 
-    def cancel(self, run_id: str) -> AgentRunResult:
-        row = self._require_run(run_id)
+    def cancel(self, run_id: str, current_user: CurrentUser) -> AgentRunResult:
+        row = self._require_run(run_id, current_user)
         checkpoint = self._checkpoint_from_row(row)
         if checkpoint is not None:
             if checkpoint.status in (
@@ -431,28 +444,38 @@ class AgentRunService:
             workspace_version=(
                 checkpoint.workspace_version if checkpoint is not None else 0
             ),
+            current_user=current_user,
         )
 
-    def _runtime_orchestrator(self, run_id: str) -> AgentOrchestrator:
+    def _runtime_orchestrator(
+        self, run_id: str, current_user: CurrentUser
+    ) -> AgentOrchestrator:
         with self._lock:
             orchestrator = self._runs.get(run_id)
         if orchestrator is not None:
             return orchestrator
-        backend = SqlWorkspaceBackend(self._settings, self._session_factory)
+        backend = SqlWorkspaceBackend(current_user, self._session_factory)
         return AgentOrchestrator(
             source_reader=_UnavailableSourceReader(),
             model_adapter=self._model_adapter,
             backend=backend,
             persistence=SqlCandidatePersistence(
-                self._settings, self._session_factory, self._clock
+                current_user,
+                self._settings,
+                self._session_factory,
+                self._clock,
             ),
             clock=self._clock.now,
         )
 
     def _load_fact_context(
-        self, matter_id: UUID
+        self, matter_id: UUID, current_user: CurrentUser
     ) -> tuple[dict[str, int | None], dict[str, Any]]:
-        with self._session_factory() as session, transaction(session, self._settings):
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
+            require_matter(session, current_user, matter_id)
             relevant = fact_service.relevant_fact_types(session, matter_id)
             fact_types = set(relevant) | set(supported_fact_types())
             versions = fact_service.expected_fact_versions(
@@ -466,16 +489,19 @@ class AgentRunService:
         *,
         run_id: str,
         matter_id: UUID,
-        user_id: UUID,
         operation_id: str | None,
+        current_user: CurrentUser,
     ) -> None:
         now = self._clock.now()
-        with self._session_factory() as session, transaction(session, self._settings):
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
             session.execute(
                 insert(agent_run).values(
                     run_id=run_id,
                     matter_id=matter_id,
-                    user_id=user_id,
+                    user_id=current_user.user_id,
                     status="running",
                     operation_id=operation_id,
                     checkpoint=None,
@@ -484,19 +510,27 @@ class AgentRunService:
                 )
             )
 
-    def _load_run(self, run_id: str) -> dict[str, Any] | None:
-        with self._session_factory() as session, transaction(session, self._settings):
+    def _load_run(
+        self, run_id: str, current_user: CurrentUser
+    ) -> dict[str, Any] | None:
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
             row = (
-                session.execute(select(agent_run).where(agent_run.c.run_id == run_id))
+                session.execute(
+                    select(agent_run).where(
+                        agent_run.c.run_id == run_id,
+                        agent_run.c.user_id == current_user.user_id,
+                    )
+                )
                 .mappings()
                 .first()
             )
-        if row is None or row["user_id"] != self._settings.demo_user_id:
-            return None
-        return dict(row)
+        return dict(row) if row is not None else None
 
-    def _require_run(self, run_id: str) -> dict[str, Any]:
-        row = self._load_run(run_id)
+    def _require_run(self, run_id: str, current_user: CurrentUser) -> dict[str, Any]:
+        row = self._load_run(run_id, current_user)
         if row is None:
             raise _run_not_found()
         return row
@@ -515,6 +549,7 @@ class AgentRunService:
         matter_id: str,
         user_id: str,
         workspace_version: int,
+        current_user: CurrentUser,
     ) -> AgentRunResult:
         checkpoint = RunCheckpoint(
             run_id=result.run_id,
@@ -524,10 +559,16 @@ class AgentRunService:
             **result.model_dump(exclude={"run_id"}),
         )
         payload = checkpoint.model_dump(mode="json", exclude={"sources"})
-        with self._session_factory() as session, transaction(session, self._settings):
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
             existing = session.execute(
                 select(agent_run.c.checkpoint)
-                .where(agent_run.c.run_id == run_id)
+                .where(
+                    agent_run.c.run_id == run_id,
+                    agent_run.c.user_id == current_user.user_id,
+                )
                 .with_for_update()
             ).scalar_one_or_none()
             if isinstance(existing, dict):
@@ -537,7 +578,10 @@ class AgentRunService:
             merged = RunCheckpoint.model_validate(payload)
             session.execute(
                 update(agent_run)
-                .where(agent_run.c.run_id == run_id)
+                .where(
+                    agent_run.c.run_id == run_id,
+                    agent_run.c.user_id == current_user.user_id,
+                )
                 .values(
                     status=_RUN_STATUS_KEYS[merged.status],
                     checkpoint=payload,
@@ -546,11 +590,17 @@ class AgentRunService:
             )
         return self._result_from_checkpoint(merged)
 
-    def _mark_interrupted(self, run_id: str) -> None:
-        with self._session_factory() as session, transaction(session, self._settings):
+    def _mark_interrupted(self, run_id: str, current_user: CurrentUser) -> None:
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
             session.execute(
                 update(agent_run)
-                .where(agent_run.c.run_id == run_id)
+                .where(
+                    agent_run.c.run_id == run_id,
+                    agent_run.c.user_id == current_user.user_id,
+                )
                 .values(status="interrupted", updated_at=self._clock.now())
             )
 

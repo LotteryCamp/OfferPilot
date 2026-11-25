@@ -19,12 +19,14 @@
 
 ## 2. 表与视图
 
-### 2.1 业务表（19 张）
+### 2.1 业务表（21 张）
 
 | 表 | 用途 | 关键约束 |
 | :--- | :--- | :--- |
-| `core.app_user` | 用户 | 邮箱唯一；首版账号类型为 `applicant` |
+| `core.app_user` | 账户 | 邮箱唯一；角色为 `applicant` 或 `admin`；密码保存 Argon2id 摘要 |
 | `core.workspace` | 个人工作区 | 与用户 1:1 |
+| `core.user_session` | 登录会话 | 令牌摘要唯一；保存持久登录标记、有效期与撤销时间 |
+| `core.login_throttle` | 登录限流计数 | 主键为桶键；固定窗口计数；邮箱桶保存临时锁定结束时间；桶键只含规范化 IP 网段或邮箱摘要 |
 | `core.matter_type` | 事项类型 | `type_code` 唯一，内置 `pre_recommend`、`competition` |
 | `core.template_version` | 模板版本 | 类型与版本号唯一；事项引用具体版本 |
 | `core.matter` | 个人事项 | 模板版本必填；年度 2020—2100；归档时间与状态一致 |
@@ -60,6 +62,7 @@
 ```mermaid
 erDiagram
     app_user ||--|| workspace : owns
+    app_user ||--o{ user_session : authenticates
     app_user ||--o{ fact : owns
     workspace ||--o{ matter : contains
     matter_type ||--o{ template_version : versions
@@ -81,6 +84,7 @@ erDiagram
 归属链从用户开始，经工作区、事项、计划到任务：
 
 - `app_user.id` → `workspace.owner_id`
+- `app_user.id` → `user_session.user_id`
 - `app_user.id` → `fact.owner_id`
 - `matter.id` → `fact.matter_id`
 - `workspace.id` → `matter.workspace_id`
@@ -216,11 +220,13 @@ AND EXISTS (
 
 会话变量未设置时策略不匹配任何行。应用使用非所有者角色连接；表所有者绕过 RLS。
 `source`、`snapshot`、`evidence` 为共享层。应用角色可登记来源、追加快照与证据，
-快照与证据写入后不可修改；账户表不授予 `password_hash`。
+快照与证据写入后不可修改。账户与会话表授予认证所需的列权限；密码只保存 Argon2id
+摘要，会话只保存令牌的 SHA-256 摘要，业务响应不返回这两类摘要。
+`login_throttle` 为服务级共享表，不启用 RLS；桶键只保存 IP 网段或邮箱摘要，供认证层跨账户计数。
 
-Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS 是开发期防误查的纵深防御，
-共享应用角色仍可设置会话变量，不能独立承担多租户隔离。多账户上线前必须由认证层
-签发工作区标识，并在服务端校验事项归属。
+账户会话解析出当前账户及其个人工作区，业务事务据此设置 `app.current_workspace_id`。
+RLS 是纵深防御，共享应用角色仍可设置会话变量，不能独立承担多租户隔离；认证层是
+工作区标识的唯一来源，服务端同时校验事项归属与记录所有者。
 
 ## 6. 迁移与初始化
 
@@ -243,6 +249,8 @@ Alpha 没有登录与账户体系，运行范围为单用户本地演示。RLS �
 | `0013` | 模型传输同意表、活动记录唯一索引及其 RLS 策略 |
 | `0014` | 模型传输同意表的应用角色授权 |
 | `0015` | 模型传输同意改为用户级全局同意，重建表、唯一索引、RLS 策略与应用角色授权 |
+| `0016` | 管理员角色、服务端登录会话、工作区回填、中断运行标记函数与账户表授权 |
+| `0017` | 登录限流与临时锁定计数表、过期索引与应用角色授权 |
 
 ### 6.2 执行规则
 
@@ -294,15 +302,15 @@ uv run python db/migrate.py seed --demo
 
 ## 7. 验证
 
-环境：PostgreSQL 16.4、Python 3.13、psycopg 3.3.9。
+环境：PostgreSQL 16.16、Python 3.13、psycopg 3.3.9。
 
 ```text
-空库迁移：14 个全部成功
-重复迁移：14 个全部跳过
+空库迁移：17 个全部成功
+重复迁移：17 个全部跳过
 参考数据与演示数据：成功
-表数量：20（19 张业务表 + schema_version）
+表数量：22（21 张业务表 + schema_version）
 视图数量：3
-集成测试：14 个通过
+Schema 集成测试：14 个通过
 ```
 
 覆盖场景：事项持久化与重读、约束拒绝、来源与证据链、计划项来源、
@@ -322,7 +330,7 @@ uv run python db/tests/test_alpha_schema.py -v
 
 ## 8. 已知限制
 
-1. 完整登录与账户体系不在 Alpha 范围；运行范围为单用户本地演示，数据边界通过事项关联和服务端校验落实。
-2. RLS 作为纵深防御，不独立承担多租户隔离；共享应用角色仍可设置会话变量。
+1. 账户范围包含注册、登录、会话、角色、管理员账户管理与登录限流；不提供邮件验证、找回密码、MFA 与管理员操作审计。
+2. RLS 作为纵深防御，不独立承担多租户隔离；共享应用角色仍可设置会话变量，认证层与业务服务同时校验归属。
 3. 不提供 down 迁移；回滚使用迁移前快照或新增反向迁移。
 4. 阶段、四态评估、来源缺口、收件箱、审计日志、个人材料在后续迁移中补充。

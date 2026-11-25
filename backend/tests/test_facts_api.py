@@ -14,7 +14,6 @@ from backend.main import create_app
 FX_URL = "https://example.edu/admission/notice"
 FX_TEXT = "申请条件：成绩排名位于专业前 10%。"
 USER_ID = UUID("00000000-0000-7000-8000-000000000001")
-WORKSPACE_ID = UUID("00000000-0000-7000-8000-000000000002")
 FOREIGN_USER_ID = UUID("99999999-9999-7999-8999-999999999991")
 FOREIGN_WORKSPACE_ID = UUID("99999999-9999-7999-8999-999999999992")
 FOREIGN_MATTER_ID = UUID("99999999-9999-7999-8999-999999999993")
@@ -334,6 +333,7 @@ def test_facts_survive_application_restart(
     client: TestClient,
     database_urls: tuple[str, str],
     clock,
+    login,
 ) -> None:
     matter_id = _create_matter(client)
     saved = _save_rank(client, matter_id, position=5)["fact"]
@@ -342,13 +342,12 @@ def test_facts_survive_application_restart(
     restarted_app = create_app(
         Settings(
             database_url=app_url,
-            demo_user_id=USER_ID,
-            demo_workspace_id=WORKSPACE_ID,
-            demo_timezone="Asia/Shanghai",
+            timezone="Asia/Shanghai",
         ),
         clock=clock,
     )
     with TestClient(restarted_app) as restarted:
+        login(restarted)
         restored = restarted.get(_fact_url(matter_id, "gpa.rank")).json()
         assert restored["fact"]["id"] == saved["id"]
         assert restored["fact"]["version_no"] == 1

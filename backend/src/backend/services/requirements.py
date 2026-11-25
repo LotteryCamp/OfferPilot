@@ -10,8 +10,8 @@ from uuid import UUID, uuid4
 from sqlalchemy import insert, select
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.schemas import RequirementBatchCreate, RequirementInput
 from backend.services.common import (
     iso,
@@ -29,14 +29,14 @@ from backend.tables import (
 
 def create_requirements(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     matter_id: UUID,
     body: RequirementBatchCreate,
     *,
     now: datetime,
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        matter_row = require_matter(session, settings, matter_id)
+    with transaction(session, current_user):
+        matter_row = require_matter(session, current_user, matter_id)
         created = []
         for item in body.requirements:
             created.append(

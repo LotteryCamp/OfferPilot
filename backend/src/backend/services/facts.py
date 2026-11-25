@@ -12,7 +12,6 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
 
 from backend.basis import canonical_json
-from backend.config import Settings
 from backend.errors import ApiError
 from backend.fact_types import (
     FactTypeSpec,
@@ -20,6 +19,7 @@ from backend.fact_types import (
     get_fact_type,
     supported_fact_types,
 )
+from backend.identity import CurrentUser
 from backend.schemas import FactSaveRequest
 from backend.services.common import iso, require_matter, transaction, uuid_text
 from backend.tables import (
@@ -34,15 +34,15 @@ from backend.tables import (
 
 def save_fact(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     matter_id: UUID,
     fact_type: str,
     body: FactSaveRequest,
     *,
     now: datetime,
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
         spec = _require_spec(fact_type)
         value_json = _normalize_value(spec, body.value)
         rendered = spec.render(value_json)
@@ -54,7 +54,7 @@ def save_fact(
             value_json=value_json,
             value_text=rendered.value_text,
         )
-        owner_id = settings.demo_user_id
+        owner_id = current_user.user_id
         session.execute(
             select(
                 func.pg_advisory_xact_lock(
@@ -129,14 +129,16 @@ def save_fact(
         }
 
 
-def list_facts(session: Session, settings: Settings, matter_id: UUID) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+def list_facts(
+    session: Session, current_user: CurrentUser, matter_id: UUID
+) -> dict[str, Any]:
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
         rows = (
             session.execute(
                 select(fact_table)
                 .where(
-                    fact_table.c.owner_id == settings.demo_user_id,
+                    fact_table.c.owner_id == current_user.user_id,
                     fact_table.c.matter_id == matter_id,
                     fact_table.c.confirm_status == "confirmed",
                 )
@@ -149,14 +151,17 @@ def list_facts(session: Session, settings: Settings, matter_id: UUID) -> dict[st
 
 
 def get_fact(
-    session: Session, settings: Settings, matter_id: UUID, fact_type: str
+    session: Session,
+    current_user: CurrentUser,
+    matter_id: UUID,
+    fact_type: str,
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
         _require_spec(fact_type)
         current = _load_current(
             session,
-            owner_id=settings.demo_user_id,
+            owner_id=current_user.user_id,
             matter_id=matter_id,
             fact_type=fact_type,
             for_update=False,
@@ -165,7 +170,7 @@ def get_fact(
             session.execute(
                 select(fact_table)
                 .where(
-                    fact_table.c.owner_id == settings.demo_user_id,
+                    fact_table.c.owner_id == current_user.user_id,
                     fact_table.c.matter_id == matter_id,
                     fact_table.c.fact_type == fact_type,
                 )

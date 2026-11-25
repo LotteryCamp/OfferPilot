@@ -24,6 +24,7 @@ from backend.clock import Clock
 from backend.config import Settings
 from backend.db import workspace_transaction
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.schemas import (
     CandidatePlanCreate,
     RequirementBatchCreate,
@@ -45,7 +46,7 @@ class BackendSourceReader:
 
     def __init__(
         self,
-        settings: Settings,
+        current_user: CurrentUser,
         session_factory: sessionmaker[Session],
         clock: Clock,
         *,
@@ -55,7 +56,7 @@ class BackendSourceReader:
         scope_year: int,
         reader: SourceReader = read_public_html,
     ) -> None:
-        self._settings = settings
+        self._current_user = current_user
         self._session_factory = session_factory
         self._clock = clock
         self._matter_id = matter_id
@@ -84,7 +85,7 @@ class BackendSourceReader:
                 try:
                     registration = source_service.read_and_register_source(
                         session,
-                        self._settings,
+                        self._current_user,
                         self._matter_id,
                         request,
                         now=self._clock.now(),
@@ -106,12 +107,14 @@ class SqlCandidatePersistence:
 
     def __init__(
         self,
+        current_user: CurrentUser,
         settings: Settings,
         session_factory: sessionmaker[Session],
         clock: Clock,
         *,
         expected_fact_versions: Mapping[str, int | None] | None = None,
     ) -> None:
+        self._current_user = current_user
         self._settings = settings
         self._session_factory = session_factory
         self._clock = clock
@@ -130,7 +133,7 @@ class SqlCandidatePersistence:
             with self._session_factory() as session:
                 result = requirement_service.create_requirements(
                     session,
-                    self._settings,
+                    self._current_user,
                     UUID(matter_id),
                     body,
                     now=self._clock.now(),
@@ -152,7 +155,7 @@ class SqlCandidatePersistence:
             with self._session_factory() as session:
                 result = plan_service.create_plan(
                     session,
-                    self._settings,
+                    self._current_user,
                     UUID(matter_id),
                     body,
                     now=self._clock.now(),
@@ -165,7 +168,7 @@ class SqlCandidatePersistence:
     def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
         try:
             with self._session_factory() as session:
-                return plan_service.get_plan(session, self._settings, UUID(plan_id))
+                return plan_service.get_plan(session, self._current_user, UUID(plan_id))
         except ApiError as exc:
             raise _to_persistence_error(exc) from exc
 
@@ -190,6 +193,7 @@ class SqlCandidatePersistence:
             with self._session_factory() as session:
                 result = decision_service.decide_plan(
                     session,
+                    self._current_user,
                     self._settings,
                     UUID(plan_id),
                     decision=decision,
@@ -218,16 +222,16 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
 
     def __init__(
         self,
-        settings: Settings,
+        current_user: CurrentUser,
         session_factory: sessionmaker[Session],
     ) -> None:
-        self._settings = settings
+        self._current_user = current_user
         self._session_factory = session_factory
 
     def check_permission(
         self, user_id: str, matter_id: str, auth_level: AuthLevel
     ) -> bool:
-        if user_id != str(self._settings.demo_user_id):
+        if user_id != str(self._current_user.user_id):
             return False
         try:
             matter_uuid = UUID(matter_id)
@@ -235,15 +239,15 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
             return False
         with (
             self._session_factory() as session,
-            workspace_transaction(session, self._settings.demo_workspace_id),
+            workspace_transaction(session, self._current_user.workspace_id),
         ):
             row = session.execute(
                 select(matter.c.id)
                 .join(workspace, workspace.c.id == matter.c.workspace_id)
                 .where(
                     matter.c.id == matter_uuid,
-                    matter.c.workspace_id == self._settings.demo_workspace_id,
-                    workspace.c.owner_id == self._settings.demo_user_id,
+                    matter.c.workspace_id == self._current_user.workspace_id,
+                    workspace.c.owner_id == self._current_user.user_id,
                 )
             ).first()
         return row is not None
@@ -256,17 +260,17 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
         field_categories: tuple[str, ...],
     ) -> bool:
         """Verify an active global consent covering the outbound scope."""
-        if user_id != str(self._settings.demo_user_id):
+        if user_id != str(self._current_user.user_id):
             return False
         with (
             self._session_factory() as session,
-            workspace_transaction(session, self._settings.demo_workspace_id),
+            workspace_transaction(session, self._current_user.workspace_id),
         ):
             row = session.execute(
                 select(model_transfer_consent.c.id).where(
-                    model_transfer_consent.c.owner_id == self._settings.demo_user_id,
+                    model_transfer_consent.c.owner_id == self._current_user.user_id,
                     model_transfer_consent.c.workspace_id
-                    == self._settings.demo_workspace_id,
+                    == self._current_user.workspace_id,
                     model_transfer_consent.c.consent_status == "active",
                     model_transfer_consent.c.purposes.contains([purpose]),
                     model_transfer_consent.c.field_categories.contains(
@@ -283,12 +287,12 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
             return 0
         with (
             self._session_factory() as session,
-            workspace_transaction(session, self._settings.demo_workspace_id),
+            workspace_transaction(session, self._current_user.workspace_id),
         ):
             updated_at = session.execute(
                 select(matter.c.updated_at).where(
                     matter.c.id == matter_uuid,
-                    matter.c.workspace_id == self._settings.demo_workspace_id,
+                    matter.c.workspace_id == self._current_user.workspace_id,
                 )
             ).scalar_one_or_none()
         if updated_at is None:

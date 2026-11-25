@@ -17,7 +17,17 @@ from backend.clock import Clock, SystemClock
 from backend.config import Settings
 from backend.db import build_engine, build_session_factory
 from backend.errors import install_exception_handlers
-from backend.routers import agent_runs, consents, facts, matters, plans, sources, tasks
+from backend.routers import (
+    admin_users,
+    agent_runs,
+    auth,
+    consents,
+    facts,
+    matters,
+    plans,
+    sources,
+    tasks,
+)
 from backend.routers.deps import SessionDep
 from backend.services.agent_runs import AgentRunService
 from backend.services.sources import SourceReader, read_public_html
@@ -53,7 +63,7 @@ def create_app(
     app = FastAPI(
         title="OfferPilot Alpha API",
         version="0.1.0",
-        description="Single-user local demo business API for the Alpha core flow.",
+        description="Multi-user business API for the Alpha core flow.",
         lifespan=lifespan,
     )
     app.state.settings = resolved
@@ -75,6 +85,8 @@ def create_app(
             session.execute(text("SELECT 1"))
         return {"status": "ok"}
 
+    app.include_router(auth.router, prefix=resolved.api_prefix)
+    app.include_router(admin_users.router, prefix=resolved.api_prefix)
     app.include_router(matters.router, prefix=resolved.api_prefix)
     app.include_router(facts.router, prefix=resolved.api_prefix)
     app.include_router(consents.router, prefix=resolved.api_prefix)

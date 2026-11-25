@@ -13,10 +13,26 @@ END $$;
 
 GRANT USAGE ON SCHEMA core, ops TO offerpilot_app;
 
--- 账户与工作区只读；password_hash 不授予应用角色。
-GRANT SELECT (id, email, display_name, account_type, status, created_at, updated_at, deleted_at)
+-- 账户注册、登录与管理员账户管理所需的最小列权限。
+GRANT SELECT (
+    id, email, display_name, password_hash, account_type, status,
+    created_at, updated_at, deleted_at
+)
     ON core.app_user TO offerpilot_app;
-GRANT SELECT ON core.workspace, core.matter_type, core.template_version TO offerpilot_app;
+GRANT INSERT (
+    id, email, display_name, password_hash, account_type, status,
+    created_at, updated_at, deleted_at
+)
+    ON core.app_user TO offerpilot_app;
+GRANT UPDATE (
+    display_name, email, password_hash, account_type, status, deleted_at,
+    updated_at
+)
+    ON core.app_user TO offerpilot_app;
+GRANT SELECT, INSERT ON core.workspace TO offerpilot_app;
+GRANT SELECT ON core.matter_type, core.template_version TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core.user_session TO offerpilot_app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON core.login_throttle TO offerpilot_app;
 GRANT SELECT ON core.v_matter_overview, core.v_plan_detail, core.v_task_list TO offerpilot_app;
 
 -- 共享来源层：应用登记来源、追加快照与证据；快照与证据写入后不可修改。
@@ -36,6 +52,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE
     TO offerpilot_app;
 GRANT SELECT, INSERT ON core.candidate_plan_decision TO offerpilot_app;
 GRANT SELECT, INSERT, UPDATE ON core.task TO offerpilot_app;
+GRANT EXECUTE ON FUNCTION core.mark_interrupted_agent_runs() TO offerpilot_app;
 
 COMMENT ON ROLE offerpilot_app IS
     'OfferPilot Alpha 应用角色；受 RLS 约束，快照与证据只增不改';

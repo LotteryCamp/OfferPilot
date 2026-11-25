@@ -4,13 +4,13 @@
 | :--- | :--- |
 | 接口前缀 | `/api/v1` |
 | 数据格式 | JSON，UTF-8 |
-| 适用范围 | Alpha 单用户本地演示 |
+| 适用范围 | Alpha 多用户后端 |
 | 业务契约 | [`api.md`](api.md) |
 | 数据库结构 | 迁移 `0012_core_fact_matter.sql` |
 
 ## 1. 范围与约束
 
-本接口按事项保存和读取当前演示用户的个人事实，维护事项内的事实版本，并在当前事项的事实值变化时识别依赖旧版本的待确认候选计划。受影响候选在确认时按依据指纹转为过期。
+本接口按事项保存和读取当前登录账户的个人事实，维护事项内的事实版本，并在当前事项的事实值变化时识别依赖旧版本的待确认候选计划。受影响候选在确认时按依据指纹转为过期。
 
 Alpha 注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` 八种事实。其他事实类型返回 `422 unsupported_fact_type`。事实类型集合会在后续版本增长；保存、读取、版本、幂等和候选失效共用同一套事实层，类型差异由注册表隔离。
 
@@ -540,7 +540,7 @@ class FactTypeSpec:
 | 422 | `invalid_fact_value` | 事实值写法或范围不合法；`details.issues` 列出 `path`、`code`、`message` |
 | 422 | `managed_fact_type` | Agent 运行的 `confirmed_facts` 包含已注册事实类型；`details.fact_types` 列出冲突键 |
 | 409 | `basis_changed` | 确认时依据指纹与生成时不一致；计划转为 `expired` |
-| 500 | `demo_identity_missing` | 演示用户或工作区不存在 |
+| 401 | `authentication_required` | 缺少有效登录会话 |
 
 `invalid_fact_value` 示例：
 

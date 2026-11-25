@@ -13,8 +13,8 @@ from sqlalchemy import func, insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
 from backend.errors import ApiError
+from backend.identity import CurrentUser
 from backend.schemas import SourceCreate, SourceReadRequest
 from backend.services.common import (
     iso,
@@ -61,14 +61,14 @@ _SOURCE_READ_MESSAGES = {
 
 def register_source(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     matter_id: UUID,
     body: SourceCreate,
     *,
     now: datetime,
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        matter_row = require_matter(session, settings, matter_id)
+    with transaction(session, current_user):
+        matter_row = require_matter(session, current_user, matter_id)
         type_row = session.execute(
             select(matter_type.c.id).where(
                 matter_type.c.type_code == matter_row["type_code"]
@@ -300,15 +300,15 @@ def _link_matter_source(
 
 def read_and_register_source(
     session: Session,
-    settings: Settings,
+    current_user: CurrentUser,
     matter_id: UUID,
     body: SourceReadRequest,
     *,
     now: datetime,
     reader: SourceReader = read_public_html,
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
     try:
         result = reader(
             {
@@ -324,7 +324,7 @@ def read_and_register_source(
         raise _source_read_failure(error) from error
     registration = register_source(
         session,
-        settings,
+        current_user,
         matter_id,
         SourceCreate.model_validate(source_registration_payload(result)),
         now=now,
@@ -353,10 +353,10 @@ def _source_read_failure(error: SourceReadError) -> ApiError:
 
 
 def list_matter_sources(
-    session: Session, settings: Settings, matter_id: UUID
+    session: Session, current_user: CurrentUser, matter_id: UUID
 ) -> dict[str, Any]:
-    with transaction(session, settings):
-        require_matter(session, settings, matter_id)
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
         requirement_rows = (
             session.execute(
                 select(requirement)

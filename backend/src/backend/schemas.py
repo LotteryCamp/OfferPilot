@@ -13,6 +13,7 @@ from pydantic import (
     AwareDatetime,
     BaseModel,
     ConfigDict,
+    EmailStr,
     Field,
     HttpUrl,
     field_validator,
@@ -27,6 +28,105 @@ FIELD_KEY_PATTERN = r"^[a-z][a-z0-9_.]{1,63}$"
 
 class RequestModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class AuthRequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class RegisterRequest(AuthRequestModel):
+    email: EmailStr
+    display_name: str = Field(min_length=1, max_length=60)
+    password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if len(normalized) > 160:
+                raise ValueError("email exceeds 160 characters")
+            return normalized
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display_name must not be blank")
+        return normalized
+
+
+class LoginRequest(AuthRequestModel):
+    email: EmailStr
+    password: str = Field(min_length=1, max_length=128)
+    remember: bool = False
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if len(normalized) > 160:
+                raise ValueError("email exceeds 160 characters")
+            return normalized
+        return value
+
+
+class PasswordChangeRequest(AuthRequestModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @model_validator(mode="after")
+    def check_password_changed(self) -> PasswordChangeRequest:
+        if self.current_password == self.new_password:
+            raise ValueError("new_password must differ from current_password")
+        return self
+
+
+class ProfileUpdateRequest(AuthRequestModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=60)
+    email: EmailStr | None = None
+    current_password: str | None = Field(default=None, min_length=1, max_length=128)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def normalize_email(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if len(normalized) > 160:
+                raise ValueError("email exceeds 160 characters")
+            return normalized
+        return value
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("display_name must not be blank")
+        return normalized
+
+    @model_validator(mode="after")
+    def check_profile_fields(self) -> ProfileUpdateRequest:
+        if self.display_name is None and self.email is None:
+            raise ValueError("display_name or email is required")
+        return self
+
+
+class AdminUserStatusUpdate(AuthRequestModel):
+    status: Literal["active", "disabled"]
+
+
+class AdminUserRoleUpdate(AuthRequestModel):
+    account_type: Literal["applicant", "admin"]
+
+
+class AdminPasswordReset(AuthRequestModel):
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class MatterCreate(RequestModel):
