@@ -9,6 +9,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from pydantic import BaseModel
 
 from backend.agent import (
@@ -1335,7 +1336,7 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
     from backend.agent import validate_candidate_plan
     from backend.agent.model_bridge import _resolve_task_dependency_prefixes
 
-    snap_id, _ = _fragment_doc()
+    snap_id, doc = _fragment_doc()
     cite = SourceCitation(source_version_id=snap_id, locator="正文第3段")
     t1 = CandidateTask(
         task_id="T01-check-eligibility",
@@ -1411,26 +1412,25 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         obligation=ObligationType.OFFICIAL_REQUIRED,
         evidence_required="说明",
     )
-    t_blank_dep = CandidateTask(
-        task_id="T04-blank",
-        title="空白依赖",
-        basis=[cite],
-        obligation=ObligationType.OFFICIAL_REQUIRED,
-        depends_on=["   "],
-        evidence_required="说明",
-    )
-    blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
-    assert blank_resolved[1].depends_on == ["   "]
-    assert validate_candidate_plan(
-        CandidatePlan(
-            candidate_id="cand-m1",
-            workspace_version=1,
-            candidate_version=1,
-            input_snapshot_id=snap_id,
-            tasks=blank_resolved,
-        ),
-        1,
-    )
+    for empty_dep in ("", "   "):
+        t_blank_dep = CandidateTask(
+            task_id="T04-blank",
+            title="空白依赖",
+            basis=[cite],
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            depends_on=[empty_dep],
+            evidence_required="说明",
+        )
+        blank_resolved = _resolve_task_dependency_prefixes([t_leading, t_blank_dep])
+        assert blank_resolved[1].depends_on == [empty_dep]
+        assert (
+            len(
+                validate_candidate_plan(
+                    plan.model_copy(update={"tasks": blank_resolved}), 1
+                )
+            )
+            == 1
+        )
 
     # Long task_id (>80 chars) truncates client_item_id and depends_on consistently
     long_id = "T01-" + ("x" * 90)
@@ -1458,9 +1458,26 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
             input_snapshot_id=snap_id,
             tasks=long_resolved,
         ),
-        {snap_id: _fragment_doc()[1]},
+        {snap_id: doc},
     )
+    CandidatePlanCreate.model_validate(long_plan_payload)
+    assert len(long_plan_payload["items"][0]["client_item_id"]) == 80
     assert (
         long_plan_payload["items"][1]["depends_on"][0]
         == long_plan_payload["items"][0]["client_item_id"]
     )
+
+    for first_id, second_id in (
+        ("T-" + "a" * 80 + "-1", "T-" + "a" * 80 + "-2"),
+        ("T-" + "a" * 77 + " x", "T-" + "a" * 77),
+    ):
+        conflicting_plan = plan.model_copy(
+            update={
+                "tasks": [
+                    t1.model_copy(update={"task_id": first_id}),
+                    t_dup.model_copy(update={"task_id": second_id}),
+                ]
+            }
+        )
+        with pytest.raises(ValueError, match="冲突"):
+            build_candidate_plan_create_payload(conflicting_plan, {snap_id: doc})

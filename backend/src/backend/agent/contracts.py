@@ -263,6 +263,20 @@ def build_candidate_plan_create_payload(
     items_payload: list[dict[str, Any]] = []
     req_map = requirement_id_map or {}
 
+    client_id_map: dict[str, str] = {}
+    reverse_client_ids: dict[str, str] = {}
+    for task in plan.tasks:
+        client_id = task.task_id.strip()[:80].strip()
+        if not client_id:
+            raise ValueError("任务编号不能为空")
+        prev_task_id = reverse_client_ids.get(client_id)
+        if prev_task_id is not None and prev_task_id != task.task_id:
+            raise ValueError(
+                f"任务编号截断至 80 字符后发生冲突：{prev_task_id} 与 {task.task_id}"
+            )
+        reverse_client_ids[client_id] = task.task_id
+        client_id_map[task.task_id] = client_id
+
     for task in plan.tasks:
         sources_payload: list[dict[str, Any]] = []
         seen_sources: set[tuple[str, str]] = set()
@@ -309,7 +323,7 @@ def build_candidate_plan_create_payload(
 
         items_payload.append(
             {
-                "client_item_id": task.task_id[:80],
+                "client_item_id": client_id_map[task.task_id],
                 "title": task.title[:160],
                 "detail": detail_text,
                 "obligation_nature": to_api_obligation(task.obligation),
@@ -320,7 +334,12 @@ def build_candidate_plan_create_payload(
                 "suggested_date": task.suggested_date.isoformat()
                 if task.suggested_date
                 else None,
-                "depends_on": [dep[:80] for dep in task.depends_on],
+                "depends_on": [
+                    client_id_map[dep]
+                    if dep in client_id_map
+                    else dep.strip()[:80].strip()
+                    for dep in task.depends_on
+                ],
                 "evidence_required": bool(task.evidence_required),
                 "requirement_id": mapped_req_id,
                 "sources": sources_payload,
