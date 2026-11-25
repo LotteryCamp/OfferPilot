@@ -27,6 +27,8 @@ cd backend
 uv sync
 ```
 
+数据库初始化、应用角色与测试库的准备步骤见[本地安装与配置](../docs/getting-started.md)。
+
 ## 配置
 
 | 环境变量 | 必填 | 默认值 | 说明 |
