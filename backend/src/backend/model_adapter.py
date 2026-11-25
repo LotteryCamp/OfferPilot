@@ -29,9 +29,7 @@ def _model_timeout() -> float:
     except ValueError:
         raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须为秒数。") from None
     if not math.isfinite(timeout) or timeout <= 0:
-        raise ModelAdapterError(
-            "CONFIG_ERROR", "模型请求超时须为有限且大于 0 的秒数。"
-        )
+        raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须为有限且大于 0 的秒数。")
     return timeout
 
 

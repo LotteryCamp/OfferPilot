@@ -87,7 +87,9 @@ def test_model_adapter_handles_model_response(
             monkeypatch.setenv("OFFERPILOT_MODEL_NAME", "local-test-model")
 
             if expected_code is None:
-                result = call_model("提取材料", "申请人须提交成绩单。", ExtractionResult)
+                result = call_model(
+                    "提取材料", "申请人须提交成绩单。", ExtractionResult
+                )
                 assert result.requirements == ["成绩单"]
             else:
                 with pytest.raises(ModelAdapterError) as error:
@@ -100,6 +102,7 @@ def test_model_adapter_handles_model_response(
             server.shutdown()
             thread.join()
 
+
 @pytest.mark.parametrize("raw_timeout", ["abc", "0", "-1", "nan", "inf"])
 def test_model_timeout_rejects_invalid_values(
     monkeypatch: pytest.MonkeyPatch,
@@ -111,6 +114,7 @@ def test_model_timeout_rejects_invalid_values(
         _model_timeout()
 
     assert error.value.code == "CONFIG_ERROR"
+
 
 @pytest.mark.parametrize(
     ("raw_timeout", "expected_timeout"),
