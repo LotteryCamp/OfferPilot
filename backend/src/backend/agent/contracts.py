@@ -13,6 +13,7 @@ from uuid import UUID
 from backend.agent.schemas import (
     SHANGHAI,
     CandidatePlan,
+    CandidateTask,
     EvaluationStatus,
     ExtractedRequirement,
     LocatorKind,
@@ -254,18 +255,11 @@ def build_requirements_batch_payload(
     return {"requirements": payload_items}
 
 
-def build_candidate_plan_create_payload(
-    plan: CandidatePlan,
-    sources_by_id: dict[str, SourceDocument],
-    requirement_id_map: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    """Build exact POST /api/v1/matters/{matter_id}/candidate-plans request body."""
-    items_payload: list[dict[str, Any]] = []
-    req_map = requirement_id_map or {}
-
+def build_client_item_id_map(tasks: list[CandidateTask]) -> dict[str, str]:
+    """Normalize task IDs to 80-char API client_item_id values and reject blanks or collisions."""
     client_id_map: dict[str, str] = {}
     reverse_client_ids: dict[str, str] = {}
-    for task in plan.tasks:
+    for task in tasks:
         client_id = task.task_id.strip()[:80].strip()
         if not client_id:
             raise ValueError("任务编号不能为空")
@@ -276,6 +270,18 @@ def build_candidate_plan_create_payload(
             )
         reverse_client_ids[client_id] = task.task_id
         client_id_map[task.task_id] = client_id
+    return client_id_map
+
+
+def build_candidate_plan_create_payload(
+    plan: CandidatePlan,
+    sources_by_id: dict[str, SourceDocument],
+    requirement_id_map: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Build exact POST /api/v1/matters/{matter_id}/candidate-plans request body."""
+    items_payload: list[dict[str, Any]] = []
+    req_map = requirement_id_map or {}
+    client_id_map = build_client_item_id_map(plan.tasks)
 
     for task in plan.tasks:
         sources_payload: list[dict[str, Any]] = []
