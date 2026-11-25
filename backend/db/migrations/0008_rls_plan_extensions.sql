@@ -1,5 +1,5 @@
 -- 0008_rls_plan_extensions.sql
--- OfferPilot Alpha · 候选决定与候选项来源的工作区隔离
+-- OfferPilot · 候选决定与候选项来源的工作区隔离
 --
 -- 策略与 0007 相同：以会话变量 app.current_workspace_id 为条件，未设置时默认拒绝。
 

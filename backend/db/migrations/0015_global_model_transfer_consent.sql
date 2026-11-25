@@ -1,5 +1,5 @@
 -- 0015_global_model_transfer_consent.sql
--- OfferPilot Alpha · 全局模型传输同意
+-- OfferPilot · 全局模型传输同意
 --
 -- 同意归属于用户并覆盖全部事项，记录绑定用途、字段类别与授权版本。
 -- 同一用户同时只有一条 active 记录；撤回后保留历史版本。

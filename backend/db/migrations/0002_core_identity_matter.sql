@@ -1,12 +1,10 @@
 -- 0002_core_identity_matter.sql
--- OfferPilot Alpha · 用户、工作区、事项类型、事项
+-- OfferPilot · 用户、工作区、事项类型、事项
 --
 -- 来源：说明书 §5.2.1（表 5-3、5-4、5-5、5-8）。
 --
--- Alpha 取舍：
---   * template / template_version 在后续迁移中补充，matter.template_version_id
---     先保留为可空列；模板迁移落地后补外键与 NOT NULL。
---   * stage / matter_decision 不在 Alpha 主流程中，未建表。
+-- 设计取舍：
+--   * stage / matter_decision 未建表。
 
 CREATE TABLE core.app_user (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,5 +1,5 @@
 -- 0014_model_transfer_consent_grants.sql
--- OfferPilot Alpha · 模型传输同意应用角色授权
+-- OfferPilot · 模型传输同意应用角色授权
 --
 -- 同意记录由应用角色读写；增量迁移负责新表授权，已部署环境无需重跑角色脚本。
 

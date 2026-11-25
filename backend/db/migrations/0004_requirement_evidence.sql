@@ -1,5 +1,5 @@
 -- 0004_requirement_evidence.sql
--- OfferPilot Alpha · 要求与证据
+-- OfferPilot · 要求与证据
 --
 -- 来源：说明书 §5.2.3（表 5-15）、§5.2.2（表 5-14）、§5.6（证据触发器）。
 --
@@ -9,7 +9,7 @@
 --   * 指向要求的证据，其 snapshot 必须等于要求自身的 snapshot（触发器）；
 --   * 证据 fetched_at 必须等于快照 fetched_at（触发器）。
 --
--- evaluation / mentor_contact_rule / source_gap 不在 Alpha 主流程，未建表。
+-- evaluation / mentor_contact_rule / source_gap 未建表。
 
 CREATE TABLE core.requirement (
     id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),

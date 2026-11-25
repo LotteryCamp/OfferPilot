@@ -1,7 +1,7 @@
 -- 0005_core_plan_task.sql
--- OfferPilot Alpha · 候选计划、计划项、计划决定、个人任务
+-- OfferPilot · 候选计划、计划项、计划决定、个人任务
 --
--- 来源：docs/development/alpha-scope-contract.md §3、§4.1。
+-- 来源：docs/development/core-flow-contract.md §3、§4.1。
 
 CREATE TABLE core.candidate_plan (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -1,5 +1,5 @@
 -- 0009_requirement_self_check.sql
--- OfferPilot Alpha · 要求自查结果
+-- OfferPilot · 要求自查结果
 --
 -- 要求的 extract_status 表示提取记录的核验进度；四态自查结论、判断原因、缺失信息和缺口
 -- 单独保存在本表，与 extract_status 各自表达自己的含义。

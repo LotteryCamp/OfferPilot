@@ -1,5 +1,5 @@
 -- 0006_views.sql
--- OfferPilot Alpha · 查询视图
+-- OfferPilot · 查询视图
 --
 -- 全部使用 security_invoker = true，确保视图不会绕过基表的行级安全策略。
 

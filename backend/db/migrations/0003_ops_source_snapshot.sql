@@ -1,5 +1,5 @@
 -- 0003_ops_source_snapshot.sql
--- OfferPilot Alpha · 公开来源与不可变快照
+-- OfferPilot · 公开来源与不可变快照
 --
 -- 来源：说明书 §5.2.2（表 5-11、5-12）、§7.6（快照幂等）。
 --

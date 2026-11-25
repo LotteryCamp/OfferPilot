@@ -1,8 +1,8 @@
 -- 0001_schemas_enums.sql
--- OfferPilot Alpha · 模式与枚举
+-- OfferPilot · 模式与枚举
 --
 -- 来源：《OfferPilot 数据库设计说明书 v2.0》§2.5、§5.1.2。
--- Alpha 只创建本阶段实际使用的 8 个枚举；其余枚举随对应模块迁移增量添加。
+-- 本迁移只创建模式与首批枚举；其余枚举随对应模块迁移增量添加。
 -- 枚举统一建在 core 模式，避免业务类型散落在 public。
 
 CREATE SCHEMA IF NOT EXISTS core;
