@@ -1,15 +1,15 @@
-# Alpha 数据库 Schema 与迁移
+# 数据库 Schema 与迁移
 
 | 项目 | 内容 |
 | :--- | :--- |
 | 负责人 | 佘博海 |
 | 分支 | `feat/matter-task-schema` |
-| 契约依据 | `docs/development/alpha-scope-contract.md` |
+| 契约依据 | `docs/development/core-flow-contract.md` |
 | 数据库 | PostgreSQL 16 及以上 |
 
 ## 1. 范围
 
-本文描述 Alpha 主流程的首版物理 schema：
+本文描述主流程的首版物理 schema：
 
 > 创建个人事项 → 获取公开来源 → 提取要求并保留出处 → 生成候选计划 →
 > 用户确认或拒绝 → 确认后创建个人任务 → 读取任务
@@ -145,7 +145,7 @@ erDiagram
 | :--- | :--- | :--- |
 | `owner_id` | uuid | 事实所属用户 |
 | `matter_id` | uuid | 事实所属事项；未归属历史为 `null` |
-| `fact_type` | varchar(48) | 事实类型；Alpha 为 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
+| `fact_type` | varchar(48) | 事实类型；当前为 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
 | `value_text` | text | 服务端生成的展示文本 |
 | `value_json` | jsonb | 按类型规范化的值对象 |
 | `value_hash` | char(64) | 类型、范围、生效日、值与展示文本的规范化 SHA-256 |
@@ -251,6 +251,7 @@ RLS 是纵深防御，共享应用角色仍可设置会话变量，不能独立�
 | `0015` | 模型传输同意改为用户级全局同意，重建表、唯一索引、RLS 策略与应用角色授权 |
 | `0016` | 管理员角色、服务端登录会话、工作区回填、中断运行标记函数与账户表授权 |
 | `0017` | 登录限流与临时锁定计数表、过期索引与应用角色授权 |
+| `0018` | 用户自助编辑账户资料的列授权 |
 
 ### 6.2 执行规则
 
@@ -325,7 +326,7 @@ Schema 集成测试：14 个通过
 cd backend
 uv sync
 export PGTEST_ADMIN_DSN='postgresql://postgres@127.0.0.1:5432/postgres'
-uv run python db/tests/test_alpha_schema.py -v
+uv run python db/tests/test_schema.py -v
 ```
 
 ## 8. 已知限制

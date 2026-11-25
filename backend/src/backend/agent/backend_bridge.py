@@ -1,4 +1,4 @@
-"""In-process adapters binding Agent ports to Alpha backend services."""
+"""In-process adapters binding Agent ports to backend services."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class BackendSourceReader:
 
 
 class SqlCandidatePersistence:
-    """Persist and decide candidate artifacts through the Alpha services."""
+    """Persist and decide candidate artifacts through the services."""
 
     def __init__(
         self,
@@ -218,7 +218,7 @@ class SqlCandidatePersistence:
 
 
 class SqlWorkspaceBackend(WorkspaceBackendPort):
-    """Provide matter ownership, workspace version, and audit hooks for Alpha."""
+    """Provide matter ownership, workspace version, and audit hooks."""
 
     def __init__(
         self,
@@ -307,7 +307,7 @@ class SqlWorkspaceBackend(WorkspaceBackendPort):
         expected_workspace_version: int,
         operation_id: str,
     ) -> list[WrittenTask]:
-        raise RuntimeError("Alpha 通过候选持久化端口完成确认写入")
+        raise RuntimeError("确认写入通过候选持久化端口完成")
 
     def record_execution(self, matter_id: str, record: ExecutionRecord) -> None:
         logger.info(

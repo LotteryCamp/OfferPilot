@@ -1,4 +1,4 @@
-# Alpha 验收测试记录
+# 验收测试记录
 
 - 关联：issue #34、后端 PR #41、验收报告 PR #45
 - 代码基线：`feat/business-process` @ `36afb05`
@@ -28,19 +28,19 @@ export OFFERPILOT_TEST_DATABASE_URL='postgresql://offerpilot_app:offerpilot_dev_
 export OFFERPILOT_TEST_ADMIN_DATABASE_URL='postgresql://postgres@127.0.0.1:5433/offerpilot_test'
 uv run python db/migrate.py --dsn "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" migrate
 uv run python db/migrate.py --dsn "$OFFERPILOT_TEST_ADMIN_DATABASE_URL" seed
-uv run pytest tests/test_alpha_acceptance.py -q
+uv run pytest tests/test_acceptance.py -q
 uv run pytest tests -q
 export PGTEST_ADMIN_DSN='postgresql://postgres@127.0.0.1:5433/postgres'
-uv run python db/tests/test_alpha_schema.py -q
+uv run python db/tests/test_schema.py -q
 ```
 
 ## 实际执行结果
 
 | 命令 | 结果 |
 | --- | --- |
-| `uv run pytest tests/test_alpha_acceptance.py -q` | **6 passed** |
+| `uv run pytest tests/test_acceptance.py -q` | **6 passed** |
 | `uv run pytest tests -q` | **59 passed, 2 failed** |
-| `uv run python db/tests/test_alpha_schema.py -q` | **13 passed** |
+| `uv run python db/tests/test_schema.py -q` | **13 passed** |
 
 ## 验收矩阵
 
@@ -67,7 +67,7 @@ uv run python db/tests/test_alpha_schema.py -q
 
 ## 结论
 
-- 本阶段验收截止时间为 2026-11-20 19:30（北京时间）；以下结果对应代码基线 `36afb05`，后续补测后更新。#34 在核心验收补齐前保持开放。
+- 验收截止时间为 2026-11-20 19:30（北京时间）；以下结果对应代码基线 `36afb05`，后续补测后更新。#34 在核心验收补齐前保持开放。
 - API 级验收用例 6/6 通过，schema 测试 13/13 通过。
 - 全量后端测试 59/61 通过；2 个失败是 Agent 与后端联调用例，不计为通过。
 - 场景 3 失败，场景 6 的 UI 和真实模型联调未测；不在本记录中写成全部通过。

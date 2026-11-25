@@ -10,7 +10,7 @@ export default defineConfig(({ mode, command, isPreview }) => {
     env.VITE_LOCAL_DEMO_MATTERS === '1' &&
     !env.API_PROXY_TARGET
   ) {
-    throw new Error('本地事项联调需要配置 API_PROXY_TARGET，指向真实的 Alpha 测试服务。')
+    throw new Error('本地事项联调需要配置 API_PROXY_TARGET，指向真实的测试服务。')
   }
   const target = env.API_PROXY_TARGET
   const runProxyTimeout = target

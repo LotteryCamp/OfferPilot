@@ -1,6 +1,6 @@
-# OfferPilot Alpha Backend
+# OfferPilot Backend
 
-Alpha 多用户业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16。
+多用户业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16。
 
 覆盖流程：注册、登录、会话与管理员账户管理；创建个人事项、保存与读取个人事实、发起 Agent 运行读取来源并生成待确认候选、读取或登记来源与快照、写入候选要求、持久化并读取候选计划、确认或拒绝候选计划、读取确认后生成的任务。
 
@@ -15,7 +15,7 @@ Alpha 多用户业务 API，基于 FastAPI、SQLAlchemy 与 PostgreSQL 16。
 | Python | 3.13 |
 | uv | 最新稳定版 |
 | PostgreSQL | 16 及以上 |
-| 数据库结构 | Alpha schema 迁移 `0001`—`0017` 已应用，参考数据已写入 |
+| 数据库结构 | schema 迁移 `0001`—`0018` 已应用，参考数据已写入 |
 | 数据库角色 | 非所有者登录角色 `offerpilot_app`，具备 `core`、`ops` 模式访问权限与账户表授权 |
 
 数据库结构由本模块的迁移交付。目标库须先具备账户、登录会话、登录限流计数、个人工作区、事项、来源、快照、要求、证据、个人事实、模型传输同意、候选计划、计划项、计划项来源、计划决定、任务及读取视图。API 使用非所有者角色连接，以启用行级安全。
@@ -123,11 +123,11 @@ uv run pytest tests -q --cov --cov-report=term-missing
 | `OFFERPILOT_TEST_DATABASE_URL` | 受行级安全约束的应用角色连接，供 API 使用 |
 | `OFFERPILOT_TEST_ADMIN_DATABASE_URL` | 测试库所有者连接，用于清理数据、写入夹具与模拟来源状态变化 |
 
-未设置上述变量时集成测试跳过。测试库须已应用 Alpha schema，并授予应用角色读写权限；测试夹具会写入可登录的演示账户、工作区与 `pre_recommend` 事项类型。账户测试还会通过命令行创建管理员。
+未设置上述变量时集成测试跳过。测试库须已应用 schema，并授予应用角色读写权限；测试夹具会写入可登录的演示账户、工作区与 `pre_recommend` 事项类型。账户测试还会通过命令行创建管理员。
 
 ## CI
 
-`.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时启动 PostgreSQL 16，创建测试库与应用角色，执行 Alpha 迁移和参考数据种子，然后运行 Ruff、格式检查、ty 与测试。数据库集成测试使用上述真实 PostgreSQL 实例；本地未配置测试库时这些用例跳过。
+`.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时启动 PostgreSQL 16，创建测试库与应用角色，执行数据库迁移和参考数据种子，然后运行 Ruff、格式检查、ty 与测试。数据库集成测试使用上述真实 PostgreSQL 实例；本地未配置测试库时这些用例跳过。
 
 测试步骤使用 `pytest-cov` 统计 `src/backend` 的行覆盖率，门槛为 60%，覆盖率低于门槛时 CI 失败。覆盖率配置位于 `backend/pyproject.toml`。覆盖率报告以 LCOV 格式上传到 Coveralls，上传失败不阻断 CI。
 
@@ -149,7 +149,7 @@ uv run ty check
 | `src/backend/identity.py` | 请求级当前账户与个人工作区 |
 | `src/backend/security.py` | Argon2 密码摘要与会话令牌摘要 |
 | `src/backend/admin_cli.py` | 首个管理员创建命令 |
-| `src/backend/tables.py` | Alpha schema 的 SQLAlchemy 表与视图映射 |
+| `src/backend/tables.py` | schema 的 SQLAlchemy 表与视图映射 |
 | `src/backend/schemas.py` | 请求字段校验 |
 | `src/backend/basis.py` | 依据输入规范化与指纹 |
 | `src/backend/fact_types.py` | 个人事实类型注册表、校验与渲染 |

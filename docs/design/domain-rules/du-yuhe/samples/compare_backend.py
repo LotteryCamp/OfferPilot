@@ -132,7 +132,7 @@ def check_api(client, matter_ids, source, context, task, paths, as_of):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("checkout", type=Path, help="提供 Alpha 业务 API 的 OfferPilot 本地目录")
+    parser.add_argument("checkout", type=Path, help="提供业务 API 的 OfferPilot 本地目录")
     parser.add_argument("matter_ids", nargs=3, help="三个新的推免测试事项 ID")
     args = parser.parse_args()
     require(len(set(args.matter_ids)) == 3, "需要三个不同的测试事项")

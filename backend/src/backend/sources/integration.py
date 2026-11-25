@@ -1,4 +1,4 @@
-"""Adapt public source reads to the Alpha registration and citation contracts."""
+"""Adapt public source reads to the registration and citation contracts."""
 
 from collections.abc import Mapping
 from datetime import date

@@ -1,4 +1,4 @@
-"""OfferPilot Alpha 数据库迁移执行器。
+"""OfferPilot 数据库迁移执行器。
 
 用法::
 
@@ -230,7 +230,7 @@ def cmd_seed(conn: psycopg.Connection, with_demo: bool) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="OfferPilot Alpha 数据库迁移执行器")
+    parser = argparse.ArgumentParser(description="OfferPilot 数据库迁移执行器")
     parser.add_argument(
         "--dsn",
         default=os.environ.get("DATABASE_URL"),

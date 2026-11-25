@@ -1,4 +1,4 @@
-"""FastAPI application factory for the Alpha business API."""
+"""FastAPI application factory for the business API."""
 
 from __future__ import annotations
 
@@ -61,9 +61,9 @@ def create_app(
         engine.dispose()
 
     app = FastAPI(
-        title="OfferPilot Alpha API",
+        title="OfferPilot API",
         version="0.1.0",
-        description="Multi-user business API for the Alpha core flow.",
+        description="Multi-user business API for the core flow.",
         lifespan=lifespan,
     )
     app.state.settings = resolved

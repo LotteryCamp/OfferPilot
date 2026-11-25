@@ -25,7 +25,7 @@ describe('事项表单校验', () => {
   it.each([Number.NaN, 2019, 2101, 2026.5])('拒绝无效年度 %s', (scope_year) => {
     expect(createMatterSchema.safeParse({ ...input, scope_year }).success).toBe(false)
   })
-  it('只允许当前Alpha推免类型', () => {
+  it('只允许当前推免类型', () => {
     expect(createMatterSchema.safeParse({ ...input, type_code: 'competition' }).success).toBe(false)
   })
 

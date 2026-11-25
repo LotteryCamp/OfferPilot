@@ -4,7 +4,7 @@
 | :--- | :--- |
 | 接口前缀 | `/api/v1` |
 | 数据格式 | JSON，UTF-8 |
-| 适用范围 | Alpha 多用户后端 |
+| 适用范围 | 多用户后端 |
 | 业务契约 | [`api.md`](api.md) |
 | 数据库结构 | 迁移 `0012_core_fact_matter.sql` |
 
@@ -12,7 +12,7 @@
 
 本接口按事项保存和读取当前登录账户的个人事实，维护事项内的事实版本，并在当前事项的事实值变化时识别依赖旧版本的待确认候选计划。受影响候选在确认时按依据指纹转为过期。
 
-Alpha 注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` 八种事实。其他事实类型返回 `422 unsupported_fact_type`。事实类型集合会在后续版本增长；保存、读取、版本、幂等和候选失效共用同一套事实层，类型差异由注册表隔离。
+事实层注册 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` 八种事实。其他事实类型返回 `422 unsupported_fact_type`。事实类型集合会在后续版本增长；保存、读取、版本、幂等和候选失效共用同一套事实层，类型差异由注册表隔离。
 
 ### 1.1 事项内单值当前记录
 
@@ -120,7 +120,7 @@ class FactTypeSpec:
 | :--- | :--- | :--- |
 | `id` | UUID | 事实版本标识；同一版本不可复用 |
 | `matter_id` | UUID | 事实所属事项 |
-| `fact_type` | string | 事实类型，Alpha 为 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
+| `fact_type` | string | 事实类型，当前支持 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp` |
 | `value` | object | 规范化后的 `value_json` |
 | `value_text` | string | 服务端生成的展示文本 |
 | `scope` | string \| null | 统计范围，最长 200 字符 |
@@ -236,7 +236,7 @@ class FactTypeSpec:
 
 `PUT /api/v1/matters/{matter_id}/facts/{fact_type}`
 
-`fact_type` 必须已注册，Alpha 接受 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`。
+`fact_type` 必须已注册，当前接受 `gpa.rank`、`gpa.score`、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`。
 
 请求体：
 

@@ -1,4 +1,4 @@
-"""Request contracts for the Alpha business API."""
+"""Request contracts for the business API."""
 
 from __future__ import annotations
 

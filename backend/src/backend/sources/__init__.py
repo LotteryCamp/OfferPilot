@@ -1,4 +1,4 @@
-"""Read public HTML and preserve source evidence for Alpha."""
+"""Read public HTML and preserve source evidence."""
 
 from .integration import source_document_from_registration, source_registration_payload
 from .reader import (

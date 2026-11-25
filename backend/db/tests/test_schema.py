@@ -1,4 +1,4 @@
-"""OfferPilot Alpha schema 集成测试。
+"""OfferPilot schema 集成测试。
 
 前置：一个可连接的 PostgreSQL 16 实例，以及有建库权限的账号。
 默认管理连接串为 ``postgresql://postgres@127.0.0.1:5432/postgres``，
@@ -8,7 +8,7 @@
 
     cd backend
     uv sync
-    uv run python db/tests/test_alpha_schema.py -v
+    uv run python db/tests/test_schema.py -v
 
 测试使用 ``offerpilot_schema_test`` 数据库，并在每次运行时重建 ``core``/``ops`` 模式。
 """
@@ -32,7 +32,7 @@ MIGRATE = DB_DIR / "migrate.py"
 ADMIN_DSN = os.environ.get(
     "PGTEST_ADMIN_DSN", "postgresql://postgres@127.0.0.1:5432/postgres"
 )
-TEST_DB = "offerpilot_alpha_test"
+TEST_DB = "offerpilot_schema_test"
 TEST_ROLE = "offerpilot_schema_test_app"
 APP_ROLE = "offerpilot_app"
 
@@ -75,7 +75,7 @@ def fetch_scalar(
     return row[0]
 
 
-class AlphaSchemaTest(unittest.TestCase):
+class SchemaTest(unittest.TestCase):
     conn: psycopg.Connection
 
     @classmethod

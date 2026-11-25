@@ -4,9 +4,9 @@
 | :--- | :--- |
 | 接口前缀 | `/api/v1` |
 | 数据格式 | JSON，UTF-8 |
-| 适用范围 | Alpha 多用户后端 |
+| 适用范围 | 多用户后端 |
 | 数据库结构 | 迁移 `0016_account_management.sql`、`0017_login_throttle.sql`、`0018_profile_editing.sql` |
-| 业务接口 | [Alpha 核心业务流程 API](api.md) |
+| 业务接口 | [核心业务流程 API](api.md) |
 
 ## 1. 账户模型
 

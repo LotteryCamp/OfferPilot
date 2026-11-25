@@ -1,5 +1,5 @@
 -- seed/0001_reference.sql
--- Alpha 参考数据：事项类型。可重复执行。
+-- 参考数据：事项类型。可重复执行。
 -- 来源：说明书 §10.2（内置 pre_recommend 与 competition）。
 
 INSERT INTO core.matter_type (type_code, name, built_in, enabled)

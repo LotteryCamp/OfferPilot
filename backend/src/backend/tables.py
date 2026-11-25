@@ -1,4 +1,4 @@
-"""SQLAlchemy table definitions for the Alpha schema.
+"""SQLAlchemy table definitions for the database schema.
 
 The physical schema is owned by the database migration work. These definitions
 mirror the columns the business API reads and writes.

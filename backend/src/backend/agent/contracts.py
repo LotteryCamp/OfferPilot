@@ -1,4 +1,4 @@
-"""Alpha REST API contract mappers and HTTP candidate persistence client."""
+"""REST API contract mappers and HTTP candidate persistence client."""
 
 from __future__ import annotations
 

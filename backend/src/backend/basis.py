@@ -10,8 +10,8 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-BASIS_CONTRACT_VERSION = "alpha-1"
-PLAN_STRATEGY_VERSION = "alpha-1"
+BASIS_CONTRACT_VERSION = "1.0"
+PLAN_STRATEGY_VERSION = "1.0"
 
 CRITICAL_BASIS_GAP_TYPES = frozenset(
     {
