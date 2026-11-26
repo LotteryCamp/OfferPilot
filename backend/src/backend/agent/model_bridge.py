@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
@@ -28,6 +28,7 @@ from backend.agent.source_filter import (
     deduplicate_sources,
     filter_and_deduplicate_fragments,
 )
+from backend.config import Settings
 
 
 class CallModelFn(Protocol):
@@ -314,7 +315,10 @@ class StructuredModelAdapter:
 
     @classmethod
     def from_backend_adapter(
-        cls, *, strategy_version: str = "1.0"
+        cls,
+        settings_provider: Callable[[], Settings] | None = None,
+        *,
+        strategy_version: str = "1.0",
     ) -> StructuredModelAdapter:
         """Construct adapter using PR #38 backend.model_adapter.call_model."""
         try:
@@ -324,7 +328,22 @@ class StructuredModelAdapter:
                 AgentErrorCode.MODEL_ERROR,
                 "未找到 backend.model_adapter，请先安装或合入模型适配模块",
             ) from exc
-        return cls(module.call_model, strategy_version=strategy_version)
+        if settings_provider is None:
+            return cls(module.call_model, strategy_version=strategy_version)
+
+        def bound_call_model[T: BaseModel](
+            instruction: str,
+            text: str,
+            response_model: type[T],
+        ) -> T:
+            return module.call_model(
+                instruction,
+                text,
+                response_model,
+                settings=settings_provider(),
+            )
+
+        return cls(bound_call_model, strategy_version=strategy_version)
 
     def extract_requirements(
         self,

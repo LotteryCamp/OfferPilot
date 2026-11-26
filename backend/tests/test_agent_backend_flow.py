@@ -5,7 +5,7 @@ from __future__ import annotations
 import gzip
 import json
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 from uuid import UUID
@@ -534,6 +534,59 @@ def test_agent_run_reads_and_confirms_after_restart(
         assert final_run["status"] == "已完成"
         assert final_run["candidate_plan"]["candidate_version"] == 1
         assert final_run["evaluations"]
+
+
+def test_confirm_uses_timezone_from_request_time(
+    database_urls: tuple[str, str],
+    clock,
+    login,
+    tmp_path: Path,
+) -> None:
+    app_url, _ = database_urls
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("timezone: Pacific/Honolulu\n", encoding="utf-8")
+    state = _ReplayState()
+    app: FastAPI = create_app(
+        Settings(
+            database_url=app_url,
+            timezone="Asia/Shanghai",
+            config_file=str(config_path),
+        ),
+        clock=clock,
+        model_adapter=StructuredModelAdapter(_replay_call_model(state)),
+        agent_source_reader=_fixture_reader(state),
+    )
+
+    with TestClient(app) as client:
+        clock.value = datetime(2026, 9, 10, 6, 0, tzinfo=UTC)
+        login(client)
+        matter_id = _create_matter(client)
+        _grant_consent(client)
+        created = client.post(
+            f"/api/v1/matters/{matter_id}/agent-runs",
+            json={
+                "source_urls": [SOURCE_URL],
+                "publisher": "福州大学数学与统计学院",
+                "scope": "2027 届、本院、校内推免推荐",
+                "operation_id": "timezone-change-run",
+            },
+        )
+        assert created.status_code == 200, created.text
+        run = created.json()["run"]
+        assert run["status"] == "等待确认", run["error"]
+
+        app.state.runtime_config.update({"timezone": "Asia/Shanghai"})
+
+        confirmed = client.post(
+            f"/api/v1/agent-runs/{run['run_id']}/confirm",
+            json={"candidate_version": 1},
+            headers={"Idempotency-Key": "99999999-9999-7999-8999-999999999999"},
+        )
+        assert confirmed.status_code == 200, confirmed.text
+        failed = confirmed.json()["run"]
+        assert failed["status"] == "失败"
+        assert failed["error"]["code"] == "DEADLINE_EXPIRED"
+        assert client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
 def test_interrupted_run_is_reported_and_can_restart(

@@ -6,12 +6,11 @@ import json
 import re
 import urllib.error
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, tzinfo
 from typing import Any, Literal
 from uuid import UUID
 
 from backend.agent.schemas import (
-    SHANGHAI,
     CandidatePlan,
     CandidateTask,
     EvaluationStatus,
@@ -277,6 +276,8 @@ def build_candidate_plan_create_payload(
     plan: CandidatePlan,
     sources_by_id: dict[str, SourceDocument],
     requirement_id_map: dict[str, str] | None = None,
+    *,
+    timezone: tzinfo,
 ) -> dict[str, Any]:
     """Build exact POST /api/v1/matters/{matter_id}/candidate-plans request body."""
     items_payload: list[dict[str, Any]] = []
@@ -308,12 +309,13 @@ def build_candidate_plan_create_payload(
         deadline_at = task.official_deadline_at or task.official_deadline
         deadline_date = task.official_deadline_date
         if deadline_at is not None:
-            shanghai_date = deadline_at.astimezone(SHANGHAI).date()
+            local_date = deadline_at.astimezone(timezone).date()
             if deadline_date is None:
-                deadline_date = shanghai_date
-            elif deadline_date != shanghai_date:
+                deadline_date = local_date
+            elif deadline_date != local_date:
                 raise ValueError(
-                    f"任务 {task.task_id} 的 official_deadline_date 与 Asia/Shanghai 时刻日期不一致"
+                    f"任务 {task.task_id} 的 official_deadline_date 与 "
+                    f"{timezone} 下的时刻日期不一致"
                 )
 
         mapped_req_id: str | None = None

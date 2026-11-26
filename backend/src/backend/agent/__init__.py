@@ -32,7 +32,6 @@ from backend.agent.ports import (
     WorkspaceBackendPort,
 )
 from backend.agent.schemas import (
-    SHANGHAI,
     AgentError,
     AgentErrorCode,
     AgentRunResult,
@@ -77,7 +76,6 @@ from backend.agent.validators import (
 __all__ = [
     "ALLOWED_TOOLS",
     "PUBLIC_SCOPE_ALLOWLIST",
-    "SHANGHAI",
     "AgentError",
     "AgentErrorCode",
     "AgentOrchestrator",

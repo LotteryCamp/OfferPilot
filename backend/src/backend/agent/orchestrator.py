@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -41,6 +41,7 @@ from backend.agent.validators import (
     collect_source_gaps,
     evaluate_requirements,
     find_expired_plan_tasks,
+    normalize_candidate_deadlines,
     validate_candidate_plan,
 )
 from backend.basis import CRITICAL_BASIS_GAP_TYPES
@@ -63,6 +64,7 @@ class AgentOrchestrator:
         source_reader: SourceReaderPort,
         model_adapter: ModelAdapterPort,
         backend: WorkspaceBackendPort,
+        timezone: tzinfo,
         persistence: CandidatePersistencePort | None = None,
         gateway: ToolGateway | None = None,
         clock: Callable[[], datetime] | None = None,
@@ -70,6 +72,7 @@ class AgentOrchestrator:
         self._source_reader = source_reader
         self._model_adapter = model_adapter
         self._backend = backend
+        self._timezone = timezone
         self._persistence = persistence
         self._gateway = gateway or ToolGateway(backend)
         self._clock = clock or (lambda: datetime.now(UTC))
@@ -280,10 +283,14 @@ class AgentOrchestrator:
                 scope_summary=scope_summary,
             )
 
-        violations = validate_candidate_plan(
-            candidate_plan,
-            context.workspace_version,
-            sources_by_id=sources_by_id,
+        violations = normalize_candidate_deadlines(candidate_plan, self._timezone)
+        violations.extend(
+            validate_candidate_plan(
+                candidate_plan,
+                context.workspace_version,
+                sources_by_id=sources_by_id,
+                timezone=self._timezone,
+            )
         )
         if violations:
             err = AgentError(
@@ -308,7 +315,9 @@ class AgentOrchestrator:
         merged_scope = dict(scope_summary) | dict(candidate_plan.scope_summary)
 
         now = context.as_of or self._clock()
-        expired_tasks = find_expired_plan_tasks(candidate_plan, now)
+        expired_tasks = find_expired_plan_tasks(
+            candidate_plan, now, timezone=self._timezone
+        )
         if expired_tasks:
             merged_gaps.append(
                 SourceGap(
@@ -515,7 +524,9 @@ class AgentOrchestrator:
             return self._result_from_checkpoint(cp, error=err)
 
         if cp.candidate_plan is not None:
-            expired_tasks = find_expired_plan_tasks(cp.candidate_plan, self._clock())
+            expired_tasks = find_expired_plan_tasks(
+                cp.candidate_plan, self._clock(), timezone=self._timezone
+            )
             if expired_tasks:
                 err = AgentError(
                     code=AgentErrorCode.DEADLINE_EXPIRED,
@@ -815,6 +826,7 @@ class AgentOrchestrator:
             candidate_plan,
             sources_by_id,
             requirement_id_map=req_id_map,
+            timezone=self._timezone,
         )
         plan_resp = self._persistence.persist_candidate_plan(matter_id, plan_payload)
         raw_plan_id = plan_resp.get("id")

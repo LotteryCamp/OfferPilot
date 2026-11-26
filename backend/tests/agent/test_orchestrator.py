@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from backend.agent import (
     AgentErrorCode,
@@ -24,6 +25,8 @@ from backend.agent import (
     ToolGateway,
     WrittenTask,
 )
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class InMemorySourceReader:
@@ -264,6 +267,7 @@ def test_happy_path_waits_for_confirmation_then_writes_idempotently() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=5)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -303,6 +307,7 @@ def test_reject_plan_persists_rejected_and_cannot_override_completed() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -336,6 +341,7 @@ def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     persistence = InMemoryCandidatePersistence(fail_first_confirm_timeout=True)
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -378,6 +384,7 @@ def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
 def test_cold_start_recovery_and_missing_persistence_guard() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     orch_no_persist = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -396,6 +403,7 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
 
     persistence = InMemoryCandidatePersistence()
     orch1 = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -407,6 +415,7 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
 
     # Simulate process restart with a fresh orchestrator instance
     orch2 = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -429,6 +438,7 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
 def test_missing_consent_or_model_timeout_reports_failure() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=False)
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -463,6 +473,7 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
 
     backend_ok = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=True)
     orch_timeout = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()], fail_on_plan=True),
         backend=backend_ok,
@@ -534,6 +545,7 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=False)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -563,6 +575,7 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
             return super().generate_candidate_plan(context, sources, evaluations)
 
     orch_revoke = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=RevokingModelAdapter([_sample_req()]),
         backend=backend,
