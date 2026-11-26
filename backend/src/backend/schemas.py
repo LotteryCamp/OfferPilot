@@ -19,6 +19,8 @@ from pydantic import (
     model_validator,
 )
 
+from backend.config import MAX_DURATION_SECONDS
+
 CONTENT_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 NUMBER_PATTERN = re.compile(r"^-?\d+(?:\.\d+)?$")
 FIELD_KEY_PATTERN = r"^[a-z][a-z0-9_.]{1,63}$"
@@ -136,14 +138,20 @@ class AdminModelSettingsUpdate(AuthRequestModel):
 
 
 class AdminAuthSettingsUpdate(AuthRequestModel):
-    session_ttl_seconds: int | None = Field(default=None, gt=0)
-    remember_session_ttl_seconds: int | None = Field(default=None, gt=0)
+    session_ttl_seconds: int | None = Field(default=None, gt=0, le=MAX_DURATION_SECONDS)
+    remember_session_ttl_seconds: int | None = Field(
+        default=None, gt=0, le=MAX_DURATION_SECONDS
+    )
     cookie_secure: bool | None = None
-    login_ip_window_seconds: int | None = Field(default=None, gt=0)
+    login_ip_window_seconds: int | None = Field(
+        default=None, gt=0, le=MAX_DURATION_SECONDS
+    )
     login_ip_limit: int | None = Field(default=None, ge=0)
-    login_email_window_seconds: int | None = Field(default=None, gt=0)
+    login_email_window_seconds: int | None = Field(
+        default=None, gt=0, le=MAX_DURATION_SECONDS
+    )
     login_email_limit: int | None = Field(default=None, ge=0)
-    login_lock_seconds: int | None = Field(default=None, gt=0)
+    login_lock_seconds: int | None = Field(default=None, gt=0, le=MAX_DURATION_SECONDS)
 
 
 class AdminSettingsUpdate(AuthRequestModel):

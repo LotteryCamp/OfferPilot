@@ -58,6 +58,11 @@ def test_login_throttle_environment_overrides(
         ("OFFERPILOT_LOGIN_EMAIL_WINDOW_SECONDS", "0", "must be a positive integer"),
         ("OFFERPILOT_LOGIN_EMAIL_LIMIT", "-1", "must be a non-negative integer"),
         ("OFFERPILOT_LOGIN_LOCK_SECONDS", "0", "must be a positive integer"),
+        (
+            "OFFERPILOT_LOGIN_IP_WINDOW_SECONDS",
+            "3153600001",
+            "must not exceed 3153600000",
+        ),
     ],
 )
 def test_login_throttle_validation(

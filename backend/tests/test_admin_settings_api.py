@@ -12,7 +12,7 @@ import yaml
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from backend.config import Settings
+from backend.config import MAX_DURATION_SECONDS, Settings
 from backend.main import create_app
 from backend.security import hash_password
 
@@ -208,6 +208,10 @@ def test_first_update_creates_missing_file(
     [
         ({"model": {"timeout_seconds": 0}}, "body.model.timeout_seconds"),
         ({"auth": {"login_ip_limit": -1}}, "body.auth.login_ip_limit"),
+        (
+            {"auth": {"session_ttl_seconds": MAX_DURATION_SECONDS + 1}},
+            "body.auth.session_ttl_seconds",
+        ),
         ({"model": {"api_key": "   "}}, "model.api_key"),
         ({"timezone": "Mars/Base"}, "timezone"),
         ({"database_url": "postgresql://elsewhere"}, "body.database_url"),

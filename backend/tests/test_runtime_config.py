@@ -14,7 +14,7 @@ import pytest
 import yaml
 from filelock import FileLock
 
-from backend.config import Settings
+from backend.config import MAX_DURATION_SECONDS, Settings
 from backend.runtime_config import (
     ConfigFileError,
     ConfigFileNotConfigured,
@@ -103,6 +103,10 @@ def test_writable_follows_parent_directory_permissions(tmp_path: Path) -> None:
         ("host: 0.0.0.0\n", "host"),
         ("model:\n  timeout_seconds: 0\n", "model.timeout_seconds"),
         ("auth:\n  login_ip_limit: -1\n", "auth.login_ip_limit"),
+        (
+            f"auth:\n  session_ttl_seconds: {MAX_DURATION_SECONDS + 1}\n",
+            "auth.session_ttl_seconds",
+        ),
         ("timezone: Mars/Base\n", "timezone"),
     ],
 )
@@ -246,6 +250,17 @@ def test_update_rejects_invalid_values(tmp_path: Path) -> None:
     assert error.value.issues[0]["path"] == "auth.login_lock_seconds"
     assert config.current().login_lock_seconds == 900
     assert config_path.read_text(encoding="utf-8") == ""
+
+
+def test_update_rejects_oversized_duration(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("", encoding="utf-8")
+    config = RuntimeConfig(_base(), config_path)
+
+    with pytest.raises(ConfigFileError) as error:
+        config.update({"auth": {"login_lock_seconds": MAX_DURATION_SECONDS + 1}})
+
+    assert error.value.issues[0]["path"] == "auth.login_lock_seconds"
 
 
 def test_update_rejects_whitespace_api_key(tmp_path: Path) -> None:

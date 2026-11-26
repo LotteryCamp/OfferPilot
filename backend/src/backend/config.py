@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+MAX_DURATION_SECONDS = 3_153_600_000
+
 
 @dataclass(frozen=True, slots=True)
 class Settings:
@@ -70,6 +72,8 @@ def _int_env(name: str, default: int) -> int:
     value = int(raw.strip())
     if value <= 0:
         raise RuntimeError(f"{name} must be a positive integer")
+    if value > MAX_DURATION_SECONDS:
+        raise RuntimeError(f"{name} must not exceed {MAX_DURATION_SECONDS}")
     return value
 
 

@@ -47,15 +47,17 @@ timezone: Asia/Shanghai
 | `model.api_url` | string | 无 | `OFFERPILOT_MODEL_API_URL` |
 | `model.api_key` | string | 不得只包含空白字符 | `OFFERPILOT_MODEL_API_KEY` |
 | `model.timeout_seconds` | number | 大于 0 | `OFFERPILOT_MODEL_TIMEOUT_SECONDS` |
-| `auth.session_ttl_seconds` | integer | 大于 0 | `OFFERPILOT_SESSION_TTL_SECONDS` |
-| `auth.remember_session_ttl_seconds` | integer | 大于 0 | `OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS` |
+| `auth.session_ttl_seconds` | integer | 1 至 3153600000 | `OFFERPILOT_SESSION_TTL_SECONDS` |
+| `auth.remember_session_ttl_seconds` | integer | 1 至 3153600000 | `OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS` |
 | `auth.cookie_secure` | boolean | 无 | `OFFERPILOT_COOKIE_SECURE` |
-| `auth.login_ip_window_seconds` | integer | 大于 0 | `OFFERPILOT_LOGIN_IP_WINDOW_SECONDS` |
+| `auth.login_ip_window_seconds` | integer | 1 至 3153600000 | `OFFERPILOT_LOGIN_IP_WINDOW_SECONDS` |
 | `auth.login_ip_limit` | integer | 大于等于 0 | `OFFERPILOT_LOGIN_IP_LIMIT` |
-| `auth.login_email_window_seconds` | integer | 大于 0 | `OFFERPILOT_LOGIN_EMAIL_WINDOW_SECONDS` |
+| `auth.login_email_window_seconds` | integer | 1 至 3153600000 | `OFFERPILOT_LOGIN_EMAIL_WINDOW_SECONDS` |
 | `auth.login_email_limit` | integer | 大于等于 0 | `OFFERPILOT_LOGIN_EMAIL_LIMIT` |
-| `auth.login_lock_seconds` | integer | 大于 0 | `OFFERPILOT_LOGIN_LOCK_SECONDS` |
+| `auth.login_lock_seconds` | integer | 1 至 3153600000 | `OFFERPILOT_LOGIN_LOCK_SECONDS` |
 | `timezone` | string | 合法 IANA 时区 | `OFFERPILOT_TIMEZONE` |
+
+时长字段上限为 3153600000 秒（100 年），超出范围会使登录与过期时间运算溢出。
 
 数据库连接、监听地址、监听端口与 API 前缀不可热更新，出现在文件中直接校验失败。
 
