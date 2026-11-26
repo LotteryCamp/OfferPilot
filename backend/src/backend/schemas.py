@@ -129,6 +129,31 @@ class AdminPasswordReset(AuthRequestModel):
     new_password: str = Field(min_length=8, max_length=128)
 
 
+class AdminModelSettingsUpdate(AuthRequestModel):
+    provider: str | None = None
+    name: str | None = None
+    api_url: str | None = None
+    api_key: str | None = None
+    timeout_seconds: float | None = Field(default=None, gt=0)
+
+
+class AdminAuthSettingsUpdate(AuthRequestModel):
+    session_ttl_seconds: int | None = Field(default=None, gt=0)
+    remember_session_ttl_seconds: int | None = Field(default=None, gt=0)
+    cookie_secure: bool | None = None
+    login_ip_window_seconds: int | None = Field(default=None, gt=0)
+    login_ip_limit: int | None = Field(default=None, ge=0)
+    login_email_window_seconds: int | None = Field(default=None, gt=0)
+    login_email_limit: int | None = Field(default=None, ge=0)
+    login_lock_seconds: int | None = Field(default=None, gt=0)
+
+
+class AdminSettingsUpdate(AuthRequestModel):
+    timezone: str | None = None
+    model: AdminModelSettingsUpdate | None = None
+    auth: AdminAuthSettingsUpdate | None = None
+
+
 class MatterCreate(RequestModel):
     goal: str = Field(min_length=1, max_length=200)
     type_code: str = Field(default="pre_recommend", min_length=2, max_length=32)

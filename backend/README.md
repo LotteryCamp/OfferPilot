@@ -34,6 +34,7 @@ uv sync
 | 环境变量 | 必填 | 默认值 | 说明 |
 | :--- | :--- | :--- | :--- |
 | `OFFERPILOT_DATABASE_URL` | 是 | 无 | API 数据库连接串；未设置时回退读取 `DATABASE_URL` |
+| `OFFERPILOT_CONFIG_FILE` | 否 | 无 | 运行配置文件路径；设置后模型、会话、限流与时区可由文件覆盖并热更新 |
 | `OFFERPILOT_TIMEZONE` | 否 | `Asia/Shanghai` | 官方日期期限的比较时区 |
 | `OFFERPILOT_SESSION_TTL_SECONDS` | 否 | `43200` | 普通登录会话有效期，单位秒 |
 | `OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS` | 否 | `2592000` | 记住登录会话有效期，单位秒 |
@@ -58,6 +59,10 @@ uv sync
 ```bash
 export OFFERPILOT_DATABASE_URL='postgresql://offerpilot_app:<password>@127.0.0.1:5432/offerpilot'
 ```
+
+### 运行配置文件
+
+设置 `OFFERPILOT_CONFIG_FILE` 后，模型服务商、名称、地址、密钥、超时，会话有效期与 Cookie Secure，登录限流参数，以及时区可由 YAML 文件覆盖环境变量。文件变化由每次请求检测，约 1 秒缓存；管理员可通过 `GET/PATCH /api/v1/admin/settings` 读取与修改。文件格式、校验规则、生效语义与部署注意事项见[运行配置](../docs/backend/configuration.md)。
 
 ## 账户初始化
 

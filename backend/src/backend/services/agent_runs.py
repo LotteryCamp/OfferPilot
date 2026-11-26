@@ -32,10 +32,10 @@ from backend.agent.schemas import (
     SourceDocument,
 )
 from backend.clock import Clock
-from backend.config import Settings
 from backend.errors import ApiError
 from backend.fact_types import supported_fact_types
 from backend.identity import CurrentUser
+from backend.runtime_config import RuntimeConfig
 from backend.schemas import AgentRunCreate
 from backend.services import facts as fact_service
 from backend.services.common import require_matter, transaction
@@ -100,14 +100,14 @@ class AgentRunService:
 
     def __init__(
         self,
-        settings: Settings,
+        config: RuntimeConfig,
         session_factory: sessionmaker[Session],
         clock: Clock,
         model_adapter: ModelAdapterPort | None,
         *,
         source_reader: SourceReader = read_public_html,
     ) -> None:
-        self._settings = settings
+        self._config = config
         self._session_factory = session_factory
         self._clock = clock
         self._model_adapter = model_adapter or _UnavailableModelAdapter()
@@ -242,7 +242,7 @@ class AgentRunService:
             backend=backend,
             persistence=SqlCandidatePersistence(
                 current_user,
-                self._settings,
+                self._config.current(),
                 self._session_factory,
                 self._clock,
                 expected_fact_versions=expected_fact_versions,
@@ -461,7 +461,7 @@ class AgentRunService:
             backend=backend,
             persistence=SqlCandidatePersistence(
                 current_user,
-                self._settings,
+                self._config.current(),
                 self._session_factory,
                 self._clock,
             ),
