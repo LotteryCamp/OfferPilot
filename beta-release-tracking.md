@@ -16,7 +16,7 @@
 
 **P1（扩展）**包括一个公开竞赛通知模板，以及个人材料草拟、编辑和 DOCX 导出。前期可准备规则样例、设计和接口。11 月 29 日检查推免闭环，若仍有核心阻塞，11 月 30 日起暂停 P1 集成，集中修复 P0。P1 逐项按实际验收结果纳入交付，竞赛的展示范围限于选定样例。
 
-当前模型传输同意契约覆盖公开资料分析，不包含个人事实、个人材料或用户导入件。若材料草拟需要将个人事实发送给外部模型，集成前先补充相应披露和授权契约，至少绑定用途、所选事实及其版本。用户明确同意后，对未变化的授权范围可跨对话复用，不要求每次对话重复确认。事实版本、用途或授权范围变化，或用户撤回同意后，须重新取得相应授权；没有有效授权时不发起外部请求。未完成这项契约前，材料助手只纳入不向外部模型发送个人事实的准备工作。
+现有模型传输同意覆盖公开资料分析。个人事实、个人材料与用户导入件留在工作区。若材料草拟需要将选定的个人事实交给外部模型，先明确披露内容和出站接口契约。验收时验证两层条件：用户在知悉本次发送内容和用途后主动发起生成，服务端将该次操作的明示同意绑定到传输请求，并核对所选事实及其版本均在有效授权内。相同范围的事实授权可跨对话复用。普通对话和后台运行不得据此自动发送个人事实。授权范围、用途、事实版本变化或用户撤回时，阻止发送并在需要时重新取得授权。契约和校验落地前，只准备可在工作区内完成的材料功能。
 
 ## 2. Agent 分工与联调交接
 
@@ -51,10 +51,10 @@
 | P0-02 私有数据隔离 | 李义东，何慧渊验证 | A 建立事项和相关记录，B 使用自己的登录状态访问 A 的资源。对已开放的事项、事实、授权、来源、候选、材料和任务接口检查读写边界。预期跨账号访问被拒绝，页面切换无上个账号的数据残留。 | 待验证 [#57](https://github.com/LotteryCamp/OfferPilot/issues/57) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) |
 | P0-03 建项与通知出处 | 张锦昊，蔡信坡提供来源 | 登录后新建推免事项，读取选定的公开通知，回看发布主体、适用范围及原文定位。比对展示内容和通知，检查证据不足时界面的待核对反馈。 | 待验证 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) · [#79](https://github.com/LotteryCamp/OfferPilot/issues/79) |
 | P0-04 规则、引文及候选依赖 | 王智钦，杜玉鹤提供规则预期 | 将抽取要求与原文对照，检查对象、时间、材料和关键缺口。检查引文能定位到相应原文，候选任务的依赖存在于同一计划，证据不足的结论保持待核对。 | 待验证 [#60](https://github.com/LotteryCamp/OfferPilot/issues/60) · [#74](https://github.com/LotteryCamp/OfferPilot/issues/74) |
-| P0-05 模型传输同意与真实联调 | 庄凯堃，王智钦核验业务结果 | 首次运行前展示当前服务商、模型、用途、字段范围与处理方式。未授予同意或已撤回时，预期运行被拒且不产生模型出站请求。用户授予一次全局公开资料传输同意后，确认在同一有效授权范围内可跨事项复用。运行中核对请求只含契约允许的目标、白名单公开范围和公开来源，不含个人事实或材料；用同一份通知从正式入口跑到候选计划保存，重新读取候选并记录版本与结果。 | 待验证 [#73](https://github.com/LotteryCamp/OfferPilot/issues/73) · [授权契约](https://github.com/LotteryCamp/OfferPilot/blob/main/docs/backend/model-transfer-consent.md) |
-| P0-06 排名补录与自查 | 张锦昊，王智钦核验结果 | 在未同意或撤回同意的账号上触发自查，预期服务端阻止运行且无外发。授予全局公开资料传输同意后，运行缺少排名时的自查，补录本人确认的排名并重新检查；预期同一有效授权可复用，刷新或切页后事实和结果一致。撤回后再次运行应被阻止。 | 待验证 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) · [授权契约](https://github.com/LotteryCamp/OfferPilot/blob/main/docs/backend/model-transfer-consent.md) |
+| P0-05 模型传输同意与真实联调 | 庄凯堃，王智钦核验业务结果 | 用含非空适用范围的推免事项测试。授予前展示服务商、模型、用途、字段和处理方式。未同意或撤回后运行，返回 `422 model_transfer_consent_required`，无运行记录和模型出站请求。主动授予后在同一账号的不同事项复用同意，撤回后重新授予可恢复运行。核对实际出站仅含允许的目标、白名单公开范围和公开来源及定位。用同一份通知从正式入口跑到候选计划保存并读回。 | 待验证 [#73](https://github.com/LotteryCamp/OfferPilot/issues/73) · [授权契约](https://github.com/LotteryCamp/OfferPilot/blob/main/docs/backend/model-transfer-consent.md) |
+| P0-06 排名补录与自查 | 张锦昊，王智钦核验结果 | 在含非空适用范围的事项中，主动授予公开资料传输同意后运行缺少排名时的自查。补录本人确认的排名后重新自查，核对结果使用当前事实，且出站请求未包含个人排名。重复运行可复用有效同意。撤回后用已有排名重新运行应被拦截，重新授予后恢复。刷新或切页后可回读事实和结果。 | 待验证 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) · [授权契约](https://github.com/LotteryCamp/OfferPilot/blob/main/docs/backend/model-transfer-consent.md) |
 | P0-07 拒绝候选 | 张锦昊，李义东核对持久化 | 在确认前查看任务数量，拒绝一份独立候选，刷新后核对候选和任务列表。预期候选为已拒绝，任务无新增。 | 待验证 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) |
-| P0-08 确认、幂等重试与读回 | 张锦昊，李义东核对持久化 | 用操作 ID 确认一份有效候选。以相同幂等键重试，预期返回相同决定和任务 ID；再以不同幂等键确认同一终态候选，预期发生冲突且不得改写决定。刷新并重登，确认只存在一份任务且状态、依赖与写入一致。 | 待验证。依据核心流程契约 A-08 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) · [核心流程契约](https://github.com/LotteryCamp/OfferPilot/blob/722c3679c59c1a42b43d05f190fe17dd9bda8d5e/docs/development/core-flow-contract.md) |
+| P0-08 确认、幂等重试与读回 | 张锦昊，李义东核对持久化 | 用 `Idempotency-Key` 确认有效候选。以首次已写入但客户端未收到响应为测试场景，用原键重试应返回已保存的决定和相同任务 ID。换新键确认同一终态候选应发生冲突，原决定不变。刷新并重登后，每个计划项只对应一条任务，状态及依赖与写入一致。 | 待验证。依据核心流程契约 A-08 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) · [核心流程契约](https://github.com/LotteryCamp/OfferPilot/blob/722c3679c59c1a42b43d05f190fe17dd9bda8d5e/docs/development/core-flow-contract.md) |
 | P0-09 依据变更与过期恢复 | 张锦昊，李义东、何慧渊协作 | 生成候选后改变其依赖的事实或依据，尝试确认旧候选，核对过期提示和任务数量，再生成并确认符合条件的新候选。历史通知另做超期拦截检查。 | 待验证 [PR #70](https://github.com/LotteryCamp/OfferPilot/pull/70) · [#78](https://github.com/LotteryCamp/OfferPilot/issues/78) |
 | P0-10 公开 HTML 来源与读取失败 | 蔡信坡，张锦昊核对界面 | 按现有来源契约读取一份公开 HTML 通知，核对来源 URL、原文片段和定位信息。对不可访问或不受支持的 PDF 输入验证明确失败状态，不产生伪造的提取结果或引用；缺失内容保留待核对。PDF 附件解析与页码定位不属于本轮 P0 发布门槛。 | HTML 来源待验证；PDF 能力为非阻断后续项 [核心流程契约](https://github.com/LotteryCamp/OfferPilot/blob/722c3679c59c1a42b43d05f190fe17dd9bda8d5e/docs/development/core-flow-contract.md) · [#79](https://github.com/LotteryCamp/OfferPilot/issues/79) |
 | P0-11 模型错误和恢复 | 庄凯堃，前后端补齐对应反馈 | 复测超时、服务异常与无效响应。在业务界面核对失败状态、恢复操作和重试后的结果。 | 部分已测，适配器作者报告 13 项通过，业务界面待验证 [#73 进度](https://github.com/LotteryCamp/OfferPilot/issues/73#issuecomment-7165699292) · [PR #81](https://github.com/LotteryCamp/OfferPilot/pull/81) |
@@ -66,8 +66,8 @@
 | 编号与场景 | 主责与协作 | 操作与预期结果 | 当前状态 |
 | --- | --- | --- | --- |
 | P1-01 单一竞赛事项 | 杜玉鹤，蔡信坡提供来源 | 用一份公开竞赛通知创建事项，核对阶段、适用对象、截止日期和材料要求。用户确认后只为当前事项生成个人任务。 | 样例待确认，集成待 11 月 30 日决定 [#74](https://github.com/LotteryCamp/OfferPilot/issues/74) |
-| P1-02 材料授权与草拟 | 王智钦负责授权与业务，庄凯堃负责模型侧 | 集成前先扩充授权契约，向用户披露传输用途和字段；同意绑定明确选择的事实及其版本。相同已授权事实可跨对话复用；事实版本、用途或授权范围变化，或同意撤回时，阻止发送并重新取得授权。分别验证无授权、撤回、缺事实、未知事实编号和无效回包。有效草稿可回看事实依据并由用户编辑或拒绝。 | 授权契约未覆盖个人事实，需先补契约再决定 11 月 30 日是否集成 [#60](https://github.com/LotteryCamp/OfferPilot/issues/60) · [#73](https://github.com/LotteryCamp/OfferPilot/issues/73) · [授权契约](https://github.com/LotteryCamp/OfferPilot/blob/main/docs/backend/model-transfer-consent.md) |
-| P1-03 草稿审阅与导出 | 陈常群负责前端交互，导出接口主责待定 | 编辑、接受或拒绝草稿。授权范围有效时，接受后的 DOCX 可打开且与保存文本一致；导出结果仅供本人访问。拒绝后的状态正确。 | 集成、事实授权契约及导出接口主责待确认 [#75](https://github.com/LotteryCamp/OfferPilot/issues/75) · [#77](https://github.com/LotteryCamp/OfferPilot/issues/77) |
+| P1-02 材料授权与草拟 | 王智钦负责授权与业务，庄凯堃负责模型侧 | 验证本次传输的明示同意与事实版本授权均有效。分别覆盖仅有公开资料同意、缺少本次同意、事实未获授权或版本变化、撤回等场景，预期均无外发。事实缺失时提示补充，未知事实编号或无效回包应被拦截。有效草稿保留可回看的事实依据。 | 待补披露与授权接口契约，再决定是否集成 [#60](https://github.com/LotteryCamp/OfferPilot/issues/60) · [#73](https://github.com/LotteryCamp/OfferPilot/issues/73) · [现有授权契约](https://github.com/LotteryCamp/OfferPilot/blob/main/docs/backend/model-transfer-consent.md) |
+| P1-03 草稿审阅与导出 | 陈常群负责前端交互，导出接口主责待定 | 编辑、接受或拒绝已有草稿。接受后的 DOCX 可打开且与保存文本一致，导出结果仅供本人访问。拒绝后状态正确。 | 集成及导出接口主责待确认 [#75](https://github.com/LotteryCamp/OfferPilot/issues/75) · [#77](https://github.com/LotteryCamp/OfferPilot/issues/77) |
 
 本轮复验承接此前已关闭的 Alpha 工作，包括模型适配、核心前端、来源与审阅以及验收，分别对应 Beta 的 #73、#75、#76 和 #78。 [Alpha #29](https://github.com/LotteryCamp/OfferPilot/issues/29) · [Alpha #31](https://github.com/LotteryCamp/OfferPilot/issues/31) · [Alpha #32](https://github.com/LotteryCamp/OfferPilot/issues/32) · [Alpha #34](https://github.com/LotteryCamp/OfferPilot/issues/34)
 
