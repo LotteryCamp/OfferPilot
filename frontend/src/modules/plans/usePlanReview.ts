@@ -3,7 +3,15 @@ import { clearAttempt, chooseAttempt, readAttempt, saveAttempt } from './attempt
 import type { Attempt } from './attempt'
 import type { Action, Plan, PlanSummary, Task } from './contracts'
 import { canConfirmBasis } from './contracts'
-import { decidePlan, decisionMayBeCommitted, getPlan, getTasks, listPlans, planError } from './api'
+import {
+  decidePlan,
+  decisionMayBeCommitted,
+  decisionNeedsReload,
+  getPlan,
+  getTasks,
+  listPlans,
+  planError,
+} from './api'
 
 export function usePlanReview(onChanged: () => void) {
   const plans = ref<PlanSummary[]>([])
@@ -97,6 +105,9 @@ export function usePlanReview(onChanged: () => void) {
     reviewed.value = false
     notice.value = ''
     error.value = ''
+    taskError.value = ''
+    decisionError.value = ''
+    refreshRequired.value = true
     loading.value = true
     const request = new AbortController()
     controller = request
@@ -163,7 +174,12 @@ export function usePlanReview(onChanged: () => void) {
       if (matterId === context) onChanged()
     } catch (cause) {
       if (ticket !== generation) return
-      decisionError.value = planError(cause)
+      const message = planError(cause)
+      decisionError.value = message
+      if (sent && decisionMayBeCommitted(cause)) {
+        notice.value =
+          '本次决定的结果尚未确认，后端可能已记录。请重新读取状态；重试原决定时将沿用同一操作标识。'
+      }
       if (!sent || !decisionMayBeCommitted(cause)) {
         refreshRequired.value = true
         if (sent) {
@@ -172,7 +188,15 @@ export function usePlanReview(onChanged: () => void) {
             attempt.value = null
           } catch {
             decisionError.value = '无法更新浏览器中的操作标识，请先重新读取计划状态。'
+            return
           }
+        }
+      }
+      if (decisionNeedsReload(cause)) {
+        await load(context, currentPlan)
+        if (matterId === context && (selectedId.value === currentPlan || !selectedId.value)) {
+          decisionError.value = message
+          if (plan.value) onChanged()
         }
       }
     } finally {

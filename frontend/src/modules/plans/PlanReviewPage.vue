@@ -7,6 +7,7 @@ import type { Matter } from '../matters/types'
 import { displayDate, normalizeMatterId, safeSourceUrl, statusLabel } from '../sources/presentation'
 import { usePlanReview } from './usePlanReview'
 import { canConfirmBasis } from './contracts'
+import { selfCheckLabel, selfCheckTone } from '../sources/selfCheck'
 
 const props = defineProps<{ matterId: string; matter: Matter }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -79,11 +80,19 @@ function itemName(id: string) {
       >
     </div>
     <ElAlert
+      v-if="plan?.status === 'pending'"
       type="info"
       :closable="false"
       title="候选计划等待你的决定。确认后创建个人任务；拒绝不会创建任务。"
     />
     <ElAlert v-if="notice" type="info" :closable="false" :title="notice" role="status" />
+    <ElAlert
+      v-if="decisionError && !plan"
+      type="error"
+      :closable="false"
+      :title="decisionError"
+      role="alert"
+    />
     <div v-if="error" role="alert" class="read-error panel">
       <p>{{ error }}</p>
       <ElButton :disabled="submitting" @click="reload">重试读取</ElButton>
@@ -123,6 +132,13 @@ function itemName(id: string) {
           <p v-if="plan.status === 'expired'" class="error-text">
             计划已过期，请重新生成并审阅候选计划。
           </p>
+          <RouterLink
+            v-if="plan.status === 'expired' || staleBasis"
+            :to="{ name: 'matter-sources', params: { matterId } }"
+            class="secondary-link"
+            data-testid="plan-regenerate"
+            >返回来源与条件重新分析 →</RouterLink
+          >
           <ElAlert
             v-if="plan.status === 'pending' && staleBasis"
             data-testid="plan-stale-basis"
@@ -186,6 +202,28 @@ function itemName(id: string) {
                 </dd>
               </div>
             </dl>
+            <section
+              v-if="item.requirement"
+              class="evidence-block"
+              data-testid="plan-item-self-check"
+            >
+              <h4>关联要求的自查结果</h4>
+              <template v-if="item.requirement.self_check">
+                <ElTag :type="selfCheckTone(item.requirement.self_check.conclusion)">{{
+                  selfCheckLabel(item.requirement.self_check.conclusion)
+                }}</ElTag>
+                <p>{{ item.requirement.self_check.reason }}</p>
+                <p v-if="item.requirement.self_check.missing_fields.length" class="muted">
+                  待补充或核对：{{ item.requirement.self_check.missing_fields.join('、') }}
+                </p>
+                <ul v-if="item.requirement.self_check.gaps.length">
+                  <li v-for="(gap, index) in item.requirement.self_check.gaps" :key="index">
+                    {{ gap.description }}{{ gap.locator ? `（${gap.locator}）` : '' }}
+                  </li>
+                </ul>
+              </template>
+              <p v-else class="muted">尚无可读取的自查结果，请返回来源与条件核对。</p>
+            </section>
             <p v-if="!item.sources.length" class="error-text">
               此条目未提供出处，采用前请核对依据。
             </p>

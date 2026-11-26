@@ -13,6 +13,7 @@ import { useSourcesStore } from './store'
 import {
   displayDate,
   initialSnapshot,
+  nextSnapshotId,
   normalizeMatterId,
   safeSourceUrl,
   statusLabel,
@@ -73,14 +74,13 @@ watch(
 )
 
 watch(sources, (items) => {
+  if (items.some((item) => item.id === lastReadSource.value?.source.id)) lastReadSource.value = null
   if (!items.some((item) => item.id === selectedSourceId.value))
     selectedSourceId.value = items[0]?.id ?? ''
 })
 
-watch(selectedSource, (item) => {
-  if (!item?.snapshots.some((version) => version.id === selectedSnapshotId.value)) {
-    selectedSnapshotId.value = item ? (initialSnapshot(item)?.id ?? '') : ''
-  }
+watch(selectedSource, (item, previous) => {
+  selectedSnapshotId.value = nextSnapshotId(item, previous, selectedSnapshotId.value)
 })
 onUnmounted(store.cancel)
 

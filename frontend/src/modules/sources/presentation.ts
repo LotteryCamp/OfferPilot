@@ -80,3 +80,17 @@ export function initialSnapshot(source: Source): Snapshot | undefined {
     (a, b) => Number(b.is_current) - Number(a.is_current) || b.version_no - a.version_no,
   )[0]
 }
+
+export function nextSnapshotId(
+  source: Source | undefined,
+  previous: Source | undefined,
+  selectedId: string,
+): string {
+  if (!source) return ''
+  const viewedCurrent = previous?.snapshots.some(
+    (snapshot) => snapshot.id === selectedId && snapshot.is_current,
+  )
+  return viewedCurrent || !source.snapshots.some((snapshot) => snapshot.id === selectedId)
+    ? (initialSnapshot(source)?.id ?? '')
+    : selectedId
+}

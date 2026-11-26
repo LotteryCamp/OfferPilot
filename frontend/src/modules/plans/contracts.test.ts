@@ -1,9 +1,86 @@
 import { describe, expect, it } from 'vitest'
-import { assertDecision, canConfirmBasis, decisionResponse, planListResponse } from './contracts'
+import {
+  assertDecision,
+  canConfirmBasis,
+  decisionResponse,
+  planListResponse,
+  planResponse,
+} from './contracts'
 
 const matterId = 'a0000000-0000-4000-8000-000000000001'
 const planId = 'e0000000-0000-4000-8000-000000000001'
 const key = '70000000-0000-4000-8000-000000000001'
+
+function candidate(selfCheck: unknown) {
+  return {
+    plan: {
+      id: planId,
+      matter_id: matterId,
+      version_no: 1,
+      status: 'pending',
+      basis_version: 'basis',
+      generated_at: '2026-11-26T00:00:00Z',
+      decision: null,
+      matter: { id: matterId, goal: '推免准备', scope_year: 2027, scope_attrs: {} },
+      items: [
+        {
+          id: 'e0000000-0000-4000-8000-000000000002',
+          seq: 1,
+          title: '核对申请条件',
+          detail: null,
+          obligation_nature: 'required',
+          official_deadline_date: null,
+          official_deadline_at: null,
+          suggested_date: null,
+          depends_on_item_ids: [],
+          evidence_required: false,
+          requirement: {
+            id: 'b0000000-0000-4000-8000-000000000001',
+            label: '成绩排名',
+            extract_status: 'to_review',
+            self_check: selfCheck,
+          },
+          sources: [],
+        },
+      ],
+      tasks: [],
+    },
+  }
+}
+
+describe('候选条目的自查依据', () => {
+  it.each(['matched', 'not_matched', 'missing_info', 'needs_user_review'])(
+    '保留 %s 的原因、缺项与缺口定位',
+    (conclusion) => {
+      const check = {
+        conclusion,
+        reason: '按当前事项已确认的事实核对',
+        missing_fields: ['gpa.rank'],
+        computed_deadline_at: null,
+        gaps: [
+          {
+            gap_type: 'missing_personal_fact',
+            description: '请补充本人排名',
+            locator: '申请条件第2项',
+            source_id: null,
+            snapshot_id: null,
+          },
+        ],
+      }
+      const { plan } = planResponse.parse(candidate(check))
+      expect(plan.items[0]?.requirement?.self_check).toEqual(check)
+    },
+  )
+
+  it.each([undefined, null])('未提供自查结果时保持为空，不推断符合条件', (value) => {
+    const { plan } = planResponse.parse(candidate(value))
+    expect(plan.items[0]?.requirement?.self_check).toBe(value)
+  })
+
+  it('自查结果格式不完整时停止作为有效候选展示', () => {
+    expect(planResponse.safeParse(candidate({ conclusion: 'matched' })).success).toBe(false)
+  })
+})
 
 function rejection() {
   return decisionResponse.parse({

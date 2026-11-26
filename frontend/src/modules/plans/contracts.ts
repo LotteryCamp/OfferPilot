@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { optionalSelfCheckSchema } from '../sources/selfCheck'
 
 const id = z.uuid()
 const text = z.string().nullable()
@@ -73,7 +74,14 @@ export const planResponse = z.object({
         suggested_date: text,
         depends_on_item_ids: z.array(id),
         evidence_required: z.boolean(),
-        requirement: z.object({ id, label: z.string(), extract_status: z.string() }).nullable(),
+        requirement: z
+          .object({
+            id,
+            label: z.string(),
+            extract_status: z.string(),
+            self_check: optionalSelfCheckSchema,
+          })
+          .nullable(),
         sources: z.array(citation),
       }),
     ),
