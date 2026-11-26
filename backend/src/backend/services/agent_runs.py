@@ -113,7 +113,6 @@ class AgentRunService:
         self._clock = clock
         self._model_adapter = model_adapter or _UnavailableModelAdapter()
         self._source_reader = source_reader
-        self._runs: dict[str, AgentOrchestrator] = {}
         self._operations: dict[tuple[str, str, str], AgentRunResult] = {}
         self._lock = threading.Lock()
 
@@ -277,9 +276,8 @@ class AgentRunService:
             workspace_version=context.workspace_version,
             current_user=current_user,
         )
-        with self._lock:
-            self._runs[run_id] = orchestrator
-            if operation_key is not None:
+        if operation_key is not None:
+            with self._lock:
                 self._operations[operation_key] = saved
         return saved
 
@@ -332,7 +330,7 @@ class AgentRunService:
         if row["status"] == "interrupted" or target_plan_id is None:
             return self._interrupted_result(row)
 
-        orchestrator = self._runtime_orchestrator(run_id, current_user)
+        orchestrator = self._runtime_orchestrator(current_user)
         matter_id = str(row["matter_id"])
         user_id = str(row["user_id"])
         workspace_version = SqlWorkspaceBackend(
@@ -390,7 +388,7 @@ class AgentRunService:
         if row["status"] == "interrupted" or target_plan_id is None:
             return self._interrupted_result(row)
 
-        orchestrator = self._runtime_orchestrator(run_id, current_user)
+        orchestrator = self._runtime_orchestrator(current_user)
         matter_id = str(row["matter_id"])
         user_id = str(row["user_id"])
         workspace_version = SqlWorkspaceBackend(
@@ -450,13 +448,12 @@ class AgentRunService:
             current_user=current_user,
         )
 
-    def _runtime_orchestrator(
-        self, run_id: str, current_user: CurrentUser
-    ) -> AgentOrchestrator:
-        with self._lock:
-            orchestrator = self._runs.get(run_id)
-        if orchestrator is not None:
-            return orchestrator
+    def _runtime_orchestrator(self, current_user: CurrentUser) -> AgentOrchestrator:
+        """Build the orchestrator used to decide a pending run.
+
+        Deadline and source-availability checks use the configuration in effect
+        for this request, matching the direct candidate-plan decision endpoint.
+        """
         settings = self._config.current()
         backend = SqlWorkspaceBackend(current_user, self._session_factory)
         return AgentOrchestrator(
