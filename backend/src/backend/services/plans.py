@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, insert, select, update
 from sqlalchemy.orm import Session
@@ -50,11 +51,13 @@ def create_plan(
     body: CandidatePlanCreate,
     *,
     now: datetime,
+    timezone: ZoneInfo,
     expected_fact_versions: Mapping[str, int | None] | None = None,
 ) -> dict[str, Any]:
     with transaction(session, current_user):
         require_matter(session, current_user, matter_id, for_update=True)
         fact_service.assert_fact_versions(session, matter_id, expected_fact_versions)
+        _normalize_deadlines(body.items, timezone)
         _validate_requirements(session, matter_id, body.items)
         _validate_sources(session, body.items)
 
@@ -422,6 +425,25 @@ def current_basis_gap_issues(session: Session, matter_id: UUID) -> list[dict[str
                 }
             )
     return issues
+
+
+def _normalize_deadlines(
+    items: list[CandidatePlanItemInput], timezone: ZoneInfo
+) -> None:
+    for item in items:
+        if item.official_deadline_at is None:
+            continue
+        local_date = item.official_deadline_at.astimezone(timezone).date()
+        if item.official_deadline_date is None:
+            item.official_deadline_date = local_date
+        elif item.official_deadline_date != local_date:
+            raise ApiError(
+                422,
+                "validation_error",
+                "official_deadline_date 与 official_deadline_at 的日期不一致",
+                next_step=f"按 {timezone} 时区核对官方期限日期",
+                details={"client_item_id": item.client_item_id},
+            )
 
 
 def _validate_requirements(

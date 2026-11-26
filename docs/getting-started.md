@@ -78,7 +78,7 @@ docker compose exec -T postgres psql -U postgres -d offerpilot < dev/roles.sql
 export OFFERPILOT_DATABASE_URL='postgresql://offerpilot_app:<roles.sql 中的口令>@127.0.0.1:5432/offerpilot'
 ```
 
-后端从进程环境读取配置，不自动加载 `.env` 文件。`backend/.env.example` 列出全部变量，默认值与完整说明见[后端配置](../backend/README.md#配置)。PowerShell 使用 `$env:OFFERPILOT_DATABASE_URL = '...'` 设置变量。
+后端从进程环境读取配置，不自动加载 `.env` 文件。`backend/.env.example` 列出全部变量，默认值与完整说明见[后端配置](../backend/README.md#配置)。设置 `OFFERPILOT_CONFIG_FILE` 后，模型、登录会话、限流与时区可由 YAML 文件覆盖并在运行时热更新，见[运行配置](backend/configuration.md)。PowerShell 使用 `$env:OFFERPILOT_DATABASE_URL = '...'` 设置变量。
 
 Agent 分析需要 OpenAI 兼容模型服务，配置以下变量：
 
