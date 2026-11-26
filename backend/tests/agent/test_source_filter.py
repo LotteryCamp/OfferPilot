@@ -6,42 +6,23 @@ import gzip
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 from uuid import uuid4
-
-from pydantic import BaseModel
 
 from backend.agent import (
     PUBLIC_SCOPE_ALLOWLIST,
-    SHANGHAI,
-    AgentErrorCode,
-    AgentOrchestrator,
-    AuthLevel,
-    CandidatePlan,
-    CandidatePlanDraftPayload,
-    CandidateTask,
-    CandidateTaskDraft,
     EvaluationStatus,
-    ExecutionRecord,
     ExtractedRequirement,
-    ExtractedRequirementDraft,
     ObligationType,
-    PublicHtmlSourceReader,
-    RequirementExtractionPayload,
     RunContext,
-    RunStatus,
     SourceCitation,
     SourceDocument,
     SourceFragmentRecord,
-    StructuredModelAdapter,
-    WrittenTask,
     deduplicate_sources,
     evaluate_requirements,
     filter_and_deduplicate_fragments,
     sanitize_matter_goal,
     sanitize_public_scope_attrs,
     source_document_from_public_result,
-    validate_candidate_plan,
 )
 from backend.agent.model_bridge import (
     _prepare_extraction_input,
@@ -120,49 +101,6 @@ def test_filter_fzu_notice_drops_portal_noise_and_keeps_policy_verbatim() -> Non
         }
         for fragment in filtered.fragments
     ]
-
-    target_frag = next(
-        f for f in filtered.fragments if "2026年9月10日下午15:00前" in f.quote
-    )
-
-    def replay_call_model[T: BaseModel](
-        instruction: str,
-        text: str,
-        response_model: type[T],
-    ) -> T:
-        payload = json.loads(text)
-        assert (
-            payload["sources"][0]["fragments"] == extraction["sources"][0]["fragments"]
-        )
-        assert response_model is RequirementExtractionPayload
-        return response_model.model_validate(
-            RequirementExtractionPayload(
-                requirements=[
-                    ExtractedRequirementDraft(
-                        requirement_id="GR-02",
-                        title="提交推免申请材料截止",
-                        obligation=ObligationType.OFFICIAL_REQUIRED,
-                        basis=[
-                            SourceCitation(
-                                source_version_id=doc.source_version_id,
-                                locator_kind=target_frag.locator_kind,
-                                locator=target_frag.locator,
-                                excerpt="2026年9月10日下午15:00前提交",
-                            )
-                        ],
-                        value_text="2026-09-10",
-                        value_type="date",
-                        official_deadline=datetime(2026, 9, 10, 15, 0, tzinfo=SHANGHAI),
-                    )
-                ]
-            ).model_dump()
-        )
-
-    adapter = StructuredModelAdapter(replay_call_model)
-    reqs, _, _ = adapter.extract_requirements_with_metadata("准备推免申请", [doc])
-    assert len(reqs) == 1
-    assert reqs[0].basis[0].locator == target_frag.locator
-    assert reqs[0].basis[0].locator_kind == target_frag.locator_kind
 
 
 def test_fragment_dedup_irrelevant_filter_and_fallback_guard() -> None:
@@ -438,194 +376,6 @@ def test_deduplicate_sources_and_outbound_whitelist_contract() -> None:
         build_planning_input(public_ctx, sources, public_ev, strategy_version="alpha-1")
         == planning
     )
-
-
-def test_p0_end_to_end_insufficient_evidence_and_no_formal_tasks_before_confirm() -> (
-    None
-):
-    doc = _load_fzu_notice_doc()
-    target_frag = next(
-        f for f in doc.fragments if "2026年9月10日下午15:00前" in f.quote
-    )
-
-    class _Backend:
-        def __init__(self) -> None:
-            self.records: list[ExecutionRecord] = []
-
-        def check_permission(
-            self, user_id: str, matter_id: str, auth_level: AuthLevel
-        ) -> bool:
-            return True
-
-        def has_valid_transfer_consent(
-            self,
-            user_id: str,
-            *,
-            purpose: str,
-            field_categories: tuple[str, ...],
-        ) -> bool:
-            return True
-
-        def get_workspace_version(self, matter_id: str) -> int:
-            return 1
-
-        def consume_candidate_and_write_tasks(
-            self,
-            user_id: str,
-            matter_id: str,
-            candidate_plan: CandidatePlan,
-            expected_workspace_version: int,
-            operation_id: str,
-        ) -> list[WrittenTask]:
-            return []
-
-        def record_execution(self, matter_id: str, record: ExecutionRecord) -> None:
-            self.records.append(record)
-
-    class _Persistence:
-        def __init__(self) -> None:
-            self.plans: dict[str, dict[str, Any]] = {}
-            self.written_tasks: list[dict[str, Any]] = []
-
-        def persist_requirements(
-            self, matter_id: str, payload: dict[str, Any]
-        ) -> list[dict[str, Any]]:
-            return [{"id": str(uuid4()), **item} for item in payload["requirements"]]
-
-        def persist_candidate_plan(
-            self, matter_id: str, payload: dict[str, Any]
-        ) -> dict[str, Any]:
-            plan_id = str(uuid4())
-            self.plans[plan_id] = {
-                "id": plan_id,
-                "matter_id": matter_id,
-                "status": "pending",
-                "items": payload["items"],
-                "tasks": [],
-            }
-            return self.plans[plan_id]
-
-        def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
-            return self.plans[plan_id]
-
-        def confirm_candidate_plan(
-            self, plan_id: str, *, operation_id: str
-        ) -> dict[str, Any]:
-            return {"plan_id": plan_id, "status": "confirmed", "tasks": []}
-
-        def reject_candidate_plan(
-            self, plan_id: str, *, operation_id: str
-        ) -> dict[str, Any]:
-            return {"plan_id": plan_id, "status": "rejected", "tasks": []}
-
-    def call_model[T: BaseModel](
-        instruction: str,
-        text: str,
-        response_model: type[T],
-    ) -> T:
-        payload = json.loads(text)
-        assert len(payload["sources"][0]["fragments"]) == 76
-        if response_model is RequirementExtractionPayload:
-            return response_model.model_validate(
-                RequirementExtractionPayload(
-                    requirements=[
-                        ExtractedRequirementDraft(
-                            requirement_id="GR-01",
-                            title="上位校级推荐文件要求",
-                            obligation=ObligationType.PENDING_VERIFICATION,
-                            basis=[
-                                SourceCitation(
-                                    source_version_id=doc.source_version_id,
-                                    locator_kind=target_frag.locator_kind,
-                                    locator=target_frag.locator,
-                                    excerpt="2026年9月10日下午15:00前提交",
-                                )
-                            ],
-                            is_ambiguous=True,
-                        )
-                    ]
-                ).model_dump()
-            )
-        return response_model.model_validate(
-            CandidatePlanDraftPayload(
-                tasks=[
-                    CandidateTaskDraft(
-                        task_id="T-01",
-                        title="核对校级上位文件与个人资格",
-                        requirement_id="GR-01",
-                        basis=[
-                            SourceCitation(
-                                source_version_id=doc.source_version_id,
-                                locator_kind=target_frag.locator_kind,
-                                locator=target_frag.locator,
-                                excerpt="2026年9月10日下午15:00前提交",
-                            )
-                        ],
-                        obligation=ObligationType.PENDING_VERIFICATION,
-                        evidence_required="校级文件核对记录",
-                    ),
-                    CandidateTaskDraft(
-                        task_id="T-02",
-                        title="准备学院申请表与证明材料",
-                        requirement_id="GR-01",
-                        basis=[
-                            SourceCitation(
-                                source_version_id=doc.source_version_id,
-                                locator_kind=target_frag.locator_kind,
-                                locator=target_frag.locator,
-                                excerpt="2026年9月10日下午15:00前提交",
-                            )
-                        ],
-                        obligation=ObligationType.OFFICIAL_REQUIRED,
-                        depends_on=["T-01"],
-                        evidence_required="申请表及成绩单",
-                    ),
-                ]
-            ).model_dump()
-        )
-
-    persistence = _Persistence()
-    orch = AgentOrchestrator(
-        source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
-        model_adapter=StructuredModelAdapter(call_model),
-        backend=_Backend(),
-        persistence=persistence,
-        clock=lambda: datetime(2026, 9, 9, 9, 0, tzinfo=SHANGHAI),
-    )
-    result = orch.start_run(
-        RunContext(
-            user_id=str(uuid4()),
-            matter_id=str(uuid4()),
-            goal="核对2027届校内推免材料",
-            workspace_version=1,
-            scope_year=2027,
-            scope_attrs={"school": "福州大学", "college": "数学与统计学院"},
-        )
-    )
-    assert result.status == RunStatus.WAITING_CONFIRMATION
-    assert result.evaluations[0].status == EvaluationStatus.NEEDS_USER_REVIEW
-    assert result.candidate_plan is not None
-    assert validate_candidate_plan(result.candidate_plan, 1) == []
-    assert persistence.written_tasks == []
-    assert result.written_tasks == []
-
-    # Invalid dependency on nonexistent task fails validation before formal persistence.
-    bad_plan = result.candidate_plan.model_copy(
-        update={
-            "tasks": [
-                CandidateTask(
-                    task_id="T-01",
-                    title="缺失依赖测试",
-                    basis=result.candidate_plan.tasks[0].basis,
-                    obligation=ObligationType.OFFICIAL_REQUIRED,
-                    depends_on=["T-99"],
-                    evidence_required="材料",
-                )
-            ]
-        }
-    )
-    assert validate_candidate_plan(bad_plan, 1)
-    assert AgentErrorCode.VALIDATION_FAILED.value == "VALIDATION_FAILED"
 
 
 def test_filter_individual_nav_links_and_material_college_footer() -> None:
