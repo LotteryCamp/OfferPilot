@@ -28,7 +28,7 @@ def settings_payload(config: RuntimeConfig) -> dict[str, Any]:
                 "provider": settings.model_provider,
                 "name": settings.model_name,
                 "api_url": settings.model_api_url,
-                "api_key_configured": bool(settings.model_api_key),
+                "api_key_configured": bool(settings.model_api_key.strip()),
                 "timeout_seconds": settings.model_timeout_seconds,
             },
             "auth": {

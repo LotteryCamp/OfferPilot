@@ -131,6 +131,26 @@ def test_clearing_file_key_without_environment_key_reports_unconfigured(
         assert cleared.json()["settings"]["model"]["api_key_configured"] is False
 
 
+def test_whitespace_environment_key_reports_unconfigured(
+    database_urls: tuple[str, str],
+    admin: psycopg.Connection,
+    clock: Any,
+    tmp_path: Path,
+) -> None:
+    app_url, _ = database_urls
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("model:\n  name: file-model\n", encoding="utf-8")
+    app = _build_app(app_url, clock, config_path, model_api_key="   ")
+    _create_admin(admin)
+
+    with TestClient(app) as client:
+        _login(client)
+        payload = client.get("/api/v1/admin/settings")
+
+        assert payload.status_code == 200, payload.text
+        assert payload.json()["settings"]["model"]["api_key_configured"] is False
+
+
 def test_update_requires_config_file(
     database_urls: tuple[str, str],
     admin: psycopg.Connection,
@@ -188,6 +208,7 @@ def test_first_update_creates_missing_file(
     [
         ({"model": {"timeout_seconds": 0}}, "body.model.timeout_seconds"),
         ({"auth": {"login_ip_limit": -1}}, "body.auth.login_ip_limit"),
+        ({"model": {"api_key": "   "}}, "model.api_key"),
         ({"timezone": "Mars/Base"}, "timezone"),
         ({"database_url": "postgresql://elsewhere"}, "body.database_url"),
     ],

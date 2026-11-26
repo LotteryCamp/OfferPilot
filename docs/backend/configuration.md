@@ -45,7 +45,7 @@ timezone: Asia/Shanghai
 | `model.provider` | string | 无 | `OFFERPILOT_MODEL_PROVIDER` |
 | `model.name` | string | 无 | `OFFERPILOT_MODEL_NAME` |
 | `model.api_url` | string | 无 | `OFFERPILOT_MODEL_API_URL` |
-| `model.api_key` | string | 无 | `OFFERPILOT_MODEL_API_KEY` |
+| `model.api_key` | string | 不得只包含空白字符 | `OFFERPILOT_MODEL_API_KEY` |
 | `model.timeout_seconds` | number | 大于 0 | `OFFERPILOT_MODEL_TIMEOUT_SECONDS` |
 | `auth.session_ttl_seconds` | integer | 大于 0 | `OFFERPILOT_SESSION_TTL_SECONDS` |
 | `auth.remember_session_ttl_seconds` | integer | 大于 0 | `OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS` |
@@ -121,7 +121,7 @@ timezone: Asia/Shanghai
 }
 ```
 
-`config_file` 未配置时为 `null`，`writable` 为 `false`。模型密钥不返回，只报告 `api_key_configured`。
+`config_file` 未配置时为 `null`，`writable` 为 `false`。模型密钥不返回，只报告 `api_key_configured`；环境变量中的密钥去除首尾空白后为空时报告为未配置。
 
 ### 5.2 修改配置
 
@@ -149,6 +149,7 @@ timezone: Asia/Shanghai
 | 并发保存 | 通过配置文件同目录的锁文件串行执行，后到的保存会重新读取文件再合并 |
 | `model.api_key` 提交非空字符串 | 写入文件 |
 | `model.api_key` 提交空字符串 | 删除文件中的密钥覆盖，回退环境变量 |
+| `model.api_key` 提交仅含空白字符 | `422 validation_error`，文件不写入 |
 | `model.api_key` 未提交 | 保持原值 |
 | 保存成功 | `200`，返回与读取接口相同的结构 |
 | 未设置 `OFFERPILOT_CONFIG_FILE` | `409 config_file_not_configured` |

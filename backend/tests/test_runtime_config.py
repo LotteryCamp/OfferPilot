@@ -105,6 +105,16 @@ def test_invalid_yaml_fails_startup(tmp_path: Path) -> None:
     assert error.value.issues[0]["code"] == "yaml_error"
 
 
+def test_whitespace_api_key_fails_startup(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text('model:\n  api_key: "   "\n', encoding="utf-8")
+
+    with pytest.raises(ConfigFileError) as error:
+        RuntimeConfig(_base(), config_path)
+
+    assert error.value.issues[0]["path"] == "model.api_key"
+
+
 def test_invalid_utf8_fails_startup(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_bytes(b"model:\n  name: \xff\n")
@@ -215,6 +225,20 @@ def test_update_rejects_invalid_values(tmp_path: Path) -> None:
     assert error.value.issues[0]["path"] == "auth.login_lock_seconds"
     assert config.current().login_lock_seconds == 900
     assert config_path.read_text(encoding="utf-8") == ""
+
+
+def test_update_rejects_whitespace_api_key(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    original = "model:\n  api_key: env-key\n"
+    config_path.write_text(original, encoding="utf-8")
+    config = RuntimeConfig(_base(), config_path)
+
+    with pytest.raises(ConfigFileError) as error:
+        config.update({"model": {"api_key": "   "}})
+
+    assert error.value.issues[0]["path"] == "model.api_key"
+    assert config.current().model_api_key == "env-key"
+    assert config_path.read_text(encoding="utf-8") == original
 
 
 def test_update_serializes_across_processes(tmp_path: Path) -> None:

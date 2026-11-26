@@ -47,6 +47,13 @@ class ModelFileSettings(_ConfigSection):
     api_key: str | None = None
     timeout_seconds: float | None = Field(default=None, gt=0)
 
+    @field_validator("api_key")
+    @classmethod
+    def check_api_key(cls, value: str | None) -> str | None:
+        if value is not None and value and not value.strip():
+            raise ValueError("api_key 不能只包含空白字符")
+        return value
+
 
 class AuthFileSettings(_ConfigSection):
     session_ttl_seconds: int | None = Field(default=None, gt=0)
