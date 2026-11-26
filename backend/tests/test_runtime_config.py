@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+import time
 from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
+from filelock import FileLock
 
 from backend.config import Settings
 from backend.runtime_config import (
     ConfigFileError,
     ConfigFileNotConfigured,
     RuntimeConfig,
+    _lock_path,
 )
 
 
@@ -188,3 +194,81 @@ def test_update_rejects_invalid_values(tmp_path: Path) -> None:
     assert error.value.issues[0]["path"] == "auth.login_lock_seconds"
     assert config.current().login_lock_seconds == 900
     assert config_path.read_text(encoding="utf-8") == ""
+
+
+def test_update_serializes_across_processes(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "auth:\n  login_ip_limit: 10\n",
+        encoding="utf-8",
+    )
+    ready_path = tmp_path / "ready"
+    result_path = tmp_path / "result"
+    script_path = tmp_path / "update_child.py"
+    script_path.write_text(
+        textwrap.dedent(
+            """
+            import sys
+            from pathlib import Path
+
+            from backend.config import Settings
+            from backend.runtime_config import RuntimeConfig
+
+            config_path = Path(sys.argv[1])
+            ready_path = Path(sys.argv[2])
+            result_path = Path(sys.argv[3])
+            config = RuntimeConfig(
+                Settings(database_url="postgresql://unused"), config_path
+            )
+            ready_path.write_text("ready", encoding="utf-8")
+            config.update({"auth": {"login_email_limit": 20}})
+            settings = config.current()
+            result_path.write_text(
+                f"{settings.login_ip_limit},{settings.login_email_limit}",
+                encoding="utf-8",
+            )
+            """
+        ),
+        encoding="utf-8",
+    )
+
+    process: subprocess.Popen[str] | None = None
+    lock = FileLock(_lock_path(config_path))
+    lock.acquire()
+    try:
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                str(script_path),
+                str(config_path),
+                str(ready_path),
+                str(result_path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 10
+        while not ready_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert ready_path.exists(), "子进程未在 10 秒内完成初始化"
+        time.sleep(0.5)
+        assert process.poll() is None, "子进程未等待配置文件锁"
+
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw["auth"]["login_ip_limit"] = 30
+        config_path.write_text(
+            yaml.safe_dump(raw, allow_unicode=True, sort_keys=False),
+            encoding="utf-8",
+        )
+    finally:
+        lock.release()
+
+    assert process is not None
+    _, stderr = process.communicate(timeout=10)
+    assert process.returncode == 0, stderr
+
+    raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert raw["auth"]["login_ip_limit"] == 30
+    assert raw["auth"]["login_email_limit"] == 20
+    assert result_path.read_text(encoding="utf-8") == "30,20"

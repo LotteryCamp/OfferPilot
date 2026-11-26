@@ -14,6 +14,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
+from filelock import FileLock
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from backend.config import Settings
@@ -162,16 +163,21 @@ class RuntimeConfig:
         with self._lock:
             if self.path is None:
                 raise ConfigFileNotConfigured("未配置运行配置文件")
-            raw = _read_mapping(self.path) if self.path.exists() else {}
-            merged = _apply_patch(raw, patch)
-            file_settings = _validate_mapping(merged)
-            new_settings = _apply_overrides(self._base, file_settings)
-            _write_atomic(self.path, merged)
-            self._settings = new_settings
-            self._signature = _signature(self.path)
-            self._last_error_signature = None
-            self._missing_logged = False
+            with FileLock(_lock_path(self.path)):
+                raw = _read_mapping(self.path) if self.path.exists() else {}
+                merged = _apply_patch(raw, patch)
+                file_settings = _validate_mapping(merged)
+                new_settings = _apply_overrides(self._base, file_settings)
+                _write_atomic(self.path, merged)
+                self._settings = new_settings
+                self._signature = _signature(self.path)
+                self._last_error_signature = None
+                self._missing_logged = False
             return new_settings
+
+
+def _lock_path(path: Path) -> Path:
+    return path.with_name(f".{path.name}.lock")
 
 
 def _signature(path: Path) -> tuple[int, int] | None:
