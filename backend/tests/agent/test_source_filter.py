@@ -43,7 +43,12 @@ from backend.agent import (
     source_document_from_public_result,
     validate_candidate_plan,
 )
-from backend.agent.model_bridge import build_extraction_input, build_planning_input
+from backend.agent.model_bridge import (
+    _prepare_extraction_input,
+    _prepare_planning_input,
+    build_extraction_input,
+    build_planning_input,
+)
 from backend.sources.reader import parse_public_html
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "sources"
@@ -96,12 +101,25 @@ def test_filter_fzu_notice_drops_portal_noise_and_keeps_policy_verbatim() -> Non
         for f in filtered.fragments
     )
     assert any("附件【福州大学数学与统计学院2027年" in q for q in quotes)
+    original_fragments = {(f.locator_kind, f.locator, f.quote) for f in doc.fragments}
+    assert all(
+        (fragment.locator_kind, fragment.locator, fragment.quote) in original_fragments
+        for fragment in filtered.fragments
+    )
 
     extraction = build_extraction_input(
         "准备推免申请", [doc], strategy_version="alpha-1"
     )
     assert extraction["sources"][0]["content"] == ""
     assert len(extraction["sources"][0]["fragments"]) == 76
+    assert extraction["sources"][0]["fragments"] == [
+        {
+            "locator_kind": fragment.locator_kind,
+            "locator": fragment.locator,
+            "quote": fragment.quote,
+        }
+        for fragment in filtered.fragments
+    ]
 
     target_frag = next(
         f for f in filtered.fragments if "2026年9月10日下午15:00前" in f.quote
@@ -113,7 +131,9 @@ def test_filter_fzu_notice_drops_portal_noise_and_keeps_policy_verbatim() -> Non
         response_model: type[T],
     ) -> T:
         payload = json.loads(text)
-        assert len(payload["sources"][0]["fragments"]) == 76
+        assert (
+            payload["sources"][0]["fragments"] == extraction["sources"][0]["fragments"]
+        )
         assert response_model is RequirementExtractionPayload
         return response_model.model_validate(
             RequirementExtractionPayload(
@@ -168,6 +188,11 @@ def test_fragment_dedup_irrelevant_filter_and_fallback_guard() -> None:
             SourceFragmentRecord(
                 locator_kind="text_span",
                 locator="第1段",
+                quote="（1）学业成绩排名前 40%。",
+            ),
+            SourceFragmentRecord(
+                locator_kind="text_span",
+                locator="第1段",
                 quote="（1）学业成绩排名前 35%。",
             ),
             SourceFragmentRecord(
@@ -203,15 +228,25 @@ def test_fragment_dedup_irrelevant_filter_and_fallback_guard() -> None:
         ],
     )
 
-    filtered = filter_and_deduplicate_fragments(
-        doc,
-        goal="推免材料与排名核对",
-        required_locators={("text_span", "第2段")},
-    )
-    locators = [f.locator for f in filtered.fragments]
-    assert locators == ["一、基本条件", "第1段", "第2段", "第3段", "第4段", "第5段"]
+    filtered = filter_and_deduplicate_fragments(doc, goal="推免材料与排名核对")
+    locator_quotes = [(f.locator, f.quote) for f in filtered.fragments]
+    assert locator_quotes == [
+        ("一、基本条件", "一、基本条件"),
+        ("第1段", "（1）学业成绩排名前 35%。"),
+        ("第1段", "（1）学业成绩排名前 40%。"),
+        ("第2段", "（1）学业成绩排名前   35%。"),
+        ("第3段", "（2）2026年9月9日16:00前提交申请材料。"),
+        ("第4段", "（3）须提供加盖公章的成绩单。"),
+        ("第5段", "（4）未尽事宜待学院进一步通知。"),
+    ]
     assert filtered.dropped_duplicate_count == 1
     assert filtered.dropped_irrelevant_count == 2
+    with_required = filter_and_deduplicate_fragments(
+        doc,
+        goal="推免材料与排名核对",
+        required_locators={("text_span", "第6段")},
+    )
+    assert with_required.fragments == [*filtered.fragments, doc.fragments[-2]]
 
     # Fallback keeps deduplicated non-empty fragments if all lines match noise rules.
     chrome_only_doc = SourceDocument(
@@ -262,12 +297,29 @@ def test_deduplicate_sources_and_outbound_whitelist_contract() -> None:
             ),
         ],
     )
-    doc_same_version = doc_a.model_copy()
-    doc_same_content = doc_a.model_copy(
-        update={"source_version_id": snap_b, "snapshot_id": snap_b}
+    doc_same_version_different_content = doc_a.model_copy(
+        update={
+            "content_hash": "b" * 64,
+            "fragments": [
+                SourceFragmentRecord(
+                    locator_kind="text_span", locator="替代记录", quote="不同的原文"
+                )
+            ],
+        }
     )
-
-    assert len(deduplicate_sources([doc_a, doc_same_version, doc_same_content])) == 1
+    doc_different_version_same_content = doc_a.model_copy(
+        update={
+            "source_version_id": snap_b,
+            "snapshot_id": snap_b,
+            "scope": "另一适用范围",
+        }
+    )
+    sources = [
+        doc_a,
+        doc_same_version_different_content,
+        doc_different_version_same_content,
+    ]
+    assert deduplicate_sources(sources) == [doc_a, doc_different_version_same_content]
 
     long_goal = "  " + ("准备推免申请材料" * 40) + "  "
     assert len(sanitize_matter_goal(long_goal)) == 200
@@ -297,12 +349,17 @@ def test_deduplicate_sources_and_outbound_whitelist_contract() -> None:
     )
     assert sanitized_scope == {"school": "福州大学"}
 
-    extraction = build_extraction_input(
-        long_goal, [doc_a, doc_same_content], strategy_version="alpha-1"
+    extraction, extraction_sources = _prepare_extraction_input(
+        long_goal, sources, strategy_version="alpha-1"
     )
     assert len(extraction["goal"]) == 200
-    assert len(extraction["sources"]) == 1
+    assert [source["source_version_id"] for source in extraction["sources"]] == [
+        snap_a,
+        snap_b,
+    ]
     assert [f["locator"] for f in extraction["sources"][0]["fragments"]] == ["第1段"]
+    assert extraction_sources[snap_a].fragments == [doc_a.fragments[0]]
+    assert extraction_sources[snap_b].scope == "另一适用范围"
 
     ctx = RunContext(
         user_id="u1",
@@ -316,42 +373,71 @@ def test_deduplicate_sources_and_outbound_whitelist_contract() -> None:
             "rank_position": 2,
             "email": "student@example.com",
         },
-        confirmed_facts={"gpa.rank": 2, "cet6": 520},
+        confirmed_facts={
+            "gpa.rank": 2,
+            "cet6": 520,
+            "deadline": "2026-09-08T15:00:00+08:00",
+            "submitted_at": "2026-09-08T14:00:00+08:00",
+        },
     )
-    ev = [
-        evaluate_requirements(
-            [
-                ExtractedRequirement(
-                    requirement_id="GR-01",
-                    title="英语六级",
-                    obligation=ObligationType.OFFICIAL_REQUIRED,
-                    basis=[
-                        SourceCitation(
-                            source_version_id=snap_a,
-                            locator_kind="text_span",
-                            locator="第1段",
-                        )
-                    ],
-                    rule_kind="any_minimum",
-                    rule_parameters={"minimum": {"cet6": 425}, "operator": ">="},
+    requirements = [
+        ExtractedRequirement(
+            requirement_id="GR-01",
+            title="在个人通知指定时间前提交",
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            basis=[
+                SourceCitation(
+                    source_version_id=snap_b,
+                    locator_kind="text_span",
+                    locator="第1段",
                 )
             ],
-            {snap_a: doc_a},
-            ctx.confirmed_facts,
-        )[0][0]
+            rule_kind="notice_deadline",
+            rule_parameters={
+                "deadline_fact": "deadline",
+                "action_fact": "submitted_at",
+            },
+        )
     ]
-    planning = build_planning_input(
-        ctx, [doc_a, doc_same_content], ev, strategy_version="alpha-1"
+    eval_sources = {snap_b: doc_different_version_same_content}
+    ev, _ = evaluate_requirements(requirements, eval_sources, ctx.confirmed_facts)
+    assert ev[0].status == EvaluationStatus.MATCHED
+    assert ev[0].computed_deadline == datetime.fromisoformat(
+        "2026-09-08T15:00:00+08:00"
+    )
+    planning, planning_sources = _prepare_planning_input(
+        ctx, sources, ev, strategy_version="alpha-1"
     )
     assert len(planning["goal"]) == 200
     assert planning["scope_year"] == 2027
     assert planning["scope_attrs"] == {"school": "福州大学"}
     assert "confirmed_facts" not in planning
-    assert "520" not in json.dumps(planning, ensure_ascii=False)
-    assert len(planning["sources"]) == 1
+    assert set(planning["evaluations"][0]) == {
+        "requirement_id",
+        "title",
+        "basis",
+        "scope",
+    }
+    assert [source["source_version_id"] for source in planning["sources"]] == [
+        snap_a,
+        snap_b,
+    ]
+    assert planning["sources"][1]["scope"] == "另一适用范围"
+    assert planning["evaluations"][0]["basis"][0]["source_version_id"] == snap_b
+    assert planning_sources[snap_a].fragments == [doc_a.fragments[0]]
+    assert planning_sources[snap_b].fragments == [
+        doc_different_version_same_content.fragments[0]
+    ]
     assert planning["sources"][0]["fragments"] == [
         {"locator_kind": "text_span", "locator": "第1段"}
     ]
+    public_ctx = ctx.model_copy(update={"confirmed_facts": {}})
+    public_ev, _ = evaluate_requirements(requirements, eval_sources, {})
+    assert public_ev[0].status == EvaluationStatus.MISSING_INFO
+    assert (
+        build_planning_input(public_ctx, sources, public_ev, strategy_version="alpha-1")
+        == planning
+    )
 
 
 def test_p0_end_to_end_insufficient_evidence_and_no_formal_tasks_before_confirm() -> (

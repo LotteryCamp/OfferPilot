@@ -180,6 +180,10 @@ def test_agent_run_generates_candidate_then_confirms(agent_client: TestClient) -
     assert run["status"] == "等待确认", run["error"]
     assert run["persisted_plan_id"] is not None
     assert run["error"] is None
+    assert all(
+        record["tool_name"] != "write_personal_tasks"
+        for record in run["execution_records"]
+    )
 
     plan_id = run["persisted_plan_id"]
     plan = agent_client.get(f"/api/v1/candidate-plans/{plan_id}")
@@ -197,6 +201,11 @@ def test_agent_run_generates_candidate_then_confirms(agent_client: TestClient) -
     confirmed_run = confirmed.json()["run"]
     assert confirmed_run["status"] == "已完成"
     assert len(confirmed_run["written_tasks"]) == 1
+    assert [
+        record["succeeded"]
+        for record in confirmed_run["execution_records"]
+        if record["tool_name"] == "write_personal_tasks"
+    ] == [True]
 
     tasks = agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"]
     assert [task["title"] for task in tasks] == ["准备并提交申请表、奖项证明及成绩单"]
@@ -222,6 +231,38 @@ def test_agent_run_without_transfer_consent_returns_422(
     assert run_count is not None
     assert run_count[0] == 0
     assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
+
+
+def test_public_only_agent_run_without_transfer_consent_returns_422(
+    client: TestClient, admin: psycopg.Connection
+) -> None:
+    created_matter = client.post(
+        "/api/v1/matters",
+        json={
+            "goal": "申请 2027 年福州大学数学与统计学院推免",
+            "type_code": "pre_recommend",
+            "scope_year": 2027,
+        },
+    )
+    assert created_matter.status_code == 201, created_matter.text
+    matter_id = created_matter.json()["matter"]["id"]
+
+    created_run = client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "public-run-without-consent",
+        },
+    )
+
+    assert created_run.status_code == 422, created_run.text
+    assert created_run.json()["error"]["code"] == "model_transfer_consent_required"
+    run_count = admin.execute("SELECT count(*) FROM core.agent_run").fetchone()
+    assert run_count is not None
+    assert run_count[0] == 0
+    assert client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
 def test_fact_archive_requires_consent_without_scope_attrs(

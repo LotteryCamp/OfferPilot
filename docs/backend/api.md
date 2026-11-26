@@ -1269,7 +1269,7 @@ Agent 运行位于后端业务服务之后，以“运行”为单位完成来�
 | 422 | `unknown_matter_type` | 事项类型不存在或未启用 |
 | 422 | `unknown_snapshot` | 要求引用的快照不存在 |
 | 422 | `scope_year_mismatch` | 来源适用年度与事项年度不一致 |
-| 422 | `model_transfer_consent_required` | 携带个人事实或事项适用范围时缺少有效的全局模型传输同意，未创建运行 |
+| 422 | `model_transfer_consent_required` | 缺少有效的全局模型传输同意，未创建运行 |
 | 422 / 502 | `source_read_failed` | 公开来源读取失败；`details.code` 为读取错误码，`details.retryable` 表示是否可重试 |
 | 422 | `evidence_snapshot_mismatch` | 证据快照与要求快照不一致 |
 | 422 | `evidence_source_mismatch` | 证据来源与快照所属来源不一致 |

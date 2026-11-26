@@ -36,6 +36,7 @@ from backend.agent.schemas import (
     SourceGap,
     WrittenTask,
 )
+from backend.agent.source_filter import deduplicate_sources
 from backend.agent.validators import (
     collect_source_gaps,
     evaluate_requirements,
@@ -125,12 +126,6 @@ class AgentOrchestrator:
 
         run_id = run_id or f"run-{uuid4().hex[:12]}"
         records = []
-        transfer_facts = (
-            context.model_transfer_facts
-            if context.model_transfer_facts is not None
-            else context.confirmed_facts
-        )
-        requires_transfer_consent = bool(transfer_facts or context.scope_attrs)
 
         if self._persistence is None:
             err = AgentError(
@@ -179,6 +174,7 @@ class AgentOrchestrator:
                 records=records,
             )
 
+        sources = deduplicate_sources(sources)
         extract_with_meta = getattr(
             self._model_adapter, "extract_requirements_with_metadata", None
         )
@@ -192,7 +188,6 @@ class AgentOrchestrator:
                         user_id=context.user_id,
                         matter_id=context.matter_id,
                         expected_workspace_version=context.workspace_version,
-                        requires_transfer_consent=requires_transfer_consent,
                         fn=lambda: extract_with_meta(context.goal, sources),
                     )
                 )
@@ -202,7 +197,6 @@ class AgentOrchestrator:
                     user_id=context.user_id,
                     matter_id=context.matter_id,
                     expected_workspace_version=context.workspace_version,
-                    requires_transfer_consent=requires_transfer_consent,
                     fn=lambda: self._model_adapter.extract_requirements(
                         context.goal, sources
                     ),
@@ -267,7 +261,6 @@ class AgentOrchestrator:
                 user_id=context.user_id,
                 matter_id=context.matter_id,
                 expected_workspace_version=context.workspace_version,
-                requires_transfer_consent=requires_transfer_consent,
                 fn=lambda: self._model_adapter.generate_candidate_plan(
                     context, sources, evaluations
                 ),
@@ -360,7 +353,6 @@ class AgentOrchestrator:
                 expected_workspace_version=context.workspace_version,
                 operation_id=persist_op_id,
                 idempotency_binding=persist_binding,
-                requires_transfer_consent=requires_transfer_consent,
                 fn=lambda: self._persist_candidates(
                     context.matter_id,
                     requirements,

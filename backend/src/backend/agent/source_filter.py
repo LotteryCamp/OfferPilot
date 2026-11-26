@@ -290,23 +290,13 @@ def _is_irrelevant_standalone(
 
 
 def deduplicate_sources(sources: list[SourceDocument]) -> list[SourceDocument]:
-    """Deduplicate official sources by source_version_id and (source_id, content_hash)."""
+    """Deduplicate official sources by source_version_id, preserving version context."""
     unique: list[SourceDocument] = []
     seen_versions: set[str] = set()
-    seen_content_keys: set[tuple[str, str]] = set()
     for src in sources:
         if src.source_version_id in seen_versions:
             continue
-        content_key = (
-            (src.source_id, src.content_hash)
-            if src.source_id and src.content_hash
-            else None
-        )
-        if content_key is not None and content_key in seen_content_keys:
-            continue
         seen_versions.add(src.source_version_id)
-        if content_key is not None:
-            seen_content_keys.add(content_key)
         unique.append(src)
     return unique
 
@@ -329,11 +319,10 @@ def filter_and_deduplicate_fragments(
     required_keys: set[tuple[str, str]] = {
         (kind, _normalize_ws(loc)) for kind, loc in (required_locators or set())
     }
-    seen_locators: set[tuple[str, str]] = set()
-    seen_quotes: set[str] = set()
+    seen_fragments: set[tuple[tuple[str, str], str]] = set()
     candidates: list[tuple[SourceFragmentRecord, str, bool]] = []
     fallback_deduped: list[SourceFragmentRecord] = []
-    fallback_seen_locators: set[tuple[str, str]] = set()
+    fallback_seen_fragments: set[tuple[tuple[str, str], str]] = set()
 
     dropped_noise = 0
     dropped_duplicate = 0
@@ -346,16 +335,13 @@ def filter_and_deduplicate_fragments(
         locator_key = (frag.locator_kind, norm_locator)
         is_required = locator_key in required_keys
 
-        if norm_quote and locator_key not in fallback_seen_locators:
-            fallback_seen_locators.add(locator_key)
+        fragment_key = (locator_key, norm_quote)
+        if norm_quote and fragment_key not in fallback_seen_fragments:
+            fallback_seen_fragments.add(fragment_key)
             fallback_deduped.append(frag)
 
         if not norm_quote and not is_required:
             dropped_noise += 1
-            continue
-
-        if locator_key in seen_locators:
-            dropped_duplicate += 1
             continue
 
         if not is_required and idx < leading_chrome_end:
@@ -374,13 +360,11 @@ def filter_and_deduplicate_fragments(
                 dropped_noise += 1
                 continue
 
-        if norm_quote in seen_quotes and not is_required:
+        if fragment_key in seen_fragments:
             dropped_duplicate += 1
             continue
 
-        seen_locators.add(locator_key)
-        if norm_quote:
-            seen_quotes.add(norm_quote)
+        seen_fragments.add(fragment_key)
         candidates.append((frag, norm_quote, is_required))
 
     dropped_irrelevant = 0

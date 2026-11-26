@@ -24,7 +24,7 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
 | --- | --- | --- |
 | `goal` | `str`，去首尾空白且截断至 `200` 字符（`sanitize_matter_goal`） | 当前事项分析目标 |
 | `strategy_version` | `str` | 提示与抽取策略版本 |
-| `sources` | `list[dict]`，经 `deduplicate_sources` 去重 | 按 `source_version_id` 与 `(source_id, content_hash)` 去重 |
+| `sources` | `list[dict]`，经 `deduplicate_sources` 去重 | 按 `source_version_id` 保序去重 |
 | `sources[*].source_version_id` | `str` | 来源版本或快照唯一标识 |
 | `sources[*].source_id` | `str \| null` | 来源主体标识 |
 | `sources[*].snapshot_id` | `str \| null` | 来源快照标识 |
@@ -45,7 +45,7 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
 | `scope_attrs` | `dict`，经 `sanitize_public_scope_attrs` 过滤 | 仅允许 `PUBLIC_SCOPE_ALLOWLIST` 内的 10 个键，字符串截断至 `100` 字符，保留 `int` / `bool` 值 |
 | `strategy_version` | `str` | 规划策略版本 |
 | `sources` | `list[dict]`，经 `deduplicate_sources` 与片段筛选去重 | 仅包含 `source_version_id`、`title`、`publisher`、`year`、`scope` 及 `fragments[*].{locator_kind, locator}`，省略 `content` 与 `quote` |
-| `evaluations` | `list[dict]` | 本地四态自查结果摘要，仅包含 `requirement_id`、`title`、`status`、`basis`、`scope`、`computed_deadline`，省略 `reason` 与 `missing_fields` |
+| `evaluations` | `list[dict]` | 公开要求摘要，仅包含 `requirement_id`、`title`、`basis` 与 `scope`；本地评估状态、截止日期、原因与缺失字段不出站 |
 
 `PUBLIC_SCOPE_ALLOWLIST` 允许键固定为：
 `school`、`college`、`department`、`program`、`major`、`track`、`category`、`degree`、`intake_year`、`region`。
@@ -54,9 +54,9 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
 
 `deduplicate_sources` 与 `filter_and_deduplicate_fragments` 遵循以下确定性不变量：
 
-1. **原文定位不改写**：保留片段的 `locator_kind`、`locator` 与 `quote` 保持原始解析文本完全不变，保证模型输出的引用可通过 `_validate_and_enrich_citations` 的严格回溯校验。
+1. **原文定位不改写**：保留片段的 `locator_kind`、`locator` 与 `quote` 保持原始解析文本完全不变，摘录须为引文中的原样连续子串，保证模型输出的引用可通过 `_validate_and_enrich_citations` 的严格回溯校验。
 2. **门户噪音剔除**：移除空白与零宽字符片段、站点导航栏串联项、面包屑（`当前位置：` 及短路径末项）、`正文` 标识、`上一篇 / 下一篇` 及页脚版权/地址邮编行；保留标题（`section`）、表格行（`table_row`）及正文政策条款与附件条目。
-3. **跨文档与文档内去重**：跨来源按 `source_version_id` 与非空 `(source_id, content_hash)` 去重；文档内按 `(locator_kind, 归一化 locator)` 及归一化 `quote` 去重，保持原始片段顺序。
+3. **跨文档与文档内去重**：跨来源仅按 `source_version_id` 去重，保留内容相同但适用范围不同的来源版本；文档内仅在 `(locator_kind, 归一化 locator)` 与归一化 `quote` 均相同时去重，保持原始片段顺序。
 4. **必需定位符保护与兜底**：规划阶段在 `evaluations[*].basis` 中已引用到的 `(locator_kind, locator)` 始终保留；若输入来源本身非空且过滤后为空，自动回退为去重后的非空片段列表，避免空输入送入模型。
 
 ---
@@ -68,8 +68,8 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
    - 规划阶段输出 `CandidatePlanDraftPayload`（`tasks`、`gaps`、`scope_summary`）。
 2. **引文回溯校验 (`_validate_and_enrich_citations`)**：
    - 每条要求与候选任务必须至少携带一条 `basis` 引用；
-   - `source_version_id` 必须属于本次输入来源，`source_id` / `snapshot_id` 须与真实来源记录一致；
-   - 当来源存在 `fragments` 时，`basis[*].locator`（空白归一化后）与 `locator_kind` 必须精确匹配原片段，提供 `excerpt` 时必须为对应 `quote` 的连续原文字串且非空，未提供 `excerpt` 时自动回填对应 `quote`。
+   - `source_version_id` 必须属于实际出站的来源版本，`source_id` / `snapshot_id` 须与对应来源记录一致；
+   - 当出站来源包含 `fragments` 时，`basis[*].locator`（空白归一化后）与 `locator_kind` 必须匹配其中的片段。摘录须为相应 `quote` 中非空、未经改写的连续子串；省略摘录时回填对应 `quote`。无片段时，摘录须为来源正文中非空、未经改写的连续子串。
 3. **四态自查与缺口表达 (`validators.py`)**：
    - 规则结论固定为四态：`按现有信息符合`、`按现有信息不符合`、`待补充信息`、`待用户核对`。
    - 缺少上位文件、附件、来源冲突或规则参数不足时，保持 `待用户核对` 并在 `gaps` 中显式记录，不生成确定性资格结论。

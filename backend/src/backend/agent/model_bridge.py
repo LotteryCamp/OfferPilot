@@ -154,10 +154,10 @@ _EXTRACTION_INSTRUCTION = (
 )
 
 _PLANNING_INSTRUCTION = (
-    "你是 OfferPilot 候选计划生成助手。仅根据已核实来源和条件自查结果生成待用户确认的候选任务：\n"
+    "你是 OfferPilot 候选计划生成助手。仅根据已核实来源和公开要求摘要生成待用户确认的候选任务：\n"
     "1. 每条候选任务必须包含来自输入 sources 的 source_version_id 与 locator。"
     "当来源对象包含非空 fragments 列表时，basis[*].locator 必须原样复制对应片段的 fragments[*].locator（或沿用 evaluations.basis 中的 locator），"
-    "locator_kind 必须匹配该片段，excerpt 必须是对应片段 quote 的连续原文字串，严禁自行改写。\n"
+    "locator_kind 必须匹配该片段。可复制 evaluations.basis 中对应的原文摘录；无对应摘录时省略 excerpt。\n"
     "2. 官方日期存入 official_deadline_date，仅原文给出时刻时填写 official_deadline_at（带时区），"
     "个人建议准备日存入 suggested_date，不高于官方期限。\n"
     "3. task_id 优先使用简短编号（如 T-01、T-02）；depends_on 中的每一项必须逐字等于本计划内某条任务的完整 task_id（禁止只写编号前缀），"
@@ -173,11 +173,26 @@ def build_extraction_input(
     strategy_version: str,
 ) -> dict[str, Any]:
     """Build the model input for requirement extraction, carrying filtered source fragments."""
+    payload, _ = _prepare_extraction_input(
+        goal, sources, strategy_version=strategy_version
+    )
+    return payload
+
+
+def _prepare_extraction_input(
+    goal: str,
+    sources: list[SourceDocument],
+    *,
+    strategy_version: str,
+) -> tuple[dict[str, Any], dict[str, SourceDocument]]:
     clean_goal = sanitize_matter_goal(goal)
-    unique_sources = deduplicate_sources(sources)
+    citation_sources: dict[str, SourceDocument] = {}
     sources_payload: list[dict[str, Any]] = []
-    for s in unique_sources:
+    for s in deduplicate_sources(sources):
         filtered = filter_and_deduplicate_fragments(s, goal=clean_goal)
+        citation_sources[s.source_version_id] = s.model_copy(
+            update={"fragments": filtered.fragments}
+        )
         sources_payload.append(
             {
                 "source_version_id": s.source_version_id,
@@ -203,7 +218,7 @@ def build_extraction_input(
         "goal": clean_goal,
         "strategy_version": strategy_version,
         "sources": sources_payload,
-    }
+    }, citation_sources
 
 
 def build_planning_input(
@@ -214,6 +229,19 @@ def build_planning_input(
     strategy_version: str,
 ) -> dict[str, Any]:
     """Build the model input for candidate planning from public fields only."""
+    payload, _ = _prepare_planning_input(
+        context, sources, evaluations, strategy_version=strategy_version
+    )
+    return payload
+
+
+def _prepare_planning_input(
+    context: RunContext,
+    sources: list[SourceDocument],
+    evaluations: list[RequirementEvaluation],
+    *,
+    strategy_version: str,
+) -> tuple[dict[str, Any], dict[str, SourceDocument]]:
     clean_goal = sanitize_matter_goal(context.goal)
     clean_scope_attrs = sanitize_public_scope_attrs(context.scope_attrs)
     required_by_source: dict[str, set[tuple[str, str]]] = {}
@@ -223,14 +251,17 @@ def build_planning_input(
                 (cite.locator_kind, _normalize_ws(cite.locator))
             )
 
-    unique_sources = deduplicate_sources(sources)
+    citation_sources: dict[str, SourceDocument] = {}
     sources_payload: list[dict[str, Any]] = []
-    for s in unique_sources:
+    for s in deduplicate_sources(sources):
         filtered = filter_and_deduplicate_fragments(
             s,
             goal=clean_goal,
             scope_attrs=clean_scope_attrs,
             required_locators=required_by_source.get(s.source_version_id),
+        )
+        citation_sources[s.source_version_id] = s.model_copy(
+            update={"fragments": filtered.fragments}
         )
         sources_payload.append(
             {
@@ -259,16 +290,12 @@ def build_planning_input(
             {
                 "requirement_id": ev.requirement_id,
                 "title": ev.title,
-                "status": ev.status.value,
                 "basis": [c.model_dump(mode="json") for c in ev.basis],
                 "scope": ev.scope,
-                "computed_deadline": ev.computed_deadline.isoformat()
-                if ev.computed_deadline is not None
-                else None,
             }
             for ev in evaluations
         ],
-    }
+    }, citation_sources
 
 
 class StructuredModelAdapter:
@@ -318,7 +345,7 @@ class StructuredModelAdapter:
         sources: list[SourceDocument],
     ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
         """Extract structured requirements, gaps, and scope summary per call without shared state."""
-        payload_input = build_extraction_input(
+        payload_input, sources_by_id = _prepare_extraction_input(
             goal, sources, strategy_version=self._strategy_version
         )
         parsed = self._invoke_model(
@@ -327,8 +354,7 @@ class StructuredModelAdapter:
             RequirementExtractionPayload,
         )
 
-        valid_source_ids = {s.source_version_id for s in sources}
-        sources_by_id = {s.source_version_id: s for s in sources}
+        valid_source_ids = set(sources_by_id)
         requirements: list[ExtractedRequirement] = []
 
         for draft in parsed.requirements:
@@ -369,7 +395,7 @@ class StructuredModelAdapter:
         evaluations: list[RequirementEvaluation],
     ) -> CandidatePlan:
         """Generate a structured CandidatePlan without persisting formal tasks."""
-        payload_input = build_planning_input(
+        payload_input, sources_by_id = _prepare_planning_input(
             context,
             sources,
             evaluations,
@@ -381,8 +407,7 @@ class StructuredModelAdapter:
             CandidatePlanDraftPayload,
         )
 
-        valid_source_ids = {s.source_version_id for s in sources}
-        sources_by_id = {s.source_version_id: s for s in sources}
+        valid_source_ids = set(sources_by_id)
         tasks: list[CandidateTask] = []
 
         for item in parsed.tasks:
@@ -610,23 +635,18 @@ def _validate_and_enrich_citations(
                     f"引用定位 '{cite.locator}' 的类型 {cite.locator_kind} 与来源片段类型不一致",
                 )
             if cite.excerpt is not None:
-                norm_excerpt = _normalize_ws(cite.excerpt)
-                if not any(
-                    norm_excerpt in _normalize_ws(frag.quote) for frag in kind_matched
-                ):
+                if not any(cite.excerpt in frag.quote for frag in kind_matched):
                     raise ModelInvocationError(
                         AgentErrorCode.VALIDATION_FAILED,
                         f"引用摘录与定位 '{cite.locator}' 对应的原文片段不符",
                     )
             else:
                 resolved_excerpt = kind_matched[0].quote
-        elif cite.excerpt is not None:
-            norm_excerpt = _normalize_ws(cite.excerpt)
-            if norm_excerpt not in _normalize_ws(doc.content):
-                raise ModelInvocationError(
-                    AgentErrorCode.VALIDATION_FAILED,
-                    f"引用摘录不在来源 {doc.title} 原文中",
-                )
+        elif cite.excerpt is not None and cite.excerpt not in doc.content:
+            raise ModelInvocationError(
+                AgentErrorCode.VALIDATION_FAILED,
+                f"引用摘录不在来源 {doc.title} 原文中",
+            )
 
         enriched.append(
             cite.model_copy(

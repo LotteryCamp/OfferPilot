@@ -1194,6 +1194,8 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
     assert "email" not in sent["scope_attrs"]
     assert "confirmed_facts" not in sent
     for sent_ev in sent["evaluations"]:
+        assert "status" not in sent_ev
+        assert "computed_deadline" not in sent_ev
         assert "reason" not in sent_ev
         assert "missing_fields" not in sent_ev
         assert sent_ev["basis"][0]["locator"] == "提交申请表"
@@ -1267,6 +1269,12 @@ def test_citation_validation_rejects_empty_excerpt_and_kind_mismatch() -> None:
         SourceCitation(source_version_id=snap_id, locator="正文第3段", excerpt="   "),
         SourceCitation(
             source_version_id=snap_id,
+            locator_kind="section",
+            locator="正文第3段",
+            excerpt="（3）成绩排名前\t30%。",
+        ),
+        SourceCitation(
+            source_version_id=snap_id,
             locator_kind="table_row",
             locator="正文第3段",
             excerpt="成绩排名前 30%",
@@ -1278,6 +1286,28 @@ def test_citation_validation_rejects_empty_excerpt_and_kind_mismatch() -> None:
             raise AssertionError("Expected ModelInvocationError")
         except ModelInvocationError as exc:
             assert exc.code == AgentErrorCode.VALIDATION_FAILED
+
+    no_fragment_doc = SourceDocument(
+        source_version_id=str(uuid4()),
+        title="无片段来源",
+        publisher="某校",
+        content="期限 2026-09-10 前提交",
+    )
+    try:
+        _validate_and_enrich_citations(
+            [
+                SourceCitation(
+                    source_version_id=no_fragment_doc.source_version_id,
+                    locator="正文",
+                    excerpt="期限 2026-09-10\t前提交",
+                )
+            ],
+            {no_fragment_doc.source_version_id},
+            {no_fragment_doc.source_version_id: no_fragment_doc},
+        )
+        raise AssertionError("Expected ModelInvocationError")
+    except ModelInvocationError as exc:
+        assert exc.code == AgentErrorCode.VALIDATION_FAILED
 
     good = _validate_and_enrich_citations(
         [SourceCitation(source_version_id=snap_id, locator="正文第3段")],
