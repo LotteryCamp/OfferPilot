@@ -13,6 +13,7 @@ from backend.agent.contracts import (
 )
 from backend.agent.gateway import ALLOWED_TOOLS, GatewayError, ToolGateway
 from backend.agent.model_bridge import (
+    PUBLIC_SCOPE_ALLOWLIST,
     CallModelFn,
     CandidatePlanDraftPayload,
     CandidateTaskDraft,
@@ -20,6 +21,8 @@ from backend.agent.model_bridge import (
     ModelInvocationError,
     RequirementExtractionPayload,
     StructuredModelAdapter,
+    sanitize_matter_goal,
+    sanitize_public_scope_attrs,
 )
 from backend.agent.orchestrator import AgentOrchestrator
 from backend.agent.ports import (
@@ -59,6 +62,11 @@ from backend.agent.source_bridge import (
     source_document_from_backend_record,
     source_document_from_public_result,
 )
+from backend.agent.source_filter import (
+    FilteredSourceFragments,
+    deduplicate_sources,
+    filter_and_deduplicate_fragments,
+)
 from backend.agent.validators import (
     collect_source_gaps,
     evaluate_requirements,
@@ -68,6 +76,7 @@ from backend.agent.validators import (
 
 __all__ = [
     "ALLOWED_TOOLS",
+    "PUBLIC_SCOPE_ALLOWLIST",
     "SHANGHAI",
     "AgentError",
     "AgentErrorCode",
@@ -84,6 +93,7 @@ __all__ = [
     "ExecutionRecord",
     "ExtractedRequirement",
     "ExtractedRequirementDraft",
+    "FilteredSourceFragments",
     "GatewayError",
     "HttpCandidatePersistenceClient",
     "LocatorKind",
@@ -112,10 +122,14 @@ __all__ = [
     "build_candidate_plan_create_payload",
     "build_requirements_batch_payload",
     "collect_source_gaps",
+    "deduplicate_sources",
     "evaluate_requirements",
+    "filter_and_deduplicate_fragments",
     "find_expired_plan_tasks",
     "normalize_api_locator_kind",
     "normalize_field_key",
+    "sanitize_matter_goal",
+    "sanitize_public_scope_attrs",
     "source_document_from_backend_record",
     "source_document_from_public_result",
     "to_api_extract_status",

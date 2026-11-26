@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import re
+from collections.abc import Mapping
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
@@ -23,6 +24,10 @@ from backend.agent.schemas import (
     SourceDocument,
     SourceGap,
 )
+from backend.agent.source_filter import (
+    deduplicate_sources,
+    filter_and_deduplicate_fragments,
+)
 
 
 class CallModelFn(Protocol):
@@ -36,7 +41,9 @@ class CallModelFn(Protocol):
     ) -> T: ...
 
 
-_PUBLIC_SCOPE_ALLOWLIST = frozenset(
+MATTER_GOAL_MAX_LEN = 200
+
+PUBLIC_SCOPE_ALLOWLIST = frozenset(
     {
         "school",
         "college",
@@ -47,17 +54,22 @@ _PUBLIC_SCOPE_ALLOWLIST = frozenset(
         "category",
         "degree",
         "intake_year",
-        "scope_year",
         "region",
     }
 )
+_PUBLIC_SCOPE_ALLOWLIST = PUBLIC_SCOPE_ALLOWLIST
 
 
-def sanitize_public_scope_attrs(scope_attrs: dict[str, Any]) -> dict[str, Any]:
+def sanitize_matter_goal(goal: str) -> str:
+    """Trim matter goal and cap outbound text at 200 characters."""
+    return goal.strip()[:MATTER_GOAL_MAX_LEN].strip()
+
+
+def sanitize_public_scope_attrs(scope_attrs: Mapping[str, Any]) -> dict[str, Any]:
     """Keep only allowlisted public academic scope fields for external model payloads."""
     sanitized: dict[str, Any] = {}
     for key, value in scope_attrs.items():
-        if key not in _PUBLIC_SCOPE_ALLOWLIST:
+        if key not in PUBLIC_SCOPE_ALLOWLIST:
             continue
         if isinstance(value, str):
             trimmed = value.strip()[:100]
@@ -160,11 +172,13 @@ def build_extraction_input(
     *,
     strategy_version: str,
 ) -> dict[str, Any]:
-    """Build the model input for requirement extraction, carrying source fragments."""
-    return {
-        "goal": goal.strip(),
-        "strategy_version": strategy_version,
-        "sources": [
+    """Build the model input for requirement extraction, carrying filtered source fragments."""
+    clean_goal = sanitize_matter_goal(goal)
+    unique_sources = deduplicate_sources(sources)
+    sources_payload: list[dict[str, Any]] = []
+    for s in unique_sources:
+        filtered = filter_and_deduplicate_fragments(s, goal=clean_goal)
+        sources_payload.append(
             {
                 "source_version_id": s.source_version_id,
                 "source_id": s.source_id,
@@ -173,7 +187,7 @@ def build_extraction_input(
                 "publisher": s.publisher,
                 "year": s.year,
                 "scope": s.scope,
-                "content": "" if s.fragments else s.content,
+                "content": "" if filtered.fragments else s.content,
                 "missing_attachments": s.missing_attachments,
                 "fragments": [
                     {
@@ -181,11 +195,14 @@ def build_extraction_input(
                         "locator": f.locator,
                         "quote": f.quote,
                     }
-                    for f in s.fragments
+                    for f in filtered.fragments
                 ],
             }
-            for s in sources
-        ],
+        )
+    return {
+        "goal": clean_goal,
+        "strategy_version": strategy_version,
+        "sources": sources_payload,
     }
 
 
@@ -197,12 +214,25 @@ def build_planning_input(
     strategy_version: str,
 ) -> dict[str, Any]:
     """Build the model input for candidate planning from public fields only."""
-    return {
-        "goal": context.goal.strip(),
-        "scope_year": context.scope_year,
-        "scope_attrs": sanitize_public_scope_attrs(context.scope_attrs),
-        "strategy_version": strategy_version,
-        "sources": [
+    clean_goal = sanitize_matter_goal(context.goal)
+    clean_scope_attrs = sanitize_public_scope_attrs(context.scope_attrs)
+    required_by_source: dict[str, set[tuple[str, str]]] = {}
+    for ev in evaluations:
+        for cite in ev.basis:
+            required_by_source.setdefault(cite.source_version_id, set()).add(
+                (cite.locator_kind, _normalize_ws(cite.locator))
+            )
+
+    unique_sources = deduplicate_sources(sources)
+    sources_payload: list[dict[str, Any]] = []
+    for s in unique_sources:
+        filtered = filter_and_deduplicate_fragments(
+            s,
+            goal=clean_goal,
+            scope_attrs=clean_scope_attrs,
+            required_locators=required_by_source.get(s.source_version_id),
+        )
+        sources_payload.append(
             {
                 "source_version_id": s.source_version_id,
                 "title": s.title,
@@ -214,11 +244,17 @@ def build_planning_input(
                         "locator_kind": f.locator_kind,
                         "locator": f.locator,
                     }
-                    for f in s.fragments
+                    for f in filtered.fragments
                 ],
             }
-            for s in sources
-        ],
+        )
+
+    return {
+        "goal": clean_goal,
+        "scope_year": context.scope_year,
+        "scope_attrs": clean_scope_attrs,
+        "strategy_version": strategy_version,
+        "sources": sources_payload,
         "evaluations": [
             {
                 "requirement_id": ev.requirement_id,
