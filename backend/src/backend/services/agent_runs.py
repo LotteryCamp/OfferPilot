@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import insert, select, text, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -236,13 +237,15 @@ class AgentRunService:
             scope_year=scope_year,
             reader=self._source_reader,
         )
+        settings = self._config.current()
         orchestrator = AgentOrchestrator(
             source_reader=source_reader,
             model_adapter=self._model_adapter,
             backend=backend,
+            timezone=ZoneInfo(settings.timezone),
             persistence=SqlCandidatePersistence(
                 current_user,
-                self._config.current(),
+                settings,
                 self._session_factory,
                 self._clock,
                 expected_fact_versions=expected_fact_versions,
@@ -454,14 +457,16 @@ class AgentRunService:
             orchestrator = self._runs.get(run_id)
         if orchestrator is not None:
             return orchestrator
+        settings = self._config.current()
         backend = SqlWorkspaceBackend(current_user, self._session_factory)
         return AgentOrchestrator(
             source_reader=_UnavailableSourceReader(),
             model_adapter=self._model_adapter,
             backend=backend,
+            timezone=ZoneInfo(settings.timezone),
             persistence=SqlCandidatePersistence(
                 current_user,
-                self._config.current(),
+                settings,
                 self._session_factory,
                 self._clock,
             ),

@@ -7,7 +7,6 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from pydantic import (
     AwareDatetime,
@@ -20,7 +19,6 @@ from pydantic import (
     model_validator,
 )
 
-SHANGHAI = ZoneInfo("Asia/Shanghai")
 CONTENT_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 NUMBER_PATTERN = re.compile(r"^-?\d+(?:\.\d+)?$")
 FIELD_KEY_PATTERN = r"^[a-z][a-z0-9_.]{1,63}$"
@@ -354,20 +352,6 @@ class CandidatePlanItemInput(RequestModel):
     evidence_required: bool = False
     requirement_id: UUID | None = None
     sources: list[PlanItemSourceInput] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def check_deadline(self) -> CandidatePlanItemInput:
-        if self.official_deadline_at is None:
-            return self
-        local_date = self.official_deadline_at.astimezone(SHANGHAI).date()
-        if self.official_deadline_date is None:
-            self.official_deadline_date = local_date
-        elif self.official_deadline_date != local_date:
-            raise ValueError(
-                "official_deadline_date must match official_deadline_at "
-                "in Asia/Shanghai"
-            )
-        return self
 
 
 class CandidatePlanCreate(RequestModel):

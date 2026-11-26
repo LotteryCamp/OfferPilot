@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
@@ -32,10 +33,16 @@ def create_candidate_plan(
     current_user: CurrentUserDep,
     session: SessionDep,
     clock: ClockDep,
+    settings: SettingsDep,
 ) -> dict:
     return {
         "plan": plan_service.create_plan(
-            session, current_user, matter_id, body, now=clock.now()
+            session,
+            current_user,
+            matter_id,
+            body,
+            now=clock.now(),
+            timezone=ZoneInfo(settings.timezone),
         )
     }
 
