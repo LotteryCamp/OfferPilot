@@ -105,6 +105,16 @@ def test_invalid_yaml_fails_startup(tmp_path: Path) -> None:
     assert error.value.issues[0]["code"] == "yaml_error"
 
 
+def test_invalid_utf8_fails_startup(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_bytes(b"model:\n  name: \xff\n")
+
+    with pytest.raises(ConfigFileError) as error:
+        RuntimeConfig(_base(), config_path)
+
+    assert error.value.issues[0]["code"] == "encoding_error"
+
+
 def test_file_change_is_reloaded(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text("model:\n  name: first\n", encoding="utf-8")
@@ -124,6 +134,17 @@ def test_invalid_file_change_keeps_previous_settings(tmp_path: Path) -> None:
     config = RuntimeConfig(_base(), config_path, refresh_interval_seconds=0)
 
     config_path.write_text("model:\n  timeout_seconds: 0\n", encoding="utf-8")
+    config.refresh_if_changed()
+
+    assert config.current().model_name == "valid"
+
+
+def test_invalid_utf8_change_keeps_previous_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text("model:\n  name: valid\n", encoding="utf-8")
+    config = RuntimeConfig(_base(), config_path, refresh_interval_seconds=0)
+
+    config_path.write_bytes(b"model:\n  name: \xff\n")
     config.refresh_if_changed()
 
     assert config.current().model_name == "valid"

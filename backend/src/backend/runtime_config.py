@@ -189,7 +189,19 @@ def _signature(path: Path) -> tuple[int, int] | None:
 
 
 def _read_mapping(path: Path) -> dict[str, Any]:
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ConfigFileError(
+            "运行配置文件不是合法的 UTF-8",
+            issues=[
+                {
+                    "path": "",
+                    "code": "encoding_error",
+                    "message": str(exc),
+                }
+            ],
+        ) from exc
     if not text.strip():
         return {}
     try:
