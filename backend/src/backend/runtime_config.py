@@ -101,10 +101,10 @@ class RuntimeConfig:
         if path is not None:
             if path.exists():
                 try:
-                    self._settings = _apply_overrides(base, _load_file(path))
+                    file_settings, self._signature = _load_file_with_signature(path)
                 except OSError as exc:
                     raise ConfigFileError(f"无法读取运行配置文件：{exc}") from exc
-                self._signature = _signature(path)
+                self._settings = _apply_overrides(base, file_settings)
             else:
                 logger.warning(
                     "运行配置文件不存在，使用环境变量配置：%s",
@@ -142,18 +142,19 @@ class RuntimeConfig:
             if signature == self._signature:
                 return
             try:
-                new_settings = _apply_overrides(self._base, _load_file(self.path))
+                file_settings, loaded_signature = _load_file_with_signature(self.path)
             except (ConfigFileError, OSError) as exc:
-                if signature != self._last_error_signature:
+                current = _signature(self.path)
+                if current is not None and current != self._last_error_signature:
                     logger.error(
                         "运行配置文件校验失败，保持上一份有效配置：%s",
                         exc,
                     )
-                    self._last_error_signature = signature
-                self._signature = signature
+                    self._last_error_signature = current
+                self._signature = current
                 return
-            self._settings = new_settings
-            self._signature = signature
+            self._settings = _apply_overrides(self._base, file_settings)
+            self._signature = loaded_signature
             self._last_error_signature = None
             self._missing_logged = False
             logger.info("运行配置已重新加载：%s", self.path)
@@ -168,9 +169,9 @@ class RuntimeConfig:
                 merged = _apply_patch(raw, patch)
                 file_settings = _validate_mapping(merged)
                 new_settings = _apply_overrides(self._base, file_settings)
-                _write_atomic(self.path, merged)
+                signature = _write_atomic(self.path, merged)
                 self._settings = new_settings
-                self._signature = _signature(self.path)
+                self._signature = signature
                 self._last_error_signature = None
                 self._missing_logged = False
             return new_settings
@@ -239,6 +240,20 @@ def _validate_mapping(raw: Mapping[str, Any]) -> ConfigFileSettings:
 
 def _load_file(path: Path) -> ConfigFileSettings:
     return _validate_mapping(_read_mapping(path))
+
+
+def _load_file_with_signature(
+    path: Path, *, attempts: int = 5
+) -> tuple[ConfigFileSettings, tuple[int, int]]:
+    """Read the file and return the signature of the contents read."""
+    for _ in range(attempts):
+        before = _signature(path)
+        if before is None:
+            continue
+        file_settings = _load_file(path)
+        if _signature(path) == before:
+            return file_settings, before
+    raise ConfigFileError("运行配置文件在读取过程中持续变化")
 
 
 def _format_issues(exc: ValidationError) -> list[dict[str, str]]:
@@ -320,7 +335,8 @@ def _apply_patch(raw: dict[str, Any], patch: Mapping[str, Any]) -> dict[str, Any
     return raw
 
 
-def _write_atomic(path: Path, raw: Mapping[str, Any]) -> None:
+def _write_atomic(path: Path, raw: Mapping[str, Any]) -> tuple[int, int]:
+    """Write the file atomically and return the signature of the written bytes."""
     descriptor, temp_name = tempfile.mkstemp(
         prefix=f".{path.name}.",
         suffix=".tmp",
@@ -332,6 +348,7 @@ def _write_atomic(path: Path, raw: Mapping[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.chmod(temp_name, 0o600)
+        written = os.stat(temp_name)
         os.replace(temp_name, path)
     except BaseException:
         try:
@@ -339,3 +356,4 @@ def _write_atomic(path: Path, raw: Mapping[str, Any]) -> None:
         except OSError:
             pass
         raise
+    return (written.st_mtime_ns, written.st_size)
