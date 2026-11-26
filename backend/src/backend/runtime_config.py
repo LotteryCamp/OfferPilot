@@ -125,11 +125,10 @@ class RuntimeConfig:
 
     @property
     def writable(self) -> bool:
-        """Report whether the runtime configuration file can be written."""
+        """Report whether the runtime configuration file can be replaced."""
         if self.path is None:
             return False
-        target = self.path if self.path.exists() else self.path.parent
-        return os.access(target, os.W_OK)
+        return os.access(self.path.parent, os.W_OK)
 
     def refresh_if_changed(self, *, force: bool = False) -> None:
         """Reload the file when its modification time or size changed."""

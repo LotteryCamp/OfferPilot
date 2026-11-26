@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import textwrap
@@ -73,6 +74,26 @@ def test_runtime_config_without_file_is_not_writable() -> None:
     assert config.writable is False
     with pytest.raises(ConfigFileNotConfigured):
         config.update({"timezone": "UTC"})
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+    reason="目录权限在 Windows 或 root 用户下不生效",
+)
+def test_writable_follows_parent_directory_permissions(tmp_path: Path) -> None:
+    directory = tmp_path / "config"
+    directory.mkdir()
+    config_path = directory / "config.yaml"
+    config_path.write_text("model:\n  name: locked\n", encoding="utf-8")
+    config = RuntimeConfig(_base(), config_path)
+
+    os.chmod(directory, 0o500)
+    try:
+        assert config.writable is False
+    finally:
+        os.chmod(directory, 0o700)
+
+    assert config.writable is True
 
 
 @pytest.mark.parametrize(

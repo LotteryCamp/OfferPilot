@@ -121,7 +121,7 @@ timezone: Asia/Shanghai
 }
 ```
 
-`config_file` 未配置时为 `null`，`writable` 为 `false`。模型密钥不返回，只报告 `api_key_configured`；环境变量中的密钥去除首尾空白后为空时报告为未配置。
+`config_file` 未配置时为 `null`，`writable` 为 `false`。`writable` 表示配置文件所在目录是否允许创建临时文件并替换目标文件。模型密钥不返回，只报告 `api_key_configured`；环境变量中的密钥去除首尾空白后为空时报告为未配置。
 
 ### 5.2 修改配置
 
