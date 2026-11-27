@@ -322,6 +322,7 @@ function itemName(id: string) {
           id="plan-decision"
           class="panel decision-panel"
           aria-label="计划决定"
+          tabindex="-1"
           data-testid="plan-decision"
           :data-plan-id="plan.id"
           :data-plan-status="plan.status"
@@ -336,6 +337,9 @@ function itemName(id: string) {
               title="上次操作结果尚未确定。请重新读取状态，或使用原操作标识重试；当前不能改做相反决定。"
             />
             <p>确认采用后，系统会把候选条目创建为个人任务；对外提交仍需你自行完成。</p>
+            <p v-if="staleBasis" class="error-text">
+              个人信息依据已变化，确认入口已禁用。请返回来源与条件重新分析。
+            </p>
             <ElCheckbox v-model="reviewed" :disabled="submitting || loading"
               >我已核对计划条目、官方截止与来源依据</ElCheckbox
             >

@@ -305,6 +305,14 @@
   display: block;
   margin-bottom: 8px;
 }
+.business-module .ranking-form label.el-checkbox {
+  display: flex;
+  align-items: flex-start;
+  margin-bottom: 0;
+}
+.business-module .ranking-form .el-checkbox__input {
+  margin-top: 4px;
+}
 .business-module .ranking-confirmation {
   grid-column: 1 / -1;
 }
