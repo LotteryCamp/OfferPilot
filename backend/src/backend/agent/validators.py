@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta, tzinfo
-from typing import Any
+from typing import Any, Literal
 
 from backend.agent.contracts import build_client_item_id_map
 from backend.agent.schemas import (
@@ -222,6 +223,9 @@ def _evaluate_single_requirement(
 
     if kind == "any_minimum":
         return _eval_any_minimum(req, params, confirmed_facts)
+
+    if kind == "any_of":
+        return _eval_any_of(req, params, confirmed_facts)
 
     if kind == "materials":
         return _eval_materials(req, params, confirmed_facts)
@@ -564,6 +568,340 @@ def _eval_any_minimum(
         title=req.title,
         status=EvaluationStatus.NOT_MATCHED,
         reason=f"所有替代项均未达到最低标准{qualifier_note}",
+        basis=req.basis,
+        scope=req.scope,
+    )
+
+
+_ORDER_OPS = {"<=", "<", ">=", ">"}
+_CONDITION_OPS = frozenset({*_ORDER_OPS, "=="})
+
+
+@dataclass(frozen=True)
+class _ConditionCheck:
+    fact: str
+    operator: str
+    value: float | bool | str
+
+
+def _format_num(value: float) -> str:
+    return str(int(value)) if value.is_integer() else f"{value:g}"
+
+
+def _format_scalar(value: float | bool | str) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return _format_num(float(value))
+    return value
+
+
+def _parse_condition_checks(
+    raw_checks: object, *, label: str
+) -> tuple[list[_ConditionCheck], str | None]:
+    if not isinstance(raw_checks, list):
+        return [], f"{label} 须为条件列表"
+    checks: list[_ConditionCheck] = []
+    for item in raw_checks:
+        if not isinstance(item, dict):
+            return [], f"{label} 包含非对象条件项"
+        raw_fact = item.get("fact")
+        if not isinstance(raw_fact, str) or not raw_fact.strip():
+            return [], f"{label} 缺少有效的 fact 键名"
+        fact = raw_fact.strip()
+
+        operator = item.get("operator")
+        if not isinstance(operator, str) or operator not in _CONDITION_OPS:
+            return [], f"{label} 的条件 {fact} 使用了不支持的操作符"
+
+        raw_val = item.get("value")
+        parsed_val: float | bool | str
+        if operator in _ORDER_OPS:
+            if (
+                isinstance(raw_val, bool)
+                or not isinstance(raw_val, (int, float))
+                or not math.isfinite(float(raw_val))
+            ):
+                return [], f"{label} 的比较条件 {fact} 缺少有限数值阈值"
+            parsed_val = float(raw_val)
+        elif isinstance(raw_val, bool):
+            parsed_val = raw_val
+        elif isinstance(raw_val, (int, float)) and math.isfinite(float(raw_val)):
+            parsed_val = float(raw_val)
+        elif isinstance(raw_val, str) and raw_val.strip():
+            parsed_val = raw_val.strip()
+        else:
+            return [], f"{label} 的等值条件 {fact} 缺少有效的目标值"
+
+        checks.append(_ConditionCheck(fact=fact, operator=operator, value=parsed_val))
+    return checks, None
+
+
+def _parse_any_of_params(
+    params: dict[str, Any],
+) -> tuple[
+    tuple[list[_ConditionCheck], list[tuple[str, list[_ConditionCheck]]]] | None,
+    str | None,
+]:
+    raw_all = params.get("all_required")
+    all_required: list[_ConditionCheck] = []
+    if raw_all is not None:
+        all_required, err = _parse_condition_checks(
+            raw_all, label="any_of 规则 all_required"
+        )
+        if err is not None:
+            return None, err
+
+    raw_paths = params.get("paths")
+    if not isinstance(raw_paths, list) or not raw_paths:
+        return None, "any_of 规则缺少有效的 paths 路径列表"
+
+    paths: list[tuple[str, list[_ConditionCheck]]] = []
+    for idx, raw_path in enumerate(raw_paths, start=1):
+        if not isinstance(raw_path, dict):
+            return None, f"any_of 路径 {idx} 须为对象"
+        raw_checks = raw_path.get("checks")
+        if not isinstance(raw_checks, list) or not raw_checks:
+            return None, f"any_of 路径 {idx} 缺少有效条件列表 checks"
+        checks, err = _parse_condition_checks(raw_checks, label=f"any_of 路径 {idx}")
+        if err is not None:
+            return None, err
+        raw_label = raw_path.get("label")
+        label = (
+            raw_label.strip()
+            if isinstance(raw_label, str) and raw_label.strip()
+            else f"路径 {idx}"
+        )
+        paths.append((label, checks))
+
+    return (all_required, paths), None
+
+
+def _evaluate_condition_check(
+    check: _ConditionCheck,
+    confirmed_facts: dict[str, object],
+) -> tuple[Literal["passed", "failed", "missing", "invalid"], str]:
+    raw_val = confirmed_facts.get(check.fact)
+    if _is_missing(raw_val):
+        return "missing", check.fact
+
+    expr = f"{check.fact} {check.operator} {_format_scalar(check.value)}"
+    if check.operator in _ORDER_OPS:
+        actual = _parse_finite_float(raw_val)
+        if actual is None:
+            return "invalid", check.fact
+        target = float(check.value)
+        if check.operator == "<=":
+            ok = actual <= target
+        elif check.operator == "<":
+            ok = actual < target
+        elif check.operator == ">=":
+            ok = actual >= target
+        else:
+            ok = actual > target
+        actual_text = _format_num(actual)
+        return (
+            "passed" if ok else "failed",
+            f"{check.fact}={actual_text} {check.operator} {_format_num(target)}"
+            if ok
+            else f"{check.fact}={actual_text} 未满足 {expr}",
+        )
+
+    if isinstance(check.value, bool):
+        if isinstance(raw_val, bool):
+            actual_bool = raw_val
+        elif isinstance(raw_val, str) and raw_val.strip().lower() in {"true", "false"}:
+            actual_bool = raw_val.strip().lower() == "true"
+        else:
+            return "invalid", check.fact
+        actual_text = "true" if actual_bool else "false"
+        ok = actual_bool is check.value
+    elif isinstance(check.value, (int, float)):
+        actual = _parse_finite_float(raw_val)
+        if actual is None:
+            return "invalid", check.fact
+        actual_text = _format_num(actual)
+        ok = actual == float(check.value)
+    else:
+        if not isinstance(raw_val, str) or not raw_val.strip():
+            return "invalid", check.fact
+        actual_text = raw_val.strip()
+        ok = actual_text.lower() == check.value.lower()
+
+    return (
+        "passed" if ok else "failed",
+        f"{check.fact}={actual_text} == {_format_scalar(check.value)}"
+        if ok
+        else f"{check.fact}={actual_text} 未满足 {expr}",
+    )
+
+
+def _evaluate_check_group(
+    checks: list[_ConditionCheck],
+    confirmed_facts: dict[str, object],
+) -> tuple[list[str], list[str], list[str], list[str]]:
+    passed: list[str] = []
+    failed: list[str] = []
+    missing: list[str] = []
+    invalid: list[str] = []
+    for check in checks:
+        outcome, detail = _evaluate_condition_check(check, confirmed_facts)
+        if outcome == "passed":
+            passed.append(detail)
+        elif outcome == "failed":
+            failed.append(detail)
+        elif outcome == "missing":
+            missing.append(detail)
+        else:
+            invalid.append(detail)
+    return passed, failed, missing, invalid
+
+
+def _eval_any_of(
+    req: ExtractedRequirement,
+    params: dict[str, Any],
+    confirmed_facts: dict[str, object],
+) -> RequirementEvaluation:
+    parsed, parse_error = _parse_any_of_params(params)
+    if parsed is None:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason=parse_error or "any_of 规则参数无效",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    all_required, paths = parsed
+    req_passed, req_failed, req_missing, req_invalid = _evaluate_check_group(
+        all_required, confirmed_facts
+    )
+    if req_failed:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NOT_MATCHED,
+            reason=f"未满足前置条件：{'；'.join(req_failed)}",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    passed_paths: list[tuple[str, list[str]]] = []
+    pending_paths: list[tuple[str, list[str], list[str]]] = []
+    failed_paths: list[tuple[str, list[str]]] = []
+    invalid_paths: list[tuple[str, list[str]]] = []
+
+    for label, checks in paths:
+        p_passed, p_failed, p_missing, p_invalid = _evaluate_check_group(
+            checks, confirmed_facts
+        )
+        if p_failed:
+            failed_paths.append((label, p_failed))
+        elif p_invalid:
+            invalid_paths.append((label, p_invalid))
+        elif p_missing:
+            pending_paths.append((label, p_passed, p_missing))
+        else:
+            passed_paths.append((label, p_passed))
+
+    if passed_paths:
+        label, p_passed = passed_paths[0]
+        if req_invalid:
+            dedup_invalid = list(dict.fromkeys(req_invalid))
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.NEEDS_USER_REVIEW,
+                reason=f"以下前置字段格式无效，待核对：{', '.join(dedup_invalid)}",
+                missing_fields=dedup_invalid,
+                basis=req.basis,
+                scope=req.scope,
+            )
+        if req_missing:
+            dedup_missing = list(dict.fromkeys(req_missing))
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.MISSING_INFO,
+                reason=(
+                    f"已核验 {label}（{'；'.join(p_passed)}）；"
+                    f"待补充前置条件：{', '.join(dedup_missing)}"
+                ),
+                missing_fields=dedup_missing,
+                basis=req.basis,
+                scope=req.scope,
+            )
+        verified = [*req_passed, *p_passed]
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.MATCHED,
+            reason=f"满足条件（{label}）：{'；'.join(verified)}",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    if len(failed_paths) == len(paths):
+        failed_summary = "；".join(
+            f"{label}（{'；'.join(msgs)}）" for label, msgs in failed_paths
+        )
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NOT_MATCHED,
+            reason=f"未满足任一路径条件：{failed_summary}",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    if req_invalid:
+        dedup_invalid = list(
+            dict.fromkeys([*req_invalid, *(f for _, inv in invalid_paths for f in inv)])
+        )
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason=f"以下字段格式无效，待核对：{', '.join(dedup_invalid)}",
+            missing_fields=dedup_invalid,
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    if pending_paths:
+        dedup_missing = list(
+            dict.fromkeys(
+                [*req_missing, *(f for _, _, pm in pending_paths for f in pm)]
+            )
+        )
+        verified = list(
+            dict.fromkeys(
+                [*req_passed, *(chk for _, pp, _ in pending_paths for chk in pp)]
+            )
+        )
+        reason = (
+            f"已核验 {'；'.join(verified)}；待补充：{', '.join(dedup_missing)}"
+            if verified
+            else f"缺少已确认条件信息：{', '.join(dedup_missing)}"
+        )
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.MISSING_INFO,
+            reason=reason,
+            missing_fields=dedup_missing,
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    dedup_invalid = list(dict.fromkeys(f for _, inv in invalid_paths for f in inv))
+    return RequirementEvaluation(
+        requirement_id=req.requirement_id,
+        title=req.title,
+        status=EvaluationStatus.NEEDS_USER_REVIEW,
+        reason=f"以下字段格式无效，待核对：{', '.join(dedup_invalid)}",
+        missing_fields=dedup_invalid,
         basis=req.basis,
         scope=req.scope,
     )
