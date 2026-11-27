@@ -1,4 +1,4 @@
-"""CLI for reading one public HTML source."""
+"""CLI for reading a public HTML or PDF source."""
 
 import argparse
 import json
@@ -7,7 +7,7 @@ from io import TextIOWrapper
 from typing import Never
 from uuid import UUID
 
-from .reader import SourceReadError, read_public_html
+from .reader import SourceReadError, read_public_source
 
 
 class _JsonArgumentParser(argparse.ArgumentParser):
@@ -27,11 +27,11 @@ def main() -> int:
     parser.add_argument("--title")
     parser.add_argument("--matter-id", type=UUID)
     parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--max-bytes", type=int, default=2 * 1024 * 1024)
+    parser.add_argument("--max-bytes", type=int)
     parser.add_argument("--max-fragments", type=int, default=4096)
     try:
         args = parser.parse_args()
-        result = read_public_html(
+        result = read_public_source(
             {
                 "url": args.url,
                 "publisher": args.publisher,
@@ -40,7 +40,7 @@ def main() -> int:
                 "title": args.title,
                 "matter_id": args.matter_id,
                 "timeout_seconds": args.timeout,
-                "max_bytes": args.max_bytes,
+                **({"max_bytes": args.max_bytes} if args.max_bytes is not None else {}),
                 "max_fragments": args.max_fragments,
             }
         )
