@@ -48,6 +48,20 @@ POST 请求体为空，请求头携带 UUID 格式的 `Idempotency-Key`。响应
 
 ## QA 定位与恢复验收
 
+### 页面示例
+
+以下截图来自连接真实 API 和 PostgreSQL 的开发工作区。候选输入采用材料学院公开通知的固定样例，后端时钟为 2026 年 9 月 22 日 07:30（北京时间），用于历史通知回放。测试会话通过账户接口建立，注册与登录页面由账户模块接入。
+
+候选审阅展示条目、出处以及关联要求的自查结论与缺项：
+
+![候选计划审阅与自查依据](images/candidate-review.png)
+
+事项事实变化后，确认旧候选返回 `basis_changed`。页面重新读取已过期状态，保留服务端原因并提供重新分析入口：
+
+![依据变化后的候选恢复入口](images/candidate-expired.png)
+
+### 操作与结果核对
+
 入口为 `/matters/{matter_id}/plan`。页面与重读按钮使用 `getByTestId('plan-page')`、`getByTestId('plan-refresh')`；`#plan-version` 选择计划版本。决定区 `getByTestId('plan-decision')` 提供 `data-plan-id` 和 `data-plan-status`；确认及拒绝按钮分别为 `plan-confirm`、`plan-reject`。确认后任务区为 `plan-tasks`，按 `data-plan-id` 对照当前计划。
 
 在真实测试库中分别使用两个待确认候选执行拒绝和确认；拒绝后核对无新增任务，确认后核对任务引用的计划 ID。刷新、重新进入以及重启后端后，重新读取同一候选和正式任务。关键依据疑点、来源异常与过期候选的拦截依赖后端统一检查，未接齐时保持待测。重启前尚未完成的 Agent 运行不属于候选恢复；运行中断提示及重新发起在来源页分析面板中验收。
