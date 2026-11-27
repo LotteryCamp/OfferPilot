@@ -70,7 +70,7 @@ _PERSISTED_DETAIL_FIELDS = (
     "persisted_requirement_ids",
     "persisted_plan_id",
 )
-_TERMINAL_STATUS_KEYS = frozenset({"completed", "cancelled", "interrupted"})
+_TERMINAL_STATUS_KEYS = frozenset({"completed", "failed", "cancelled", "interrupted"})
 _ARTIFACT_CLEANUP_ATTEMPTS = 3
 _ALREADY_FINAL_STATUSES = frozenset({404, 409})
 
@@ -507,8 +507,8 @@ class AgentRunService:
                 )
                 result = self._result_from_checkpoint(checkpoint)
                 workspace_version = checkpoint.workspace_version
-            elif row["status"] == "interrupted":
-                return self._interrupted_result(row)
+            elif row["status"] in _TERMINAL_STATUS_KEYS:
+                return self._result_from_row(row)
             else:
                 result = AgentRunResult(
                     run_id=run_id,

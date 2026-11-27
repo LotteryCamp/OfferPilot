@@ -543,6 +543,57 @@ def test_agent_run_cancel_rejects_pending_candidate(
     assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
+def test_agent_run_cancel_preserves_failed_result(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = cast(FastAPI, agent_client.app).state.replay_state
+    state.requirement_field_key = "gpa.rank"
+    matter_id = _create_matter(agent_client)
+    saved = agent_client.put(
+        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+    _grant_consent(agent_client)
+
+    def change_fact() -> None:
+        state.before_candidate_plan = None
+        changed = agent_client.put(
+            f"/api/v1/matters/{matter_id}/facts/gpa.rank",
+            json={"value": {"position": 8, "cohort_size": 120}},
+        )
+        assert changed.status_code == 200, changed.text
+
+    state.before_candidate_plan = change_fact
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "cancel-failed-run",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "失败"
+    assert run["error"]["code"] == "VERSION_CONFLICT"
+
+    admin.execute(
+        "UPDATE core.agent_run SET checkpoint = NULL WHERE run_id = %s",
+        (run["run_id"],),
+    )
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "失败"
+
+    stored = admin.execute(
+        "SELECT status FROM core.agent_run WHERE run_id = %s",
+        (run["run_id"],),
+    ).fetchone()
+    assert stored == ("failed",)
+
+
 def test_agent_run_reads_and_confirms_after_restart(
     agent_client: TestClient,
     database_urls: tuple[str, str],
