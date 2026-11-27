@@ -425,3 +425,182 @@ def test_evaluate_any_of_invalid_params_or_fact_values_require_review() -> None:
     assert evals_bad_fact[0].missing_fields == ["gpa.rank"]
     assert err_bad_fact is not None
     assert err_bad_fact.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+
+
+def test_evaluate_any_of_handles_oversized_ints_malformed_shapes_and_all_operators() -> (
+    None
+):
+    docs = _rank_doc()
+    huge_int = 10**400
+
+    for params in (
+        {
+            "all_required": "bad",
+            "paths": [{"checks": [{"fact": "a", "operator": "==", "value": True}]}],
+        },
+        {"paths": ["bad"]},
+        {"paths": [{}]},
+        {"paths": [{"checks": ["bad"]}]},
+        {"paths": [{"checks": [{"fact": " ", "operator": "==", "value": True}]}]},
+        {
+            "paths": [
+                {"checks": [{"fact": "gpa.rank", "operator": "<=", "value": huge_int}]}
+            ]
+        },
+        {
+            "paths": [
+                {"checks": [{"fact": "gpa.rank", "operator": "==", "value": huge_int}]}
+            ]
+        },
+        {"paths": [{"checks": [{"fact": "tag", "operator": "==", "value": "   "}]}]},
+    ):
+        req = ExtractedRequirement(
+            requirement_id="GR-SHAPE",
+            title="格式边界",
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            basis=[_cite()],
+            rule_kind="any_of",
+            rule_parameters=params,
+        )
+        evals, err = evaluate_requirements([req], docs, {"gpa.rank": 10.0})
+        assert evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+        assert err is not None
+
+    huge_fact_req = ExtractedRequirement(
+        requirement_id="GR-HUGE-FACT",
+        title="超大整数事实",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {"checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}]},
+            ]
+        },
+    )
+    for bad_fact in (huge_int, "1" + ("0" * 400)):
+        evals, err = evaluate_requirements(
+            [huge_fact_req], docs, {"gpa.rank": bad_fact}
+        )
+        assert evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+        assert evals[0].missing_fields == ["gpa.rank"]
+        assert err is not None
+
+    ops_req = ExtractedRequirement(
+        requirement_id="GR-OPS",
+        title="全操作符覆盖",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "all_required": [
+                {"fact": "credits", "operator": ">", "value": 10},
+                {"fact": "flag", "operator": "==", "value": "Yes"},
+            ],
+            "paths": [
+                {
+                    "checks": [
+                        {"fact": "rank", "operator": "<", "value": 20},
+                        {"fact": "gpa", "operator": ">=", "value": 3.5},
+                        {"fact": "tier", "operator": "==", "value": 1},
+                        {"fact": "active", "operator": "==", "value": True},
+                    ]
+                }
+            ],
+        },
+    )
+    ok_evals, ok_err = evaluate_requirements(
+        [ops_req],
+        docs,
+        {
+            "credits": 12,
+            "flag": "yes",
+            "rank": 15,
+            "gpa": 3.8,
+            "tier": 1,
+            "active": "true",
+        },
+    )
+    assert ok_evals[0].status == EvaluationStatus.MATCHED
+    assert "路径 1" in ok_evals[0].reason
+    assert ok_err is None
+
+    fail_eq_evals, _ = evaluate_requirements(
+        [ops_req],
+        docs,
+        {
+            "credits": 12,
+            "flag": "no",
+            "rank": 15,
+            "gpa": 3.8,
+            "tier": 2,
+            "active": "false",
+        },
+    )
+    assert fail_eq_evals[0].status == EvaluationStatus.NOT_MATCHED
+
+    bad_facts_list: tuple[dict[str, object], ...] = (
+        {"credits": 12, "flag": 123, "rank": 15, "gpa": 3.8, "tier": 1, "active": True},
+        {
+            "credits": 12,
+            "flag": "yes",
+            "rank": 15,
+            "gpa": 3.8,
+            "tier": "abc",
+            "active": True,
+        },
+        {
+            "credits": 12,
+            "flag": "yes",
+            "rank": 15,
+            "gpa": 3.8,
+            "tier": 1,
+            "active": "maybe",
+        },
+    )
+    for bad_facts in bad_facts_list:
+        inv_evals, inv_err = evaluate_requirements([ops_req], docs, bad_facts)
+        assert inv_evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+        assert inv_err is not None
+
+    # passed path with invalid or missing all_required prereq
+    inv_req_evals, _ = evaluate_requirements(
+        [ops_req],
+        docs,
+        {
+            "credits": "nan",
+            "flag": "yes",
+            "rank": 15,
+            "gpa": 3.8,
+            "tier": 1,
+            "active": True,
+        },
+    )
+    assert inv_req_evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert inv_req_evals[0].missing_fields == ["credits"]
+
+    miss_req_evals, _ = evaluate_requirements(
+        [ops_req],
+        docs,
+        {"credits": 12, "rank": 15, "gpa": 3.8, "tier": 1, "active": True},
+    )
+    assert miss_req_evals[0].status == EvaluationStatus.MISSING_INFO
+    assert miss_req_evals[0].missing_fields == ["flag"]
+
+    # pending path + invalid prereq -> needs_user_review
+    pending_inv_evals, _ = evaluate_requirements(
+        [ops_req],
+        docs,
+        {"credits": "bad", "flag": "yes", "rank": 15},
+    )
+    assert pending_inv_evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert pending_inv_evals[0].missing_fields == ["credits"]
+
+    # failed path + pending path with invalid prereq
+    both_invalid_evals, _ = evaluate_requirements(
+        [ops_req],
+        docs,
+        {"credits": "bad", "flag": "yes", "tier": "bad"},
+    )
+    assert both_invalid_evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert both_invalid_evals[0].missing_fields == ["credits", "tier"]

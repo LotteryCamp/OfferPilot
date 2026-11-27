@@ -617,17 +617,17 @@ def _parse_condition_checks(
         raw_val = item.get("value")
         parsed_val: float | bool | str
         if operator in _ORDER_OPS:
-            if (
-                isinstance(raw_val, bool)
-                or not isinstance(raw_val, (int, float))
-                or not math.isfinite(float(raw_val))
-            ):
+            num_val = _coerce_finite_float(raw_val)
+            if num_val is None:
                 return [], f"{label} 的比较条件 {fact} 缺少有限数值阈值"
-            parsed_val = float(raw_val)
+            parsed_val = num_val
         elif isinstance(raw_val, bool):
             parsed_val = raw_val
-        elif isinstance(raw_val, (int, float)) and math.isfinite(float(raw_val)):
-            parsed_val = float(raw_val)
+        elif isinstance(raw_val, (int, float)):
+            num_val = _coerce_finite_float(raw_val)
+            if num_val is None:
+                return [], f"{label} 的等值条件 {fact} 数值阈值超出范围或非有限数值"
+            parsed_val = num_val
         elif isinstance(raw_val, str) and raw_val.strip():
             parsed_val = raw_val.strip()
         else:
@@ -1178,19 +1178,28 @@ def find_expired_plan_tasks(
     return expired_ids
 
 
+def _coerce_finite_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        num = float(value)
+    except OverflowError:
+        return None
+    return num if math.isfinite(num) else None
+
+
 def _parse_finite_float(value: object) -> float | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        num = float(value)
-        return num if math.isfinite(num) else None
+        return _coerce_finite_float(value)
     if isinstance(value, str):
         stripped = value.strip()
         if not stripped:
             return None
         try:
             num = float(stripped)
-        except ValueError:
+        except (ValueError, OverflowError):
             return None
         return num if math.isfinite(num) else None
     return None

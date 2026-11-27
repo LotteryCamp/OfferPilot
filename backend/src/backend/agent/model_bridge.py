@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
@@ -224,6 +224,24 @@ def normalize_requirement_field_key(draft: ExtractedRequirementDraft) -> str | N
     if len(registered_refs) == 1:
         return registered_refs[0]
     return draft.field_key
+
+
+def collect_registered_fact_types(
+    requirements: Iterable[ExtractedRequirement | ExtractedRequirementDraft],
+) -> list[str]:
+    """Collect sorted unique registered fact types referenced by requirements."""
+    registered = set(supported_fact_types())
+    found: set[str] = set()
+    for req in requirements:
+        if req.field_key and req.field_key in registered:
+            found.add(req.field_key)
+        for key in _collect_rule_parameter_fact_keys(req.rule_parameters):
+            if key in registered:
+                found.add(key)
+        for key in req.required_fact_keys:
+            if isinstance(key, str) and key.strip() in registered:
+                found.add(key.strip())
+    return sorted(found)
 
 
 _PLANNING_INSTRUCTION = (

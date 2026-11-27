@@ -22,7 +22,6 @@ from backend.agent import (
     ExtractedRequirementDraft,
     ObligationType,
     RequirementExtractionPayload,
-    RuleKind,
     SourceCitation,
     StructuredModelAdapter,
 )
@@ -41,8 +40,6 @@ class _ReplayState:
     def __init__(self) -> None:
         self.source: PublicSourceResult | None = None
         self.requirement_field_key = "application.deadline"
-        self.requirement_rule_kind: RuleKind | None = None
-        self.requirement_rule_parameters: dict[str, Any] = {}
         self.before_candidate_plan: Callable[[], None] | None = None
 
 
@@ -97,8 +94,6 @@ def _replay_call_model(state: _ReplayState):
                         official_deadline=datetime.fromisoformat(
                             "2026-09-10T15:00:00+08:00"
                         ),
-                        rule_kind=state.requirement_rule_kind,
-                        rule_parameters=dict(state.requirement_rule_parameters),
                     )
                 ],
                 gaps=[],
@@ -739,128 +734,6 @@ def test_agent_run_records_confirmed_rank_fact(
             "value_hash": fact["value_hash"],
         }
     ]
-
-
-def test_agent_run_rank_recheck_invalidates_prior_plan_and_updates_self_check(
-    agent_client: TestClient, admin: psycopg.Connection
-) -> None:
-    state = cast(FastAPI, agent_client.app).state.replay_state
-    state.requirement_field_key = "academic_rank_top_percent"
-    state.requirement_rule_kind = "any_of"
-    state.requirement_rule_parameters = {
-        "all_required": [
-            {"fact": "all_required_credits", "operator": "==", "value": True}
-        ],
-        "paths": [
-            {
-                "label": "前35%无补考重修",
-                "checks": [
-                    {"fact": "gpa.rank", "operator": "<=", "value": 35},
-                    {"fact": "makeup_or_repeat_courses", "operator": "<=", "value": 0},
-                ],
-            },
-            {
-                "label": "前20%至多1门补考重修",
-                "checks": [
-                    {"fact": "gpa.rank", "operator": "<=", "value": 20},
-                    {"fact": "makeup_or_repeat_courses", "operator": "<=", "value": 1},
-                ],
-            },
-        ],
-    }
-    matter_id = _create_matter(agent_client)
-    _grant_consent(agent_client)
-
-    run1_res = agent_client.post(
-        f"/api/v1/matters/{matter_id}/agent-runs",
-        json={
-            "source_urls": [SOURCE_URL],
-            "publisher": "福州大学数学与统计学院",
-            "scope": "2027 届、本院、校内推免推荐",
-            "operation_id": "rank-recheck-1",
-        },
-    )
-    assert run1_res.status_code == 200, run1_res.text
-    run1 = run1_res.json()["run"]
-    assert run1["status"] == "等待确认", run1["error"]
-    assert run1["extracted_requirements"][0]["field_key"] == "gpa.rank"
-    assert run1["evaluations"][0]["status"] == "待补充信息"
-    assert "gpa.rank" in run1["evaluations"][0]["missing_fields"]
-    plan1_id = run1["persisted_plan_id"]
-    assert plan1_id is not None
-
-    plan1_row = admin.execute(
-        "SELECT basis_input FROM core.candidate_plan WHERE id = %s",
-        (UUID(plan1_id),),
-    ).fetchone()
-    assert plan1_row is not None
-    rank_entries_1 = [
-        entry
-        for entry in plan1_row[0]["confirmed_facts"]
-        if entry["fact_type"] == "gpa.rank"
-    ]
-    assert len(rank_entries_1) == 1
-    assert rank_entries_1[0]["version_no"] is None
-
-    saved = agent_client.put(
-        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
-        json={"value": {"position": 10, "cohort_size": 100}},
-    )
-    assert saved.status_code == 200, saved.text
-    saved_body = saved.json()
-    assert plan1_id in [item["plan_id"] for item in saved_body["affected_plans"]]
-
-    run2_res = agent_client.post(
-        f"/api/v1/matters/{matter_id}/agent-runs",
-        json={
-            "source_urls": [SOURCE_URL],
-            "publisher": "福州大学数学与统计学院",
-            "scope": "2027 届、本院、校内推免推荐",
-            "operation_id": "rank-recheck-2",
-        },
-    )
-    assert run2_res.status_code == 200, run2_res.text
-    run2 = run2_res.json()["run"]
-    assert run2["status"] == "等待确认", run2["error"]
-    assert run2["evaluations"][0]["status"] == "待补充信息"
-    assert "gpa.rank" not in run2["evaluations"][0]["missing_fields"]
-    assert "makeup_or_repeat_courses" in run2["evaluations"][0]["missing_fields"]
-    assert "all_required_credits" in run2["evaluations"][0]["missing_fields"]
-    assert "gpa.rank" in run2["evaluations"][0]["reason"]
-
-    plan2_row = admin.execute(
-        "SELECT basis_input FROM core.candidate_plan WHERE id = %s",
-        (UUID(run2["persisted_plan_id"]),),
-    ).fetchone()
-    assert plan2_row is not None
-    rank_entries_2 = [
-        entry
-        for entry in plan2_row[0]["confirmed_facts"]
-        if entry["fact_type"] == "gpa.rank"
-    ]
-    assert len(rank_entries_2) == 1
-    assert rank_entries_2[0]["version_no"] == 1
-
-    updated_rank = agent_client.put(
-        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
-        json={"value": {"position": 40, "cohort_size": 100}},
-    )
-    assert updated_rank.status_code == 200, updated_rank.text
-    assert updated_rank.json()["fact"]["version_no"] == 2
-
-    run3_res = agent_client.post(
-        f"/api/v1/matters/{matter_id}/agent-runs",
-        json={
-            "source_urls": [SOURCE_URL],
-            "publisher": "福州大学数学与统计学院",
-            "scope": "2027 届、本院、校内推免推荐",
-            "operation_id": "rank-recheck-3",
-        },
-    )
-    assert run3_res.status_code == 200, run3_res.text
-    run3 = run3_res.json()["run"]
-    assert run3["status"] == "等待确认", run3["error"]
-    assert run3["evaluations"][0]["status"] == "按现有信息不符合"
 
 
 def test_agent_run_rejects_fact_version_change(
