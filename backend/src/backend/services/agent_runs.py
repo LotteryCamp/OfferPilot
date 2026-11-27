@@ -149,7 +149,11 @@ class AgentRunService:
             with self._lock:
                 cached = self._operations.get(operation_key)
             if cached is not None:
-                return cached
+                row = self._load_run(cached.run_id, current_user)
+                if row is not None and row["status"] in _REPLAYABLE_STATUSES:
+                    return self._result_from_row(row)
+                with self._lock:
+                    self._operations.pop(operation_key, None)
 
         with (
             self._session_factory() as session,

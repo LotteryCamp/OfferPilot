@@ -594,6 +594,33 @@ def test_agent_run_cancel_preserves_failed_result(
     assert stored == ("failed",)
 
 
+def test_agent_run_retry_after_cancel_starts_new_run(
+    agent_client: TestClient,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    payload = {
+        "source_urls": [SOURCE_URL],
+        "publisher": "福州大学数学与统计学院",
+        "scope": "2027 届、本院、校内推免推荐",
+        "operation_id": "cancel-then-retry",
+    }
+    created = agent_client.post(f"/api/v1/matters/{matter_id}/agent-runs", json=payload)
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认"
+
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "已取消"
+
+    retried = agent_client.post(f"/api/v1/matters/{matter_id}/agent-runs", json=payload)
+    assert retried.status_code == 200, retried.text
+    retried_run = retried.json()["run"]
+    assert retried_run["run_id"] != run["run_id"]
+    assert retried_run["status"] == "等待确认"
+
+
 def test_agent_run_reads_and_confirms_after_restart(
     agent_client: TestClient,
     database_urls: tuple[str, str],
