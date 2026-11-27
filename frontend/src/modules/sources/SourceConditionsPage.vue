@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { ElAlert, ElButton, ElEmpty, ElSkeleton } from 'element-plus'
 import type { Matter } from '../matters/types'
@@ -29,6 +29,7 @@ const selectedSnapshotId = ref('')
 const lastReadSource = ref<SourceReadResult | null>(null)
 const analysisPanel = ref<InstanceType<typeof AgentAnalysis> | null>(null)
 const rankingPanel = ref<InstanceType<typeof RankingSupplement> | null>(null)
+const rankingDetails = ref<HTMLDetailsElement | null>(null)
 const selectedSource = computed(() =>
   sources.value.find((item) => item.id === selectedSourceId.value),
 )
@@ -127,6 +128,19 @@ function openEvidence(sourceId: string, snapshotId: string) {
   selectSource(sourceId)
   selectedSnapshotId.value = snapshotId
 }
+
+async function openRanking() {
+  if (!rankingDetails.value) return
+  rankingDetails.value.open = true
+  await nextTick()
+  document.getElementById('ranking-rankPosition')?.focus()
+  rankingDetails.value.scrollIntoView({ block: 'start', behavior: 'smooth' })
+}
+
+function closeRanking() {
+  if (rankingDetails.value) rankingDetails.value.open = false
+  document.querySelector<HTMLButtonElement>('[data-testid="ranking-open"]')?.focus()
+}
 </script>
 
 <template>
@@ -151,27 +165,30 @@ function openEvidence(sourceId: string, snapshotId: string) {
       </div>
     </div>
 
-    <ElAlert type="info" :closable="false" class="machine-notice">
-      机器提取和程序检查仅表示处理状态。请结合原文及适用范围核对。
-    </ElAlert>
-
-    <SourceImport :matter="matter" :analyzed-snapshots="analyzedSnapshots" @read="sourceRead" />
-    <AgentAnalysis
-      ref="analysisPanel"
-      :matter="matter"
-      :source="analysisSource"
-      :ranking-saving="rankingPanel?.writing ?? false"
-      @changed="sourceChanged"
-    />
-    <RankingSupplement
-      ref="rankingPanel"
-      :matter-id="matterId"
-      :source-id="analysisSource?.id ?? null"
-      :analysis-busy="analysisPanel?.busy ?? false"
-      :recheck-unavailable="analysisPanel?.recheckBlockedReason ?? '分析入口正在准备，请稍后重试。'"
-      :recheck="recheckRanking"
-      @changed="sourceChanged"
-    />
+    <section class="module-status" aria-label="当前来源与个人信息">
+      <div>
+        <strong>
+          {{
+            rankingPanel?.saved
+              ? `本人排名已保存 v${rankingPanel.saved.version_no}`
+              : '核对个人信息与来源依据'
+          }}
+        </strong>
+        <p v-if="selectedSnapshot">
+          {{ selectedSnapshot.is_current ? '当前快照' : '历史快照' }} v{{
+            selectedSnapshot.version_no
+          }}
+          · {{ selectedSource?.publisher }} · {{ displayedSelfCheckCount }} 条要求提供辅助自查结果
+        </p>
+        <p v-else>先读取公开通知，再补充本人信息并分析。辅助自查不作正式资格结论。</p>
+      </div>
+      <div class="module-actions">
+        <ElButton type="primary" data-testid="ranking-open" @click="openRanking"
+          >补充排名信息</ElButton
+        >
+        <a class="secondary-link" href="#source-analysis">分析当前来源</a>
+      </div>
+    </section>
 
     <div v-if="error" role="alert" class="read-error panel">
       <strong>读取未完成</strong>
@@ -209,7 +226,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
       </section>
 
       <div v-else class="source-layout" :aria-busy="loading">
-        <div class="source-content">
+        <div class="source-content source-documents">
           <section class="panel source-list" aria-label="关联来源">
             <h2>来源文件</h2>
             <p class="muted">选择来源，查看原文和要求</p>
@@ -335,7 +352,7 @@ function openEvidence(sourceId: string, snapshotId: string) {
           </section>
         </div>
 
-        <div class="source-content">
+        <div class="source-content source-checks">
           <RequirementList
             v-if="selectedSnapshot"
             :snapshot="selectedSnapshot"
@@ -344,16 +361,13 @@ function openEvidence(sourceId: string, snapshotId: string) {
           />
 
           <aside class="panel personal-check">
-            <p class="eyebrow">个人条件</p>
-            <h2>{{ displayedSelfCheckCount ? '辅助自查说明' : '尚无个人自查结果' }}</h2>
+            <h3>核对提示</h3>
             <p v-if="displayedSelfCheckCount">
               当前版本有
               {{ displayedSelfCheckCount }}
               条要求提供自查结果，已按条目展示。自查仅供辅助核对，正式资格以官方认定为准。
             </p>
             <p v-else>当前展示通知中的要求，请先对照原文核对适用范围。</p>
-            <hr />
-            <h3>核对时请留意</h3>
             <ul>
               <li>适用年度、学院与批次是否吻合</li>
               <li>出处定位和原文是否齐全</li>
@@ -363,5 +377,34 @@ function openEvidence(sourceId: string, snapshotId: string) {
         </div>
       </div>
     </template>
+
+    <details ref="rankingDetails" class="ranking-disclosure" data-testid="ranking-disclosure">
+      <summary>补充本人排名信息</summary>
+      <RankingSupplement
+        ref="rankingPanel"
+        :matter-id="matterId"
+        :source-id="analysisSource?.id ?? null"
+        :analysis-busy="analysisPanel?.busy ?? false"
+        :recheck-unavailable="
+          analysisPanel?.recheckBlockedReason ?? '分析入口正在准备，请稍后重试。'
+        "
+        :recheck="recheckRanking"
+        @changed="sourceChanged"
+        @close="closeRanking"
+      />
+    </details>
+    <SourceImport :matter="matter" :analyzed-snapshots="analyzedSnapshots" @read="sourceRead" />
+    <div id="source-analysis" class="analysis-section" tabindex="-1">
+      <AgentAnalysis
+        ref="analysisPanel"
+        :matter="matter"
+        :source="analysisSource"
+        :ranking-saving="rankingPanel?.writing ?? false"
+        @changed="sourceChanged"
+      />
+    </div>
+    <ElAlert type="info" :closable="false" class="machine-notice">
+      机器提取和程序检查仅表示处理状态。请结合原文及适用范围核对。
+    </ElAlert>
   </div>
 </template>

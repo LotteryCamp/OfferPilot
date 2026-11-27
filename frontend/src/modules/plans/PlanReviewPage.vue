@@ -118,58 +118,65 @@ function itemName(id: string) {
         </option>
       </select>
     </div>
+    <section v-if="plan" class="panel plan-summary">
+      <div class="section-heading">
+        <h2>候选计划 v{{ plan.version_no }}</h2>
+        <ElTag type="info">{{ statusLabel('plan', plan.status) }}</ElTag>
+      </div>
+      <p v-if="plan.status === 'pending'" class="plan-impact">
+        本候选包含 {{ items.length }} 个条目。确认后创建个人任务；拒绝后保留原有任务。
+        <a href="#plan-decision" class="secondary-link">前往计划决定</a>
+      </p>
+      <p class="muted">
+        适用年度：{{ plan.matter.scope_year ?? '未填写' }} · 生成于
+        {{ displayDate(plan.generated_at) }}
+      </p>
+      <p v-if="plan.status === 'expired'" class="error-text">
+        计划已过期，请重新生成并审阅候选计划。
+      </p>
+      <RouterLink
+        v-if="plan.status === 'expired' || staleBasis"
+        :to="{ name: 'matter-sources', params: { matterId } }"
+        class="secondary-link"
+        data-testid="plan-regenerate"
+        >返回来源与条件重新分析 →</RouterLink
+      >
+      <ElAlert
+        v-if="plan.status === 'pending' && staleBasis"
+        data-testid="plan-stale-basis"
+        type="warning"
+        :closable="false"
+        title="个人信息依据已变化，此候选不能继续确认。请返回来源与条件重新分析，再审阅新候选；也可拒绝此候选。"
+      />
+      <ul v-if="plan.stale_facts?.length" class="muted">
+        <li v-for="fact in plan.stale_facts" :key="fact.fact_type">
+          {{ fact.fact_type === 'gpa.rank' ? '成绩排名' : fact.fact_type }}：生成时
+          {{ fact.stored_version_no === null ? '未提供' : `v${fact.stored_version_no}` }}，当前
+          {{ fact.current_version_no === null ? '未提供' : `v${fact.current_version_no}` }}
+        </li>
+      </ul>
+      <p v-if="plan.decision" class="muted">
+        决定：{{ statusLabel('plan', plan.decision.decision) }} ·
+        {{ displayDate(plan.decision.decided_at) }}
+      </p>
+      <details>
+        <summary>查看生成依据标识</summary>
+        <p class="muted break-text">{{ plan.basis_version }}</p>
+      </details>
+    </section>
+
     <div v-if="plans.length" class="plan-layout">
       <div v-if="plan" class="source-content">
-        <section class="panel">
-          <div class="section-heading">
-            <h2>候选计划 v{{ plan.version_no }}</h2>
-            <ElTag type="info">{{ statusLabel('plan', plan.status) }}</ElTag>
-          </div>
-          <p class="muted">
-            适用年度：{{ plan.matter.scope_year ?? '未填写' }} · 生成于
-            {{ displayDate(plan.generated_at) }}
-          </p>
-          <p v-if="plan.status === 'expired'" class="error-text">
-            计划已过期，请重新生成并审阅候选计划。
-          </p>
-          <RouterLink
-            v-if="plan.status === 'expired' || staleBasis"
-            :to="{ name: 'matter-sources', params: { matterId } }"
-            class="secondary-link"
-            data-testid="plan-regenerate"
-            >返回来源与条件重新分析 →</RouterLink
-          >
-          <ElAlert
-            v-if="plan.status === 'pending' && staleBasis"
-            data-testid="plan-stale-basis"
-            type="warning"
-            :closable="false"
-            title="个人信息依据已变化，此候选不能继续确认。请返回来源与条件重新分析，再审阅新候选；也可拒绝此候选。"
-          />
-          <ul v-if="plan.stale_facts?.length" class="muted">
-            <li v-for="fact in plan.stale_facts" :key="fact.fact_type">
-              {{ fact.fact_type === 'gpa.rank' ? '成绩排名' : fact.fact_type }}：生成时
-              {{ fact.stored_version_no === null ? '未提供' : `v${fact.stored_version_no}` }}，当前
-              {{ fact.current_version_no === null ? '未提供' : `v${fact.current_version_no}` }}
-            </li>
-          </ul>
-          <p v-if="plan.decision" class="muted">
-            决定：{{ statusLabel('plan', plan.decision.decision) }} ·
-            {{ displayDate(plan.decision.decided_at) }}
-          </p>
-          <details>
-            <summary>查看生成依据标识</summary>
-            <p class="muted break-text">{{ plan.basis_version }}</p>
-          </details>
-        </section>
         <section class="panel">
           <h2>候选条目 · {{ items.length }} 项</h2>
           <ElEmpty v-if="!items.length" description="暂无候选条目" />
           <article v-for="item in items" :key="item.id" class="requirement-card">
             <h3>{{ item.seq }}. {{ item.title }}</h3>
-            <ElTag type="info" effect="plain">{{
-              statusLabel('obligation', item.obligation_nature)
-            }}</ElTag>
+            <ElTag
+              :type="item.obligation_nature === 'required' ? 'warning' : 'info'"
+              effect="light"
+              >{{ statusLabel('obligation', item.obligation_nature) }}</ElTag
+            >
             <p>{{ item.detail || '未提供补充说明' }}</p>
             <dl class="metadata-grid">
               <div>
@@ -227,29 +234,32 @@ function itemName(id: string) {
             <p v-if="!item.sources.length" class="error-text">
               此条目未提供出处，采用前请核对依据。
             </p>
-            <div
-              v-for="(source, index) in item.sources"
-              :key="`${source.snapshot_id}/${index}`"
-              class="evidence-block"
-            >
-              <strong>{{ source.publisher }} · {{ source.locator }}</strong>
-              <blockquote>{{ source.quote || '未提供引文，请查看原文。' }}</blockquote>
-              <p>
-                {{ statusLabel('lifecycle', source.source_status) }} · 快照 v{{
-                  source.version_no
-                }}
-                · {{ source.is_current ? '当前版本' : '历史版本' }}
-              </p>
-              <p class="muted">获取于 {{ displayDate(source.fetched_at) }}</p>
-              <a
-                v-if="safeSourceUrl(source.url)"
-                :href="safeSourceUrl(source.url)!"
-                target="_blank"
-                rel="noopener noreferrer"
-                >打开原网页 ↗</a
+            <details v-if="item.sources.length" class="requirement-evidence">
+              <summary>查看原文依据 · {{ item.sources.length }} 处</summary>
+              <div
+                v-for="(source, index) in item.sources"
+                :key="`${source.snapshot_id}/${index}`"
+                class="evidence-block"
               >
-              <p v-else class="error-text">来源链接不可打开</p>
-            </div>
+                <strong>{{ source.publisher }} · {{ source.locator }}</strong>
+                <blockquote>{{ source.quote || '未提供引文，请查看原文。' }}</blockquote>
+                <p>
+                  {{ statusLabel('lifecycle', source.source_status) }} · 快照 v{{
+                    source.version_no
+                  }}
+                  · {{ source.is_current ? '当前版本' : '历史版本' }}
+                </p>
+                <p class="muted">获取于 {{ displayDate(source.fetched_at) }}</p>
+                <a
+                  v-if="safeSourceUrl(source.url)"
+                  :href="safeSourceUrl(source.url)!"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  >打开原网页 ↗</a
+                >
+                <p v-else class="error-text">来源链接不可打开</p>
+              </div>
+            </details>
           </article>
         </section>
         <section
@@ -309,6 +319,7 @@ function itemName(id: string) {
       </div>
       <aside v-if="plan" class="source-content">
         <section
+          id="plan-decision"
           class="panel decision-panel"
           aria-label="计划决定"
           data-testid="plan-decision"
