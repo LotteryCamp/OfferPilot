@@ -712,7 +712,7 @@ def test_cancelled_before_persist_leaves_no_candidate() -> None:
     assert persistence.plans == {}
 
 
-def test_cancelled_after_persist_rejects_candidate() -> None:
+def test_cancelled_after_persist_returns_artifacts_for_cleanup() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
@@ -737,5 +737,6 @@ def test_cancelled_after_persist_rejects_candidate() -> None:
     assert res.error.code == AgentErrorCode.CANCELLED
     plan_id = res.persisted_plan_id
     assert plan_id is not None
-    assert persistence.get_candidate_plan(plan_id)["status"] == "rejected"
+    assert res.persisted_requirement_ids
+    assert persistence.get_candidate_plan(plan_id)["status"] == "pending"
     assert persistence.write_calls == 0

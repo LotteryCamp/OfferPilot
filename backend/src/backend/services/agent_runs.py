@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Generator
+from contextlib import contextmanager
 from typing import Any
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -69,6 +71,8 @@ _PERSISTED_DETAIL_FIELDS = (
     "persisted_plan_id",
 )
 _TERMINAL_STATUS_KEYS = frozenset({"completed", "cancelled", "interrupted"})
+_ARTIFACT_CLEANUP_ATTEMPTS = 3
+_ALREADY_FINAL_STATUSES = frozenset({404, 409})
 
 
 class _UnavailableModelAdapter:
@@ -283,11 +287,13 @@ class AgentRunService:
             current_user=current_user,
             discard_if_terminal=True,
         )
-        if result.persisted_plan_id is not None and saved.status in (
-            RunStatus.CANCELLED,
-            RunStatus.INTERRUPTED,
-        ):
-            self._reject_candidate_plan(result.persisted_plan_id, current_user)
+        if saved.status in (RunStatus.CANCELLED, RunStatus.INTERRUPTED):
+            self._discard_run_artifacts(
+                matter_id=str(matter_id),
+                plan_id=result.persisted_plan_id,
+                requirement_ids=result.persisted_requirement_ids,
+                current_user=current_user,
+            )
         if operation_key is not None:
             with self._lock:
                 self._operations[operation_key] = saved
@@ -300,6 +306,24 @@ class AgentRunService:
         return self._result_from_row(row)
 
     def confirm(
+        self,
+        run_id: str,
+        current_user: CurrentUser,
+        *,
+        candidate_version: int,
+        operation_id: str,
+        plan_id: str | None = None,
+    ) -> AgentRunResult:
+        with self._run_lock(run_id):
+            return self._confirm_locked(
+                run_id,
+                current_user,
+                candidate_version=candidate_version,
+                operation_id=operation_id,
+                plan_id=plan_id,
+            )
+
+    def _confirm_locked(
         self,
         run_id: str,
         current_user: CurrentUser,
@@ -373,6 +397,20 @@ class AgentRunService:
         *,
         operation_id: str,
     ) -> AgentRunResult:
+        with self._run_lock(run_id):
+            return self._reject_locked(
+                run_id,
+                current_user,
+                operation_id=operation_id,
+            )
+
+    def _reject_locked(
+        self,
+        run_id: str,
+        current_user: CurrentUser,
+        *,
+        operation_id: str,
+    ) -> AgentRunResult:
         row = self._require_run(run_id, current_user)
         checkpoint = self._checkpoint_from_row(row)
         target_plan_id = (
@@ -424,47 +462,86 @@ class AgentRunService:
         )
 
     def cancel(self, run_id: str, current_user: CurrentUser) -> AgentRunResult:
-        row = self._require_run(run_id, current_user)
-        checkpoint = self._checkpoint_from_row(row)
-        if checkpoint is not None:
-            if checkpoint.status == RunStatus.CANCELLED:
-                self._reject_candidate_plan(checkpoint.persisted_plan_id, current_user)
-                return self._result_from_checkpoint(checkpoint)
-            if checkpoint.status in (
-                RunStatus.COMPLETED,
-                RunStatus.FAILED,
-                RunStatus.INTERRUPTED,
-            ):
-                return self._result_from_checkpoint(checkpoint)
-            checkpoint.status = RunStatus.CANCELLED
-            checkpoint.error = AgentError(
-                code=AgentErrorCode.CANCELLED, message="运行已被用户取消"
+        with self._run_lock(run_id):
+            return self._cancel_locked(run_id, current_user)
+
+    def _cancel_locked(self, run_id: str, current_user: CurrentUser) -> AgentRunResult:
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
+            row = (
+                session.execute(
+                    select(agent_run)
+                    .where(
+                        agent_run.c.run_id == run_id,
+                        agent_run.c.user_id == current_user.user_id,
+                    )
+                    .with_for_update()
+                )
+                .mappings()
+                .first()
             )
-            result = self._result_from_checkpoint(checkpoint)
-        elif row["status"] == "interrupted":
-            return self._interrupted_result(row)
-        else:
-            result = AgentRunResult(
-                run_id=run_id,
-                status=RunStatus.CANCELLED,
-                error=AgentError(
+            if row is None:
+                raise _run_not_found()
+            row = dict(row)
+            checkpoint = self._checkpoint_from_row(row)
+            if checkpoint is not None:
+                if checkpoint.status == RunStatus.CANCELLED:
+                    self._discard_run_artifacts(
+                        matter_id=str(row["matter_id"]),
+                        plan_id=checkpoint.persisted_plan_id,
+                        requirement_ids=checkpoint.persisted_requirement_ids,
+                        current_user=current_user,
+                    )
+                    return self._result_from_checkpoint(checkpoint)
+                if checkpoint.status in (
+                    RunStatus.COMPLETED,
+                    RunStatus.FAILED,
+                    RunStatus.INTERRUPTED,
+                ):
+                    return self._result_from_checkpoint(checkpoint)
+                checkpoint.status = RunStatus.CANCELLED
+                checkpoint.error = AgentError(
                     code=AgentErrorCode.CANCELLED, message="运行已被用户取消"
-                ),
+                )
+                result = self._result_from_checkpoint(checkpoint)
+                workspace_version = checkpoint.workspace_version
+            elif row["status"] == "interrupted":
+                return self._interrupted_result(row)
+            else:
+                result = AgentRunResult(
+                    run_id=run_id,
+                    status=RunStatus.CANCELLED,
+                    error=AgentError(
+                        code=AgentErrorCode.CANCELLED, message="运行已被用户取消"
+                    ),
+                )
+                workspace_version = 0
+            self._discard_run_artifacts(
+                matter_id=str(row["matter_id"]),
+                plan_id=result.persisted_plan_id,
+                requirement_ids=result.persisted_requirement_ids,
+                current_user=current_user,
             )
-        saved = self._save_result(
-            run_id=run_id,
-            result=result,
-            matter_id=str(row["matter_id"]),
-            user_id=str(row["user_id"]),
-            workspace_version=(
-                checkpoint.workspace_version if checkpoint is not None else 0
-            ),
-            current_user=current_user,
-            discard_if_terminal=True,
-        )
-        if saved.status == RunStatus.CANCELLED:
-            self._reject_candidate_plan(saved.persisted_plan_id, current_user)
-        return saved
+            session.execute(
+                update(agent_run)
+                .where(
+                    agent_run.c.run_id == run_id,
+                    agent_run.c.user_id == current_user.user_id,
+                )
+                .values(
+                    status="cancelled",
+                    checkpoint=self._checkpoint_payload(
+                        result=result,
+                        matter_id=str(row["matter_id"]),
+                        user_id=str(row["user_id"]),
+                        workspace_version=workspace_version,
+                    ),
+                    updated_at=self._clock.now(),
+                )
+            )
+            return result
 
     def _runtime_orchestrator(self, current_user: CurrentUser) -> AgentOrchestrator:
         """Build the orchestrator used to decide a pending run.
@@ -561,6 +638,41 @@ class AgentRunService:
             return None
         return RunCheckpoint.model_validate(payload)
 
+    @contextmanager
+    def _run_lock(self, run_id: str) -> Generator[None]:
+        """Serialize decisions and cancellation for one run across processes."""
+        key = f"offerpilot:agent_run:{run_id}"
+        with self._session_factory() as session:
+            session.execute(
+                text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+                {"key": key},
+            )
+            try:
+                yield
+            finally:
+                session.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                    {"key": key},
+                )
+                session.commit()
+
+    def _checkpoint_payload(
+        self,
+        *,
+        result: AgentRunResult,
+        matter_id: str,
+        user_id: str,
+        workspace_version: int,
+    ) -> dict[str, Any]:
+        checkpoint = RunCheckpoint(
+            run_id=result.run_id,
+            user_id=user_id,
+            matter_id=matter_id,
+            workspace_version=workspace_version,
+            **result.model_dump(exclude={"run_id"}),
+        )
+        return checkpoint.model_dump(mode="json", exclude={"sources"})
+
     def _save_result(
         self,
         *,
@@ -572,14 +684,12 @@ class AgentRunService:
         current_user: CurrentUser,
         discard_if_terminal: bool = False,
     ) -> AgentRunResult:
-        checkpoint = RunCheckpoint(
-            run_id=result.run_id,
-            user_id=user_id,
+        payload = self._checkpoint_payload(
+            result=result,
             matter_id=matter_id,
+            user_id=user_id,
             workspace_version=workspace_version,
-            **result.model_dump(exclude={"run_id"}),
         )
-        payload = checkpoint.model_dump(mode="json", exclude={"sources"})
         with (
             self._session_factory() as session,
             transaction(session, current_user),
@@ -650,8 +760,13 @@ class AgentRunService:
             ).scalar_one_or_none()
         return status in _TERMINAL_STATUS_KEYS
 
-    def _reject_candidate_plan(
-        self, plan_id: str | None, current_user: CurrentUser
+    def _discard_run_artifacts(
+        self,
+        *,
+        matter_id: str,
+        plan_id: str | None,
+        requirement_ids: list[str] | None,
+        current_user: CurrentUser,
     ) -> None:
         if plan_id is None:
             return
@@ -661,11 +776,64 @@ class AgentRunService:
             self._session_factory,
             self._clock,
         )
+        if self._reject_plan_for_cleanup(persistence, plan_id):
+            self._reject_requirements_for_cleanup(
+                persistence,
+                matter_id,
+                requirement_ids or [],
+            )
+
+    def _reject_plan_for_cleanup(
+        self, persistence: SqlCandidatePersistence, plan_id: str
+    ) -> bool:
+        last_error: PersistenceApiError | None = None
+        for _ in range(_ARTIFACT_CLEANUP_ATTEMPTS):
+            try:
+                persistence.reject_candidate_plan(plan_id, operation_id=str(uuid4()))
+                return True
+            except PersistenceApiError as exc:
+                last_error = exc
+                if exc.status_code in _ALREADY_FINAL_STATUSES:
+                    return self._requirements_follow_plan(persistence, plan_id)
+                if not exc.retryable:
+                    raise
+                logger.warning("候选计划撤销失败，重试 plan=%s: %s", plan_id, exc)
+        assert last_error is not None
+        raise last_error
+
+    def _requirements_follow_plan(
+        self, persistence: SqlCandidatePersistence, plan_id: str
+    ) -> bool:
         try:
-            persistence.reject_candidate_plan(plan_id, operation_id=str(uuid4()))
+            plan = persistence.get_candidate_plan(plan_id)
         except PersistenceApiError as exc:
-            if exc.status_code not in (404, 409):
-                logger.warning("取消运行后未能撤销候选计划 plan=%s: %s", plan_id, exc)
+            if exc.retryable:
+                raise
+            return False
+        return plan.get("status") == "rejected"
+
+    def _reject_requirements_for_cleanup(
+        self,
+        persistence: SqlCandidatePersistence,
+        matter_id: str,
+        requirement_ids: list[str],
+    ) -> None:
+        if not requirement_ids:
+            return
+        last_error: PersistenceApiError | None = None
+        for _ in range(_ARTIFACT_CLEANUP_ATTEMPTS):
+            try:
+                persistence.reject_requirements(matter_id, requirement_ids)
+                return
+            except PersistenceApiError as exc:
+                last_error = exc
+                if exc.status_code == 404:
+                    return
+                if not exc.retryable:
+                    raise
+                logger.warning("候选要求撤销失败，重试 matter=%s: %s", matter_id, exc)
+        assert last_error is not None
+        raise last_error
 
     def _result_from_row(self, row: dict[str, Any]) -> AgentRunResult:
         checkpoint = self._checkpoint_from_row(row)

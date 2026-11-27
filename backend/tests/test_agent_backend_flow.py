@@ -492,7 +492,7 @@ def test_agent_run_cancel_during_model_call_leaves_no_candidate(
 
 
 def test_agent_run_cancel_rejects_pending_candidate(
-    agent_client: TestClient,
+    agent_client: TestClient, admin: psycopg.Connection
 ) -> None:
     matter_id = _create_matter(agent_client)
     _grant_consent(agent_client)
@@ -518,12 +518,29 @@ def test_agent_run_cancel_rejects_pending_candidate(
     assert plan.status_code == 200, plan.text
     assert plan.json()["plan"]["status"] == "rejected"
 
+    requirements = admin.execute(
+        "SELECT extract_status FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchall()
+    assert requirements
+    assert {row[0] for row in requirements} == {"rejected"}
+
     confirmed = agent_client.post(
         f"/api/v1/candidate-plans/{plan_id}/confirm",
         headers={"Idempotency-Key": "33333333-3333-7333-8333-333333333333"},
     )
     assert confirmed.status_code == 409, confirmed.text
     assert confirmed.json()["error"]["code"] == "plan_already_decided"
+
+    confirmed_run = agent_client.post(
+        f"/api/v1/agent-runs/{run['run_id']}/confirm",
+        json={"candidate_version": 1},
+        headers={"Idempotency-Key": "44444444-4444-7444-8444-444444444444"},
+    )
+    assert confirmed_run.status_code == 200, confirmed_run.text
+    assert confirmed_run.json()["run"]["status"] == "已取消"
+    assert confirmed_run.json()["run"]["written_tasks"] == []
+    assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
 def test_agent_run_reads_and_confirms_after_restart(

@@ -450,7 +450,6 @@ class AgentOrchestrator:
             )
 
         if self._run_cancelled():
-            self._reject_cancelled_plan(persisted_plan_id)
             return self._cancelled_result(
                 run_id=run_id,
                 context=context,
@@ -944,14 +943,6 @@ class AgentOrchestrator:
             persisted_requirement_ids=persisted_requirement_ids,
             persisted_plan_id=persisted_plan_id,
         )
-
-    def _reject_cancelled_plan(self, plan_id: str | None) -> None:
-        if plan_id is None or self._persistence is None:
-            return
-        try:
-            self._persistence.reject_candidate_plan(plan_id, operation_id=str(uuid4()))
-        except PersistenceApiError:
-            return
 
     def _save_terminal_or_wait(
         self,
