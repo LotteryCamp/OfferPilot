@@ -481,6 +481,334 @@ def test_agent_run_reject_creates_no_tasks(agent_client: TestClient) -> None:
     assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
+def test_agent_run_cancel_during_model_call_leaves_no_candidate(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = cast(FastAPI, agent_client.app).state.replay_state
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+
+    def cancel_running_run() -> None:
+        state.before_candidate_plan = None
+        running = admin.execute(
+            "SELECT run_id FROM core.agent_run WHERE status = 'running'"
+        ).fetchone()
+        assert running is not None
+        cancelled = agent_client.post(f"/api/v1/agent-runs/{running[0]}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["run"]["status"] == "已取消"
+
+    state.before_candidate_plan = cancel_running_run
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "cancel-during-model-call",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "已取消"
+    assert run["error"]["code"] == "CANCELLED"
+    assert run["persisted_plan_id"] is None
+
+    fetched = agent_client.get(f"/api/v1/agent-runs/{run['run_id']}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["run"]["status"] == "已取消"
+
+    plan_count = admin.execute(
+        "SELECT count(*) FROM core.candidate_plan WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert plan_count is not None
+    assert plan_count[0] == 0
+    requirement_count = admin.execute(
+        "SELECT count(*) FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert requirement_count is not None
+    assert requirement_count[0] == 0
+
+
+def test_agent_run_cancel_rejects_pending_candidate(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "cancel-after-plan",
+        },
+    )
+    run = created.json()["run"]
+    assert run["status"] == "等待确认", run["error"]
+    plan_id = run["persisted_plan_id"]
+    assert plan_id is not None
+
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "已取消"
+
+    plan = agent_client.get(f"/api/v1/candidate-plans/{plan_id}")
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["plan"]["status"] == "rejected"
+
+    requirements = admin.execute(
+        "SELECT extract_status FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchall()
+    assert requirements
+    assert {row[0] for row in requirements} == {"rejected"}
+
+    confirmed = agent_client.post(
+        f"/api/v1/candidate-plans/{plan_id}/confirm",
+        headers={"Idempotency-Key": "33333333-3333-7333-8333-333333333333"},
+    )
+    assert confirmed.status_code == 409, confirmed.text
+    assert confirmed.json()["error"]["code"] == "plan_already_decided"
+
+    confirmed_run = agent_client.post(
+        f"/api/v1/agent-runs/{run['run_id']}/confirm",
+        json={"candidate_version": 1},
+        headers={"Idempotency-Key": "44444444-4444-7444-8444-444444444444"},
+    )
+    assert confirmed_run.status_code == 200, confirmed_run.text
+    assert confirmed_run.json()["run"]["status"] == "已取消"
+    assert confirmed_run.json()["run"]["written_tasks"] == []
+    assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
+
+
+def test_candidate_confirm_rejected_when_run_already_cancelled(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "page-confirm-after-cancel",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认", run["error"]
+    plan_id = run["persisted_plan_id"]
+    assert plan_id is not None
+
+    admin.execute(
+        "UPDATE core.agent_run SET status = 'cancelled' WHERE run_id = %s",
+        (run["run_id"],),
+    )
+
+    confirmed = agent_client.post(
+        f"/api/v1/candidate-plans/{plan_id}/confirm",
+        headers={"Idempotency-Key": "55555555-5555-7555-8555-555555555555"},
+    )
+    assert confirmed.status_code == 409, confirmed.text
+    assert confirmed.json()["error"]["code"] == "plan_already_decided"
+
+    plan = agent_client.get(f"/api/v1/candidate-plans/{plan_id}")
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["plan"]["status"] == "rejected"
+    assert plan.json()["plan"]["tasks"] == []
+
+    requirements = admin.execute(
+        "SELECT extract_status FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchall()
+    assert requirements
+    assert {row[0] for row in requirements} == {"rejected"}
+    assert _task_count(admin, matter_id) == 0
+    assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
+
+
+def test_candidate_confirm_marks_run_completed_before_cancel(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "page-confirm-before-cancel",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    plan_id = run["persisted_plan_id"]
+    assert plan_id is not None
+
+    confirmed = agent_client.post(
+        f"/api/v1/candidate-plans/{plan_id}/confirm",
+        headers={"Idempotency-Key": "66666666-6666-7666-8666-666666666666"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert len(confirmed.json()["tasks"]) == 1
+
+    fetched = agent_client.get(f"/api/v1/agent-runs/{run['run_id']}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["run"]["status"] == "已完成"
+
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "已完成"
+    assert _task_count(admin, matter_id) == 1
+
+
+def test_cancel_between_requirement_and_plan_persistence_rejects_requirements(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    admin.execute(
+        """
+        CREATE OR REPLACE FUNCTION public.offerpilot_cancel_running_run()
+        RETURNS trigger
+        LANGUAGE plpgsql
+        AS $$
+        BEGIN
+            UPDATE core.agent_run
+               SET status = 'cancelled'
+             WHERE matter_id = NEW.matter_id
+               AND status = 'running';
+            RETURN NEW;
+        END
+        $$
+        """
+    )
+    admin.execute(
+        """
+        CREATE TRIGGER offerpilot_cancel_running_run
+        AFTER INSERT ON core.requirement
+        FOR EACH ROW EXECUTE FUNCTION public.offerpilot_cancel_running_run()
+        """
+    )
+    try:
+        created = agent_client.post(
+            f"/api/v1/matters/{matter_id}/agent-runs",
+            json={
+                "source_urls": [SOURCE_URL],
+                "publisher": "福州大学数学与统计学院",
+                "scope": "2027 届、本院、校内推免推荐",
+                "operation_id": "cancel-between-requirements-and-plan",
+            },
+        )
+    finally:
+        admin.execute(
+            "DROP TRIGGER IF EXISTS offerpilot_cancel_running_run ON core.requirement"
+        )
+        admin.execute("DROP FUNCTION IF EXISTS public.offerpilot_cancel_running_run()")
+
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "已取消"
+    assert run["persisted_plan_id"] is None
+
+    plan_count = admin.execute(
+        "SELECT count(*) FROM core.candidate_plan WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert plan_count is not None
+    assert plan_count[0] == 0
+    requirements = admin.execute(
+        "SELECT extract_status FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchall()
+    assert requirements
+    assert {row[0] for row in requirements} == {"rejected"}
+    assert _task_count(admin, matter_id) == 0
+
+
+def test_agent_run_cancel_preserves_failed_result(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = cast(FastAPI, agent_client.app).state.replay_state
+    state.requirement_field_key = "gpa.rank"
+    matter_id = _create_matter(agent_client)
+    saved = agent_client.put(
+        f"/api/v1/matters/{matter_id}/facts/gpa.rank",
+        json={"value": {"position": 5, "cohort_size": 120}},
+    )
+    assert saved.status_code == 200, saved.text
+    _grant_consent(agent_client)
+
+    def change_fact() -> None:
+        state.before_candidate_plan = None
+        changed = agent_client.put(
+            f"/api/v1/matters/{matter_id}/facts/gpa.rank",
+            json={"value": {"position": 8, "cohort_size": 120}},
+        )
+        assert changed.status_code == 200, changed.text
+
+    state.before_candidate_plan = change_fact
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "cancel-failed-run",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "失败"
+    assert run["error"]["code"] == "VERSION_CONFLICT"
+
+    admin.execute(
+        "UPDATE core.agent_run SET checkpoint = NULL WHERE run_id = %s",
+        (run["run_id"],),
+    )
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "失败"
+
+    stored = admin.execute(
+        "SELECT status FROM core.agent_run WHERE run_id = %s",
+        (run["run_id"],),
+    ).fetchone()
+    assert stored == ("failed",)
+
+
+def test_agent_run_retry_after_cancel_starts_new_run(
+    agent_client: TestClient,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    payload = {
+        "source_urls": [SOURCE_URL],
+        "publisher": "福州大学数学与统计学院",
+        "scope": "2027 届、本院、校内推免推荐",
+        "operation_id": "cancel-then-retry",
+    }
+    created = agent_client.post(f"/api/v1/matters/{matter_id}/agent-runs", json=payload)
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "等待确认"
+
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "已取消"
+
+    retried = agent_client.post(f"/api/v1/matters/{matter_id}/agent-runs", json=payload)
+    assert retried.status_code == 200, retried.text
+    retried_run = retried.json()["run"]
+    assert retried_run["run_id"] != run["run_id"]
+    assert retried_run["status"] == "等待确认"
+
+
 def test_agent_run_reads_and_confirms_after_restart(
     agent_client: TestClient,
     database_urls: tuple[str, str],
@@ -781,6 +1109,14 @@ def test_agent_run_rejects_fact_version_change(
     assert plan_count is not None
     assert plan_count[0] == 0
 
+    requirements = admin.execute(
+        "SELECT extract_status FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchall()
+    assert requirements
+    assert {row[0] for row in requirements} == {"rejected"}
+    assert _task_count(admin, matter_id) == 0
+
 
 def test_agent_run_reads_facts_only_from_current_matter(
     agent_client: TestClient, admin: psycopg.Connection
@@ -885,6 +1221,15 @@ def test_agent_run_ignores_other_matter_fact_version_change(
     run = created.json()["run"]
     assert run["status"] == "等待确认", run["error"]
     assert run["persisted_plan_id"] is not None
+
+
+def _task_count(admin: psycopg.Connection, matter_id: str) -> int:
+    row = admin.execute(
+        "SELECT count(*) FROM core.task WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
 
 
 def _create_matter(client: TestClient) -> str:
