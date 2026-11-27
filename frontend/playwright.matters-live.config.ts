@@ -20,7 +20,7 @@ export default defineConfig({
   webServer: {
     command: 'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5174 --strictPort',
     url: frontendUrl,
-    env: { API_PROXY_TARGET: backendTarget, VITE_LOCAL_DEMO_MATTERS: '1' },
+    env: { API_PROXY_TARGET: backendTarget },
     reuseExistingServer: false,
     timeout: 30_000,
   },

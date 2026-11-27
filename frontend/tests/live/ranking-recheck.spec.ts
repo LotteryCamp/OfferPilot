@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
+import { registerTestUser } from './auth-user'
 
 const matters = '/api/v1/matters'
 const consentPath = '/api/v1/model-transfer-consent'
@@ -11,7 +12,9 @@ test.skip(
 )
 
 for (const pageKind of ['workspace', 'stale-save-prop'] as const) {
-  test(`保存并重新自查提交真实 Agent 请求（${pageKind}）`, async ({ page, request }) => {
+  test(`保存并重新自查提交真实 Agent 请求（${pageKind}）`, async ({ page }) => {
+    const request = page.request
+    await registerTestUser(request)
     const created = await request.post(matters, {
       data: {
         goal: `QA 福州大学 2027 届公开推免通知 ${randomUUID()}`,

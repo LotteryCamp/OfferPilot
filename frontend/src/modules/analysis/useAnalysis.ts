@@ -9,6 +9,7 @@ import {
 import type { AnalysisInput } from './api'
 import { canStartAnotherRun, restoreAnalysisAttempt } from './contracts'
 import type { AnalysisAttempt, AnalysisRun } from './contracts'
+import { workspaceStorageKey } from '../../shared/workspaceStorage'
 
 export function useAnalysis(matterId: () => string, onRead: () => void) {
   const run = ref<AnalysisRun | null>(null)
@@ -19,7 +20,7 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
   const storageReady = ref(true)
   let generation = 0
   let controller: AbortController | undefined
-  const storageKey = (id: string) => `offerpilot:analysis:${id}`
+  const storageKey = (id: string) => workspaceStorageKey(`analysis:${id}`)
 
   function save(value: AnalysisAttempt) {
     sessionStorage.setItem(storageKey(value.matterId), JSON.stringify(value))
