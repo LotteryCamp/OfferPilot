@@ -45,7 +45,7 @@ npm run dev
 
 ## 当前事项排名补录
 
-页面依据 [Beta Page 3](https://www.figma.com/design/feczCbKUHrybftac7eB7qW/OfferPilot?node-id=16-758) 组织来源和辅助自查。首屏显示所选快照、个人排名保存状态及“补充排名信息”入口；展开表单时保持已加载的数据和未保存输入。数字合法时显示比例预览，本人勾选确认后才可提交保存。来源原文、历史快照和逐条依据可展开查看。窄屏先显示自查，再显示来源文件；排名字段和操作按钮按单列排列。
+页面依据 [Beta Page 3](https://www.figma.com/design/feczCbKUHrybftac7eB7qW/OfferPilot?node-id=16-758) 组织来源和辅助自查。首屏显示所选快照、个人排名保存状态及“补充排名信息”入口；展开表单时保持已加载的数据和未保存输入。数字合法时显示比例预览，本人勾选确认后才可提交保存。来源原文、历史快照和逐条依据可展开查看。窄屏先显示自查，再显示来源文件；排名字段和操作按钮按单列排列。页面示例：[390px 自查与历史快照](images/source-conditions-mobile.png)、[390px 排名表单](images/ranking-supplement-mobile.png)。
 
 `RankingSupplement.vue` 提供本人排名、同一统计范围的参与排名总人数，以及本人真实性确认。缺项时列明待补充内容；两项数字必须为安全范围内的正整数，排名不能超过总人数。修改数字后需重新勾选本人确认。通过本地检查后展示排名除以总人数的比例，不据此产生个人资格结论。
 
