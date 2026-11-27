@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 
@@ -97,6 +98,8 @@ def _positive_float_env(name: str, default: float) -> float:
         raise RuntimeError(f"{name} must be a number") from None
     if value <= 0:
         raise RuntimeError(f"{name} must be a positive number")
+    if not math.isfinite(value):
+        raise RuntimeError(f"{name} must be finite")
     return value
 
 

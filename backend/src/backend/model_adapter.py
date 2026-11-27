@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 
 from openai import APIError, APIResponseValidationError, APITimeoutError, OpenAI
@@ -29,8 +30,8 @@ def _model_timeout() -> float:
         timeout = float(raw)
     except ValueError:
         raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须为秒数。") from None
-    if timeout <= 0:
-        raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须大于 0 秒。")
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须为有限且大于 0 的秒数。")
     return timeout
 
 
@@ -52,8 +53,10 @@ def call_model[T: BaseModel](
         api_url = settings.model_api_url.strip()
         model = settings.model_name.strip()
         timeout = settings.model_timeout_seconds
-        if timeout <= 0:
-            raise ModelAdapterError("CONFIG_ERROR", "模型请求超时须大于 0 秒。")
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ModelAdapterError(
+                "CONFIG_ERROR", "模型请求超时须为有限且大于 0 的秒数。"
+            )
 
     if not api_key or not api_url or not model:
         raise ModelAdapterError("CONFIG_ERROR", "缺少模型地址、模型名或 API Key。")

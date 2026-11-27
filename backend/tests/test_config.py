@@ -125,6 +125,8 @@ def test_config_file_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         ("0", "must be a positive number"),
         ("-1", "must be a positive number"),
         ("abc", "must be a number"),
+        ("nan", "must be finite"),
+        ("inf", "must be finite"),
     ],
 )
 def test_model_timeout_validation(
