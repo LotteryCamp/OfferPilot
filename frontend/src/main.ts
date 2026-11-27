@@ -15,10 +15,16 @@ import './modules/business.css'
 import App from './App.vue'
 import { router } from './router'
 import { workspaceIntegrations, workspaceKey } from './app/integrations'
+import { useAuthStore } from './modules/auth/store'
+import { setAuthenticationRequiredHandler } from './shared/http'
+
+const pinia = createPinia()
+const auth = useAuthStore(pinia)
+setAuthenticationRequiredHandler(() => auth.expireSession())
 
 createApp(App)
   .provide(workspaceKey, workspaceIntegrations)
-  .use(createPinia())
+  .use(pinia)
   .use(router)
   .use(ElButton)
   .use(ElConfigProvider)

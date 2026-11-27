@@ -166,18 +166,17 @@ test -e .env.local || cp .env.example .env.local
 npm run dev
 ```
 
-PowerShell 使用 `if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }`。已存在的 `.env.local` 不会被覆盖；需要重新生成时，先删除或移走现有文件再执行复制。开发服务器监听 `127.0.0.1:5173`，打开终端输出的地址。`.env.local` 只保存可公开的前端配置，模型密钥与身份凭据由后端管理。默认配置不连接业务服务，页面可以导航、填写与校验表单，不会产生事项数据。
+PowerShell 使用 `if (-not (Test-Path .env.local)) { Copy-Item .env.example .env.local }`。已存在的 `.env.local` 不会被覆盖；需要重新生成时，先删除或移走现有文件再执行复制。开发服务器监听 `127.0.0.1:5173`，打开终端输出的地址。`.env.local` 只保存可公开的前端配置，模型密钥与身份凭据由后端管理。默认配置不连接业务服务，受保护页面提示无法确认登录状态。登录和注册表单可填写与校验，连接后端后才能建立有效会话和事项数据。
 
 ### 连接本地后端
 
 在 `.env.local` 中启用开发联调并指向后端，然后重启开发服务器：
 
 ```dotenv
-VITE_LOCAL_DEMO_MATTERS=1
 API_PROXY_TARGET=http://127.0.0.1:8000
 ```
 
-开发服务器同源转发 `/api`，登录态通过 `offerpilot_session` Cookie 维持。真实事项联调与浏览器验收见[前端开发与联调指南](frontend/development.md)。
+开发服务器同源转发 `/api`，登录态通过 `offerpilot_session` Cookie 维持。打开 `/register` 注册或 `/login` 登录，进入个人事项工作台；刷新时向服务端核对会话。真实事项联调与浏览器验收见[前端开发与联调指南](frontend/development.md)。
 
 ### 检查与构建
 

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { Action } from './contracts'
+import { workspaceStorageKey } from '../../shared/workspaceStorage'
 
 const attemptSchema = z.object({
   matterId: z.uuid(),
@@ -29,7 +30,7 @@ export function chooseAttempt(
 }
 
 function storageKey(matterId: string, planId: string) {
-  return `offerpilot.plan-decision.${matterId}.${planId}`
+  return workspaceStorageKey(`plan-decision:${matterId}:${planId}`)
 }
 export function readAttempt(matterId: string, planId: string): Attempt | null {
   const value = sessionStorage.getItem(storageKey(matterId, planId))
