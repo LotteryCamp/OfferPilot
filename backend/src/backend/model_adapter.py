@@ -9,6 +9,8 @@ import os
 from openai import APIError, APIResponseValidationError, APITimeoutError, OpenAI
 from pydantic import BaseModel, ValidationError
 
+from backend.config import Settings
+
 DEFAULT_MODEL_TIMEOUT_SECONDS = 180.0
 
 
@@ -37,16 +39,28 @@ def call_model[T: BaseModel](
     instruction: str,
     text: str,
     response_model: type[T],
+    *,
+    settings: Settings | None = None,
 ) -> T:
     """Invoke the configured model and validate its JSON response."""
-    api_key = os.getenv("OFFERPILOT_MODEL_API_KEY", "").strip()
-    api_url = os.getenv("OFFERPILOT_MODEL_API_URL", "").strip()
-    model = os.getenv("OFFERPILOT_MODEL_NAME", "").strip()
+    if settings is None:
+        api_key = os.getenv("OFFERPILOT_MODEL_API_KEY", "").strip()
+        api_url = os.getenv("OFFERPILOT_MODEL_API_URL", "").strip()
+        model = os.getenv("OFFERPILOT_MODEL_NAME", "").strip()
+        timeout = _model_timeout()
+    else:
+        api_key = settings.model_api_key.strip()
+        api_url = settings.model_api_url.strip()
+        model = settings.model_name.strip()
+        timeout = settings.model_timeout_seconds
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ModelAdapterError(
+                "CONFIG_ERROR", "模型请求超时须为有限且大于 0 的秒数。"
+            )
 
     if not api_key or not api_url or not model:
         raise ModelAdapterError("CONFIG_ERROR", "缺少模型地址、模型名或 API Key。")
 
-    timeout = _model_timeout()
     schema = json.dumps(response_model.model_json_schema(), ensure_ascii=False)
 
     try:

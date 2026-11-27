@@ -1,10 +1,12 @@
 import json
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Event, Thread
+from typing import Any
 
 import pytest
 from pydantic import BaseModel
 
+from backend.config import Settings
 from backend.model_adapter import ModelAdapterError, _model_timeout, call_model
 
 
@@ -128,3 +130,90 @@ def test_model_timeout_uses_default_or_configured_value(
     monkeypatch.setenv("OFFERPILOT_MODEL_TIMEOUT_SECONDS", raw_timeout)
 
     assert _model_timeout() == expected_timeout
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [5.0, float("nan"), float("inf"), 0.0, -1.0],
+    ids=["valid", "nan", "inf", "zero", "negative"],
+)
+def test_model_adapter_uses_explicit_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    timeout: float,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self) -> None:
+            length = int(self.headers.get("Content-Length", "0"))
+            payload = json.loads(self.rfile.read(length))
+            captured["path"] = self.path
+            captured["authorization"] = self.headers.get("Authorization")
+            captured["model"] = payload.get("model")
+
+            body = json.dumps(
+                {
+                    "id": "local-completion",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": payload.get("model"),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "finish_reason": "stop",
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"requirements": ["成绩单"]}',
+                            },
+                        }
+                    ],
+                }
+            ).encode("utf-8")
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
+        thread = Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        try:
+            monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+            monkeypatch.setenv("OFFERPILOT_MODEL_NAME", "env-model")
+            settings = Settings(
+                database_url="postgresql://unused",
+                model_api_key="settings-token",
+                model_api_url=f"http://127.0.0.1:{server.server_port}/v1",
+                model_name="settings-model",
+                model_timeout_seconds=timeout,
+            )
+
+            if timeout != 5.0:
+                with pytest.raises(ModelAdapterError, match="有限且大于 0") as error:
+                    call_model(
+                        "提取材料",
+                        "申请人须提交成绩单。",
+                        ExtractionResult,
+                        settings=settings,
+                    )
+                assert error.value.code == "CONFIG_ERROR"
+                assert not captured
+                return
+
+            result = call_model(
+                "提取材料",
+                "申请人须提交成绩单。",
+                ExtractionResult,
+                settings=settings,
+            )
+
+            assert result.requirements == ["成绩单"]
+            assert captured["path"] == "/v1/chat/completions"
+            assert captured["authorization"] == "Bearer settings-token"
+            assert captured["model"] == "settings-model"
+        finally:
+            server.shutdown()
+            thread.join()

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, tzinfo
 from typing import Any
 
 from backend.agent.contracts import build_client_item_id_map
 from backend.agent.schemas import (
-    SHANGHAI,
     AgentError,
     AgentErrorCode,
     CandidatePlan,
@@ -20,10 +19,29 @@ from backend.agent.schemas import (
 )
 
 
+def normalize_candidate_deadlines(plan: CandidatePlan, timezone: tzinfo) -> list[str]:
+    """Derive deadline dates from timestamps in the configured business timezone."""
+    violations: list[str] = []
+    for task in plan.tasks:
+        if task.official_deadline_at is None:
+            continue
+        local_date = task.official_deadline_at.astimezone(timezone).date()
+        if task.official_deadline_date is None:
+            task.official_deadline_date = local_date
+        elif task.official_deadline_date != local_date:
+            violations.append(
+                f"任务 {task.task_id} 的 official_deadline_date 与 "
+                f"official_deadline_at 在 {timezone} 下的日期不一致"
+            )
+    return violations
+
+
 def validate_candidate_plan(
     plan: CandidatePlan,
     expected_workspace_version: int,
     sources_by_id: dict[str, SourceDocument] | None = None,
+    *,
+    timezone: tzinfo,
 ) -> list[str]:
     """Validate domain constraints on a candidate plan (DYH-R03, R11, R15).
 
@@ -68,6 +86,7 @@ def validate_candidate_plan(
         effective_deadline_date = _task_deadline_date(
             task.official_deadline_date,
             task.official_deadline_at or task.official_deadline,
+            timezone=timezone,
         )
         if (
             effective_deadline_date is not None
@@ -90,9 +109,11 @@ def validate_candidate_plan(
 def _task_deadline_date(
     deadline_date: date | None,
     deadline_at: datetime | None,
+    *,
+    timezone: tzinfo,
 ) -> date | None:
     if deadline_at is not None:
-        return deadline_at.astimezone(SHANGHAI).date()
+        return deadline_at.astimezone(timezone).date()
     return deadline_date
 
 
@@ -796,22 +817,24 @@ def collect_source_gaps(
     return gaps
 
 
-def find_expired_plan_tasks(plan: CandidatePlan, now: datetime) -> list[str]:
+def find_expired_plan_tasks(
+    plan: CandidatePlan, now: datetime, *, timezone: tzinfo
+) -> list[str]:
     """Return task_ids in plan whose official deadline has already passed relative to now."""
-    now_shanghai = (
-        now.astimezone(SHANGHAI)
+    local_now = (
+        now.astimezone(timezone)
         if now.tzinfo is not None
-        else now.replace(tzinfo=SHANGHAI)
+        else now.replace(tzinfo=timezone)
     )
     expired_ids: list[str] = []
     for task in plan.tasks:
         deadline_at = task.official_deadline_at or task.official_deadline
         if deadline_at is not None:
-            if deadline_at < now_shanghai:
+            if deadline_at < local_now:
                 expired_ids.append(task.task_id)
         elif (
             task.official_deadline_date is not None
-            and task.official_deadline_date < now_shanghai.date()
+            and task.official_deadline_date < local_now.date()
         ):
             expired_ids.append(task.task_id)
     return expired_ids

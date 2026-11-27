@@ -13,6 +13,7 @@ from backend.config import Settings
 from backend.db import get_session
 from backend.errors import ApiError
 from backend.identity import CurrentUser
+from backend.runtime_config import RuntimeConfig
 from backend.services import auth as auth_service
 from backend.services.sources import SourceReader, read_public_html
 
@@ -20,7 +21,11 @@ SessionDep = Annotated[Session, Depends(get_session)]
 
 
 def get_settings(request: Request) -> Settings:
-    return request.app.state.settings
+    return request.app.state.runtime_config.current()
+
+
+def get_runtime_config(request: Request) -> RuntimeConfig:
+    return request.app.state.runtime_config
 
 
 def get_clock(request: Request) -> Clock:
@@ -28,6 +33,7 @@ def get_clock(request: Request) -> Clock:
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
+RuntimeConfigDep = Annotated[RuntimeConfig, Depends(get_runtime_config)]
 ClockDep = Annotated[Clock, Depends(get_clock)]
 
 
