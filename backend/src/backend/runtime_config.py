@@ -45,7 +45,7 @@ class ModelFileSettings(_ConfigSection):
     name: str | None = None
     api_url: str | None = None
     api_key: str | None = None
-    timeout_seconds: float | None = Field(default=None, gt=0)
+    timeout_seconds: float | None = Field(default=None, gt=0, allow_inf_nan=False)
 
     @field_validator("api_key")
     @classmethod

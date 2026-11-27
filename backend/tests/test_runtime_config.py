@@ -102,6 +102,8 @@ def test_writable_follows_parent_directory_permissions(tmp_path: Path) -> None:
         ("database_url: postgresql://elsewhere\n", "database_url"),
         ("host: 0.0.0.0\n", "host"),
         ("model:\n  timeout_seconds: 0\n", "model.timeout_seconds"),
+        ("model:\n  timeout_seconds: .nan\n", "model.timeout_seconds"),
+        ("model:\n  timeout_seconds: .inf\n", "model.timeout_seconds"),
         ("auth:\n  login_ip_limit: -1\n", "auth.login_ip_limit"),
         (
             f"auth:\n  session_ttl_seconds: {MAX_DURATION_SECONDS + 1}\n",
@@ -250,6 +252,23 @@ def test_update_rejects_invalid_values(tmp_path: Path) -> None:
     assert error.value.issues[0]["path"] == "auth.login_lock_seconds"
     assert config.current().login_lock_seconds == 900
     assert config_path.read_text(encoding="utf-8") == ""
+
+
+@pytest.mark.parametrize("timeout", [float("nan"), float("inf")])
+def test_update_rejects_non_finite_model_timeout(
+    tmp_path: Path, timeout: float
+) -> None:
+    config_path = tmp_path / "config.yaml"
+    original = "model:\n  timeout_seconds: 240\n"
+    config_path.write_text(original, encoding="utf-8")
+    config = RuntimeConfig(_base(), config_path)
+
+    with pytest.raises(ConfigFileError) as error:
+        config.update({"model": {"timeout_seconds": timeout}})
+
+    assert error.value.issues[0]["path"] == "model.timeout_seconds"
+    assert config.current().model_timeout_seconds == 240.0
+    assert config_path.read_text(encoding="utf-8") == original
 
 
 def test_update_rejects_oversized_duration(tmp_path: Path) -> None:
