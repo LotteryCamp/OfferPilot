@@ -31,11 +31,13 @@ class Settings:
     config_file: str | None = None
 
     @classmethod
-    def from_env(cls) -> Settings:
-        database_url = os.environ.get("OFFERPILOT_DATABASE_URL") or os.environ.get(
-            "DATABASE_URL"
+    def from_env(cls, *, require_database: bool = True) -> Settings:
+        database_url = (
+            os.environ.get("OFFERPILOT_DATABASE_URL")
+            or os.environ.get("DATABASE_URL")
+            or ""
         )
-        if not database_url:
+        if require_database and not database_url:
             raise RuntimeError("OFFERPILOT_DATABASE_URL or DATABASE_URL must be set")
         return cls(
             database_url=database_url,
