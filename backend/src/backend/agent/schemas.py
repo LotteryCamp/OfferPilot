@@ -2,22 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone, tzinfo
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any, Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, model_validator
-
-
-def _load_shanghai_tz() -> tzinfo:
-    try:
-        return ZoneInfo("Asia/Shanghai")
-    except ZoneInfoNotFoundError:
-        return timezone(timedelta(hours=8), name="Asia/Shanghai")
-
-
-SHANGHAI = _load_shanghai_tz()
 
 LocatorKind = Literal["section", "page", "text_span", "table_row", "list_item"]
 RuleKind = Literal[
@@ -228,16 +217,11 @@ class CandidateTask(BaseModel):
         elif self.official_deadline is None and self.official_deadline_at is not None:
             self.official_deadline = self.official_deadline_at
 
-        if self.official_deadline_at is not None:
-            if self.official_deadline_at.tzinfo is None:
-                raise ValueError("official_deadline_at 必须包含时区信息")
-            shanghai_date = self.official_deadline_at.astimezone(SHANGHAI).date()
-            if self.official_deadline_date is None:
-                self.official_deadline_date = shanghai_date
-            elif self.official_deadline_date != shanghai_date:
-                raise ValueError(
-                    "official_deadline_date 必须与 official_deadline_at 的 Asia/Shanghai 日期一致"
-                )
+        if (
+            self.official_deadline_at is not None
+            and self.official_deadline_at.tzinfo is None
+        ):
+            raise ValueError("official_deadline_at 必须包含时区信息")
         return self
 
 

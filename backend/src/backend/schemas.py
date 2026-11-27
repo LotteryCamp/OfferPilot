@@ -7,7 +7,6 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
-from zoneinfo import ZoneInfo
 
 from pydantic import (
     AwareDatetime,
@@ -20,7 +19,8 @@ from pydantic import (
     model_validator,
 )
 
-SHANGHAI = ZoneInfo("Asia/Shanghai")
+from backend.config import MAX_DURATION_SECONDS
+
 CONTENT_HASH_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 NUMBER_PATTERN = re.compile(r"^-?\d+(?:\.\d+)?$")
 FIELD_KEY_PATTERN = r"^[a-z][a-z0-9_.]{1,63}$"
@@ -127,6 +127,37 @@ class AdminUserRoleUpdate(AuthRequestModel):
 
 class AdminPasswordReset(AuthRequestModel):
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class AdminModelSettingsUpdate(AuthRequestModel):
+    provider: str | None = None
+    name: str | None = None
+    api_url: str | None = None
+    api_key: str | None = None
+    timeout_seconds: float | None = Field(default=None, gt=0)
+
+
+class AdminAuthSettingsUpdate(AuthRequestModel):
+    session_ttl_seconds: int | None = Field(default=None, gt=0, le=MAX_DURATION_SECONDS)
+    remember_session_ttl_seconds: int | None = Field(
+        default=None, gt=0, le=MAX_DURATION_SECONDS
+    )
+    cookie_secure: bool | None = None
+    login_ip_window_seconds: int | None = Field(
+        default=None, gt=0, le=MAX_DURATION_SECONDS
+    )
+    login_ip_limit: int | None = Field(default=None, ge=0)
+    login_email_window_seconds: int | None = Field(
+        default=None, gt=0, le=MAX_DURATION_SECONDS
+    )
+    login_email_limit: int | None = Field(default=None, ge=0)
+    login_lock_seconds: int | None = Field(default=None, gt=0, le=MAX_DURATION_SECONDS)
+
+
+class AdminSettingsUpdate(AuthRequestModel):
+    timezone: str | None = None
+    model: AdminModelSettingsUpdate | None = None
+    auth: AdminAuthSettingsUpdate | None = None
 
 
 class MatterCreate(RequestModel):
@@ -329,20 +360,6 @@ class CandidatePlanItemInput(RequestModel):
     evidence_required: bool = False
     requirement_id: UUID | None = None
     sources: list[PlanItemSourceInput] = Field(default_factory=list)
-
-    @model_validator(mode="after")
-    def check_deadline(self) -> CandidatePlanItemInput:
-        if self.official_deadline_at is None:
-            return self
-        local_date = self.official_deadline_at.astimezone(SHANGHAI).date()
-        if self.official_deadline_date is None:
-            self.official_deadline_date = local_date
-        elif self.official_deadline_date != local_date:
-            raise ValueError(
-                "official_deadline_date must match official_deadline_at "
-                "in Asia/Shanghai"
-            )
-        return self
 
 
 class CandidatePlanCreate(RequestModel):
