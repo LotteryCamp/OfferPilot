@@ -67,6 +67,7 @@ class AgentOrchestrator:
         persistence: CandidatePersistencePort | None = None,
         gateway: ToolGateway | None = None,
         clock: Callable[[], datetime] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         self._source_reader = source_reader
         self._model_adapter = model_adapter
@@ -75,6 +76,7 @@ class AgentOrchestrator:
         self._persistence = persistence
         self._gateway = gateway or ToolGateway(backend)
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._is_cancelled = is_cancelled
         self._checkpoints: dict[str, RunCheckpoint] = {}
         self._run_idempotency: dict[tuple[str, str, str], AgentRunResult] = {}
         self._persisted_req_cache: dict[
@@ -135,6 +137,11 @@ class AgentOrchestrator:
         )
         requires_transfer_consent = bool(transfer_facts or context.scope_attrs)
 
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id, context=context, records=records
+            )
+
         if self._persistence is None:
             err = AgentError(
                 code=AgentErrorCode.VALIDATION_FAILED,
@@ -168,6 +175,14 @@ class AgentOrchestrator:
                     error=exc.error,
                     records=records,
                 )
+
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+            )
 
         if not sources:
             err = AgentError(
@@ -225,6 +240,15 @@ class AgentOrchestrator:
                 error=exc.error,
                 records=records,
                 sources=sources,
+            )
+
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
             )
 
         sources_by_id = {s.source_version_id: s for s in sources}
@@ -355,6 +379,18 @@ class AgentOrchestrator:
                 scope_summary=merged_scope,
             )
 
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+            )
+
         persist_op_id = (
             f"{context.operation_id}:persist" if context.operation_id else None
         )
@@ -411,6 +447,21 @@ class AgentOrchestrator:
                 evaluations=evaluations,
                 gaps=merged_gaps,
                 scope_summary=merged_scope,
+            )
+
+        if self._run_cancelled():
+            self._reject_cancelled_plan(persisted_plan_id)
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+                persisted_requirement_ids=persisted_req_ids,
+                persisted_plan_id=persisted_plan_id,
             )
 
         checkpoint = RunCheckpoint(
@@ -862,6 +913,46 @@ class AgentOrchestrator:
             execution_records=cp.execution_records,
         )
 
+    def _run_cancelled(self) -> bool:
+        return self._is_cancelled is not None and self._is_cancelled()
+
+    def _cancelled_result(
+        self,
+        *,
+        run_id: str,
+        context: RunContext,
+        records: list,
+        sources: list[SourceDocument] | None = None,
+        extracted_requirements: list[ExtractedRequirement] | None = None,
+        evaluations: list[RequirementEvaluation] | None = None,
+        gaps: list[SourceGap] | None = None,
+        scope_summary: dict[str, Any] | None = None,
+        persisted_requirement_ids: list[str] | None = None,
+        persisted_plan_id: str | None = None,
+    ) -> AgentRunResult:
+        return self._save_terminal_or_wait(
+            run_id=run_id,
+            context=context,
+            status=RunStatus.CANCELLED,
+            error=AgentError(code=AgentErrorCode.CANCELLED, message="运行已被用户取消"),
+            records=records,
+            sources=sources,
+            extracted_requirements=extracted_requirements,
+            evaluations=evaluations,
+            gaps=gaps,
+            scope_summary=scope_summary,
+            persisted_requirement_ids=persisted_requirement_ids,
+            persisted_plan_id=persisted_plan_id,
+        )
+
+    def _reject_cancelled_plan(self, plan_id: str | None) -> None:
+        if plan_id is None or self._persistence is None:
+            return
+        try:
+            self._persistence.reject_candidate_plan(plan_id, operation_id=str(uuid4()))
+        except PersistenceApiError:
+            return
+
     def _save_terminal_or_wait(
         self,
         *,
@@ -875,6 +966,8 @@ class AgentOrchestrator:
         evaluations: list[RequirementEvaluation] | None = None,
         gaps: list[SourceGap] | None = None,
         scope_summary: dict[str, Any] | None = None,
+        persisted_requirement_ids: list[str] | None = None,
+        persisted_plan_id: str | None = None,
     ) -> AgentRunResult:
         cp = RunCheckpoint(
             run_id=run_id,
@@ -889,6 +982,8 @@ class AgentOrchestrator:
             scope_summary=scope_summary or {},
             error=error,
             execution_records=records,
+            persisted_requirement_ids=persisted_requirement_ids or [],
+            persisted_plan_id=persisted_plan_id,
         )
         self._checkpoints[run_id] = cp
         return AgentRunResult(
@@ -900,6 +995,8 @@ class AgentOrchestrator:
             scope_summary=scope_summary or {},
             error=error,
             execution_records=records,
+            persisted_requirement_ids=persisted_requirement_ids or [],
+            persisted_plan_id=persisted_plan_id,
         )
 
 

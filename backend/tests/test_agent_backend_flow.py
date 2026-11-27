@@ -440,6 +440,92 @@ def test_agent_run_reject_creates_no_tasks(agent_client: TestClient) -> None:
     assert agent_client.get(f"/api/v1/matters/{matter_id}/tasks").json()["tasks"] == []
 
 
+def test_agent_run_cancel_during_model_call_leaves_no_candidate(
+    agent_client: TestClient, admin: psycopg.Connection
+) -> None:
+    state = cast(FastAPI, agent_client.app).state.replay_state
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+
+    def cancel_running_run() -> None:
+        state.before_candidate_plan = None
+        running = admin.execute(
+            "SELECT run_id FROM core.agent_run WHERE status = 'running'"
+        ).fetchone()
+        assert running is not None
+        cancelled = agent_client.post(f"/api/v1/agent-runs/{running[0]}/cancel")
+        assert cancelled.status_code == 200, cancelled.text
+        assert cancelled.json()["run"]["status"] == "已取消"
+
+    state.before_candidate_plan = cancel_running_run
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "cancel-during-model-call",
+        },
+    )
+    assert created.status_code == 200, created.text
+    run = created.json()["run"]
+    assert run["status"] == "已取消"
+    assert run["error"]["code"] == "CANCELLED"
+    assert run["persisted_plan_id"] is None
+
+    fetched = agent_client.get(f"/api/v1/agent-runs/{run['run_id']}")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["run"]["status"] == "已取消"
+
+    plan_count = admin.execute(
+        "SELECT count(*) FROM core.candidate_plan WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert plan_count is not None
+    assert plan_count[0] == 0
+    requirement_count = admin.execute(
+        "SELECT count(*) FROM core.requirement WHERE matter_id = %s",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert requirement_count is not None
+    assert requirement_count[0] == 0
+
+
+def test_agent_run_cancel_rejects_pending_candidate(
+    agent_client: TestClient,
+) -> None:
+    matter_id = _create_matter(agent_client)
+    _grant_consent(agent_client)
+    created = agent_client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "cancel-after-plan",
+        },
+    )
+    run = created.json()["run"]
+    assert run["status"] == "等待确认", run["error"]
+    plan_id = run["persisted_plan_id"]
+    assert plan_id is not None
+
+    cancelled = agent_client.post(f"/api/v1/agent-runs/{run['run_id']}/cancel")
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["run"]["status"] == "已取消"
+
+    plan = agent_client.get(f"/api/v1/candidate-plans/{plan_id}")
+    assert plan.status_code == 200, plan.text
+    assert plan.json()["plan"]["status"] == "rejected"
+
+    confirmed = agent_client.post(
+        f"/api/v1/candidate-plans/{plan_id}/confirm",
+        headers={"Idempotency-Key": "33333333-3333-7333-8333-333333333333"},
+    )
+    assert confirmed.status_code == 409, confirmed.text
+    assert confirmed.json()["error"]["code"] == "plan_already_decided"
+
+
 def test_agent_run_reads_and_confirms_after_restart(
     agent_client: TestClient,
     database_urls: tuple[str, str],
