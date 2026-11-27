@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 MAX_DURATION_SECONDS = 3_153_600_000
 
@@ -31,17 +31,10 @@ class Settings:
     config_file: str | None = None
 
     @classmethod
-    def from_env(cls, *, require_database: bool = True) -> Settings:
-        database_url = (
-            os.environ.get("OFFERPILOT_DATABASE_URL")
-            or os.environ.get("DATABASE_URL")
-            or ""
-        )
-        if require_database and not database_url:
-            raise RuntimeError("OFFERPILOT_DATABASE_URL or DATABASE_URL must be set")
+    def from_model_env(cls) -> Settings:
+        """Load model settings and the optional runtime config path."""
         return cls(
-            database_url=database_url,
-            timezone=os.environ.get("OFFERPILOT_TIMEZONE", "Asia/Shanghai"),
+            database_url="",
             model_provider=os.environ.get(
                 "OFFERPILOT_MODEL_PROVIDER", "OpenAI 兼容模型服务"
             ),
@@ -51,6 +44,21 @@ class Settings:
             model_timeout_seconds=_positive_float_env(
                 "OFFERPILOT_MODEL_TIMEOUT_SECONDS", 180.0
             ),
+            config_file=_optional_str_env("OFFERPILOT_CONFIG_FILE"),
+        )
+
+    @classmethod
+    def from_env(cls) -> Settings:
+        database_url = os.environ.get("OFFERPILOT_DATABASE_URL") or os.environ.get(
+            "DATABASE_URL"
+        )
+        if not database_url:
+            raise RuntimeError("OFFERPILOT_DATABASE_URL or DATABASE_URL must be set")
+
+        return replace(
+            cls.from_model_env(),
+            database_url=database_url,
+            timezone=os.environ.get("OFFERPILOT_TIMEZONE", "Asia/Shanghai"),
             session_ttl_seconds=_int_env("OFFERPILOT_SESSION_TTL_SECONDS", 43_200),
             remember_session_ttl_seconds=_int_env(
                 "OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS", 2_592_000
@@ -63,7 +71,6 @@ class Settings:
             ),
             login_email_limit=_non_negative_int_env("OFFERPILOT_LOGIN_EMAIL_LIMIT", 5),
             login_lock_seconds=_int_env("OFFERPILOT_LOGIN_LOCK_SECONDS", 900),
-            config_file=_optional_str_env("OFFERPILOT_CONFIG_FILE"),
         )
 
 

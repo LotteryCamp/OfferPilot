@@ -111,3 +111,19 @@ def test_invalid_yaml_does_not_print_config_values(
     assert not output.out
     assert "CONFIG_ERROR: 无法加载配置" in output.err
     assert "yaml-test-credential" not in output.err
+
+
+def test_model_check_ignores_unrelated_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setenv("OFFERPILOT_MODEL_API_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("OFFERPILOT_MODEL_NAME", "local-check-model")
+    monkeypatch.setenv("OFFERPILOT_MODEL_API_KEY", "test-credential")
+    monkeypatch.setenv("OFFERPILOT_SESSION_TTL_SECONDS", "not-a-number")
+    monkeypatch.setenv("OFFERPILOT_COOKIE_SECURE", "not-a-boolean")
+
+    assert main() == 0
+    output = capsys.readouterr()
+    assert "模型配置检查通过" in output.out
+    assert not output.err

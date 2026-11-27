@@ -11,7 +11,7 @@ from backend.runtime_config import RuntimeConfig
 def main() -> int:
     """Report configuration problems without printing configured credentials."""
     try:
-        base = Settings.from_env(require_database=False)
+        base = Settings.from_model_env()
         path = Path(base.config_file) if base.config_file else None
         settings = RuntimeConfig(base, path).current()
     except (OSError, RuntimeError, ValueError):
