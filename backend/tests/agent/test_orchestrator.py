@@ -456,6 +456,21 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
     assert res_no_consent.error is not None
     assert res_no_consent.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
 
+    res_public_only_no_consent = orch.start_run(
+        RunContext(
+            user_id="u1",
+            matter_id="m1",
+            goal="仅公开通知分析",
+            workspace_version=1,
+        )
+    )
+    assert res_public_only_no_consent.status == RunStatus.FAILED
+    assert res_public_only_no_consent.error is not None
+    assert (
+        res_public_only_no_consent.error.code
+        == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
+    )
+
     backend_ok = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=True)
     orch_timeout = AgentOrchestrator(
         timezone=SHANGHAI,
@@ -647,7 +662,6 @@ def test_gateway_requires_valid_transfer_consent_when_required() -> None:
             user_id="u1",
             matter_id="m1",
             expected_workspace_version=1,
-            requires_transfer_consent=True,
             fn=list,
         )
         raise AssertionError("Expected GatewayError")
@@ -661,7 +675,6 @@ def test_gateway_requires_valid_transfer_consent_when_required() -> None:
         user_id="u1",
         matter_id="m1",
         expected_workspace_version=1,
-        requires_transfer_consent=True,
         fn=list,
     )
     assert result == []
