@@ -75,7 +75,7 @@ watch(
 )
 
 watch(sources, (items) => {
-  if (items.some((item) => item.id === lastReadSource.value?.source.id)) lastReadSource.value = null
+  lastReadSource.value = null
   if (!items.some((item) => item.id === selectedSourceId.value))
     selectedSourceId.value = items[0]?.id ?? ''
 })
