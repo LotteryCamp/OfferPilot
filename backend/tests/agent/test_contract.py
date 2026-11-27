@@ -110,6 +110,7 @@ class InMemoryPersistence:
         self.plan_payloads: list[dict[str, Any]] = []
         self.plans: dict[str, dict[str, Any]] = {}
         self.written_tasks: list[dict[str, Any]] = []
+        self.rejected_requirements: list[str] = []
         self._clock_fn = clock_fn
 
     def persist_requirements(
@@ -165,6 +166,9 @@ class InMemoryPersistence:
         plan = self.plans[plan_id]
         plan["status"] = "rejected"
         return {"plan_id": plan_id, "status": "rejected", "tasks": []}
+
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        self.rejected_requirements.extend(requirement_ids)
 
 
 def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:

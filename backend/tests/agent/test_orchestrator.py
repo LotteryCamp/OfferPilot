@@ -137,6 +137,7 @@ class InMemoryCandidatePersistence:
     def __init__(self, *, fail_first_confirm_timeout: bool = False) -> None:
         self.plans: dict[str, dict[str, Any]] = {}
         self.decisions: dict[str, str] = {}
+        self.rejected_requirements: list[str] = []
         self.write_calls = 0
         self.fail_first_confirm_timeout = fail_first_confirm_timeout
         self._confirm_attempts = 0
@@ -236,6 +237,9 @@ class InMemoryCandidatePersistence:
             "tasks": [],
             "replayed": False,
         }
+
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        self.rejected_requirements.extend(requirement_ids)
 
 
 _SRC_ID = "b0000000-0000-4000-8000-000000000101"

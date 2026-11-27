@@ -880,16 +880,37 @@ class AgentOrchestrator:
             if cache_key is not None:
                 self._persisted_req_cache[cache_key] = (persisted_ids, req_id_map)
 
+        if self._run_cancelled():
+            self._reject_persisted_requirements(matter_id, persisted_ids)
+            return persisted_ids, None
+
         plan_payload = build_candidate_plan_create_payload(
             candidate_plan,
             sources_by_id,
             requirement_id_map=req_id_map,
             timezone=self._timezone,
         )
-        plan_resp = self._persistence.persist_candidate_plan(matter_id, plan_payload)
+        try:
+            plan_resp = self._persistence.persist_candidate_plan(
+                matter_id, plan_payload
+            )
+        except Exception:
+            self._reject_persisted_requirements(matter_id, persisted_ids)
+            raise
         raw_plan_id = plan_resp.get("id")
-        plan_id = str(raw_plan_id) if raw_plan_id is not None else None
-        return persisted_ids, plan_id
+        if raw_plan_id is None:
+            self._reject_persisted_requirements(matter_id, persisted_ids)
+            return persisted_ids, None
+        return persisted_ids, str(raw_plan_id)
+
+    def _reject_persisted_requirements(
+        self, matter_id: str, requirement_ids: list[str]
+    ) -> None:
+        """Invalidate requirements already written when no candidate plan survives."""
+        if not requirement_ids:
+            return
+        assert self._persistence is not None
+        self._persistence.reject_requirements(matter_id, requirement_ids)
 
     def _result_from_checkpoint(
         self,

@@ -6,6 +6,7 @@ import logging
 import threading
 from collections.abc import Generator
 from contextlib import contextmanager
+from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 from zoneinfo import ZoneInfo
@@ -26,6 +27,7 @@ from backend.agent.backend_bridge import (
     SqlCandidatePersistence,
     SqlWorkspaceBackend,
 )
+from backend.agent.orchestrator import _parse_written_tasks
 from backend.agent.ports import ModelAdapterPort
 from backend.agent.schemas import (
     AgentError,
@@ -42,6 +44,7 @@ from backend.fact_types import supported_fact_types
 from backend.identity import CurrentUser
 from backend.runtime_config import RuntimeConfig
 from backend.schemas import AgentRunCreate
+from backend.services import decisions as decision_service
 from backend.services import facts as fact_service
 from backend.services.common import require_matter, transaction
 from backend.services.sources import SourceReader, read_public_html
@@ -391,6 +394,113 @@ class AgentRunService:
             matter_id=matter_id,
             user_id=user_id,
             workspace_version=workspace_version,
+            current_user=current_user,
+        )
+
+    def confirm_candidate_plan(
+        self,
+        plan_id: UUID,
+        current_user: CurrentUser,
+        *,
+        operation_id: UUID,
+        now: datetime,
+    ) -> decision_service.DecisionResult:
+        """Confirm a candidate plan, serialized with the owning run's cancellation."""
+        run_id = self._run_for_plan(plan_id, current_user)
+        if run_id is None:
+            return self._decide_candidate_plan(
+                plan_id,
+                current_user,
+                operation_id=operation_id,
+                now=now,
+            )
+        with self._run_lock(run_id):
+            row = self._require_run(run_id, current_user)
+            checkpoint = self._checkpoint_from_row(row)
+            if row["status"] == "cancelled" or (
+                checkpoint is not None and checkpoint.status == RunStatus.CANCELLED
+            ):
+                self._discard_run_artifacts(
+                    matter_id=str(row["matter_id"]),
+                    plan_id=str(plan_id),
+                    requirement_ids=(
+                        checkpoint.persisted_requirement_ids
+                        if checkpoint is not None
+                        else None
+                    ),
+                    current_user=current_user,
+                )
+            result = self._decide_candidate_plan(
+                plan_id,
+                current_user,
+                operation_id=operation_id,
+                now=now,
+            )
+            self._mark_run_completed(
+                run_id,
+                row,
+                checkpoint,
+                result,
+                current_user,
+            )
+            return result
+
+    def _run_for_plan(self, plan_id: UUID, current_user: CurrentUser) -> str | None:
+        with (
+            self._session_factory() as session,
+            transaction(session, current_user),
+        ):
+            return session.execute(
+                select(agent_run.c.run_id)
+                .where(
+                    agent_run.c.user_id == current_user.user_id,
+                    agent_run.c.checkpoint.isnot(None),
+                    agent_run.c.checkpoint["persisted_plan_id"].astext == str(plan_id),
+                )
+                .order_by(agent_run.c.updated_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+
+    def _decide_candidate_plan(
+        self,
+        plan_id: UUID,
+        current_user: CurrentUser,
+        *,
+        operation_id: UUID,
+        now: datetime,
+    ) -> decision_service.DecisionResult:
+        with self._session_factory() as session:
+            return decision_service.decide_plan(
+                session,
+                current_user,
+                self._config.current(),
+                plan_id,
+                decision="confirmed",
+                operation_id=operation_id,
+                now=now,
+            )
+
+    def _mark_run_completed(
+        self,
+        run_id: str,
+        row: dict[str, Any],
+        checkpoint: RunCheckpoint | None,
+        decision: decision_service.DecisionResult,
+        current_user: CurrentUser,
+    ) -> None:
+        if checkpoint is None or checkpoint.status == RunStatus.COMPLETED:
+            return
+        checkpoint.status = RunStatus.COMPLETED
+        checkpoint.error = None
+        checkpoint.written_tasks = _parse_written_tasks(
+            {"tasks": decision.tasks}, checkpoint.matter_id
+        )
+        self._save_result(
+            run_id=run_id,
+            result=self._result_from_checkpoint(checkpoint),
+            matter_id=str(row["matter_id"]),
+            user_id=str(row["user_id"]),
+            workspace_version=checkpoint.workspace_version,
             current_user=current_user,
         )
 
@@ -772,20 +882,21 @@ class AgentRunService:
         requirement_ids: list[str] | None,
         current_user: CurrentUser,
     ) -> None:
-        if plan_id is None:
-            return
         persistence = SqlCandidatePersistence(
             current_user,
             self._config.current(),
             self._session_factory,
             self._clock,
         )
-        if self._reject_plan_for_cleanup(persistence, plan_id):
-            self._reject_requirements_for_cleanup(
-                persistence,
-                matter_id,
-                requirement_ids or [],
-            )
+        if plan_id is not None and not self._reject_plan_for_cleanup(
+            persistence, plan_id
+        ):
+            return
+        self._reject_requirements_for_cleanup(
+            persistence,
+            matter_id,
+            requirement_ids or [],
+        )
 
     def _reject_plan_for_cleanup(
         self, persistence: SqlCandidatePersistence, plan_id: str
