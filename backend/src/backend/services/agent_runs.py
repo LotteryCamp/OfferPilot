@@ -193,14 +193,8 @@ class AgentRunService:
                 details={"fact_types": managed_fact_types},
             )
 
-        expected_fact_versions, agent_facts = self._load_fact_context(
-            matter_id, current_user
-        )
-        requires_transfer_consent = bool(
-            body.confirmed_facts or agent_facts or matter_row["scope_attrs"]
-        )
         backend = SqlWorkspaceBackend(current_user, self._session_factory)
-        if requires_transfer_consent and any(
+        if any(
             not backend.has_valid_transfer_consent(
                 str(current_user.user_id),
                 purpose=purpose,
@@ -211,10 +205,13 @@ class AgentRunService:
             raise ApiError(
                 422,
                 "model_transfer_consent_required",
-                "携带个人事实或事项适用范围时必须先同意向外部模型传输公开资料",
+                "启动 Agent 运行前必须先同意向外部模型传输公开资料",
                 next_step="在个人信息授权同意选项中授予后重试",
             )
 
+        expected_fact_versions, agent_facts = self._load_fact_context(
+            matter_id, current_user
+        )
         confirmed_facts = dict(body.confirmed_facts)
         confirmed_facts.update(agent_facts)
 
