@@ -82,6 +82,10 @@ class CandidatePersistencePort(Protocol):
         """Reject a persisted candidate plan idempotently on the backend."""
         ...
 
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        """Invalidate requirements whose candidate plan was not persisted."""
+        ...
+
 
 class WorkspaceBackendPort(Protocol):
     """Port for business service ownership, version, consent, and write checks (owned by 李义东)."""
