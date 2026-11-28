@@ -9,6 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,6 +49,7 @@ FIXTURE = json.loads(
 SOURCES = FIXTURE["sources"]
 RULES = FIXTURE["rules"]
 PLANS = FIXTURE["plans"]
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def _source_payload(source_key: str) -> dict[str, Any]:
@@ -285,7 +287,7 @@ def _persist_candidate(
             for task in data["tasks"]
         ],
     )
-    assert validate_candidate_plan(candidate, 1, sources) == []
+    assert validate_candidate_plan(candidate, 1, sources, timezone=SHANGHAI) == []
     missing_dependency = candidate.tasks[-1].model_copy(
         update={"depends_on": ["task-outside-this-plan"]}
     )
@@ -293,12 +295,13 @@ def _persist_candidate(
         update={"tasks": [*candidate.tasks[:-1], missing_dependency]}
     )
     assert any(
-        "不存在的前置任务" in error for error in validate_candidate_plan(invalid, 1)
+        "不存在的前置任务" in error
+        for error in validate_candidate_plan(invalid, 1, timezone=SHANGHAI)
     )
     response = client.post(
         f"{matter_path}/candidate-plans",
         json=build_candidate_plan_create_payload(
-            candidate, sources, {rule_id: saved_requirement["id"]}
+            candidate, sources, {rule_id: saved_requirement["id"]}, timezone=SHANGHAI
         ),
     )
     assert response.status_code == 201, response.text
