@@ -16,11 +16,12 @@ import App from './App.vue'
 import { router } from './router'
 import { workspaceIntegrations, workspaceKey } from './app/integrations'
 import { useAuthStore } from './modules/auth/store'
-import { setAuthenticationRequiredHandler } from './shared/http'
+import { setAuthenticationRequiredHandler, setSessionChangedHandler } from './shared/http'
 
 const pinia = createPinia()
 const auth = useAuthStore(pinia)
 setAuthenticationRequiredHandler(() => auth.expireSession())
+setSessionChangedHandler(() => auth.synchronizeSession())
 
 createApp(App)
   .provide(workspaceKey, workspaceIntegrations)

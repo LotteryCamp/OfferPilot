@@ -1,6 +1,13 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { cancelWorkspaceRequests } from '../../shared/http'
+import { cancelWorkspaceRequests, setWorkspaceSessionRevision } from '../../shared/http'
+import {
+  changeSession,
+  isCurrentSessionRevision,
+  onSessionRevisionChanged,
+  readSessionRevision,
+  waitForStableSession,
+} from '../../shared/sessionCoordination'
 import {
   clearLegacyWorkspaceStorage,
   setWorkspaceStorageOwner,
@@ -29,9 +36,11 @@ export const useAuthStore = defineStore('auth', () => {
   const sources = useSourcesStore()
   let checking: Promise<void> | null = null
   let generation = 0
+  let observedRevision: string | null = null
 
   function clearWorkspace() {
     cancelWorkspaceRequests()
+    setWorkspaceSessionRevision(null)
     sources.cancel()
     sources.$patch({ sources: [], currentMatterId: '', error: '', loadedAt: null, loading: false })
     setWorkspaceStorageOwner(null)
@@ -40,11 +49,13 @@ export const useAuthStore = defineStore('auth', () => {
     session.value = null
   }
 
-  function accept(result: AuthenticatedAccount) {
+  function accept(result: AuthenticatedAccount, revision: string) {
     if (user.value?.id !== result.user.id || user.value.workspace_id !== result.user.workspace_id) {
       clearWorkspace()
     }
     setWorkspaceStorageOwner(result.user.id)
+    setWorkspaceSessionRevision(revision)
+    observedRevision = revision
     try {
       clearLegacyWorkspaceStorage()
     } catch {
@@ -75,8 +86,24 @@ export const useAuthStore = defineStore('auth', () => {
     problem.value = null
     checking = (async () => {
       try {
-        const result = await readAccount()
-        if (ticket === generation) accept(result)
+        // A session response describes the cookie only for the revision that was read.
+        while (ticket === generation) {
+          const revision = await waitForStableSession()
+          if (ticket !== generation) return
+          let result: AuthenticatedAccount
+          try {
+            result = await readAccount()
+          } catch (cause) {
+            if (ticket !== generation) return
+            if (!isCurrentSessionRevision(revision, readSessionRevision())) continue
+            observedRevision = revision
+            throw cause
+          }
+          if (ticket !== generation) return
+          if (!isCurrentSessionRevision(revision, readSessionRevision())) continue
+          accept(result, revision)
+          return
+        }
       } catch (cause) {
         if (ticket !== generation) return
         const failure = authFailure(cause)
@@ -95,7 +122,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function ensureSession() {
+    if (pending.value) return Promise.resolve()
     if (status.value === 'idle' || status.value === 'checking') return restoreSession()
+    if (status.value === 'authenticated') {
+      try {
+        if (!isCurrentSessionRevision(observedRevision, readSessionRevision()))
+          return restoreSession()
+      } catch {
+        return restoreSession()
+      }
+    }
     if (
       status.value === 'authenticated' &&
       session.value &&
@@ -106,6 +142,21 @@ export const useAuthStore = defineStore('auth', () => {
     return Promise.resolve()
   }
 
+  function synchronizeSession() {
+    if (pending.value || checking) return
+    try {
+      if (isCurrentSessionRevision(observedRevision, readSessionRevision())) return
+    } catch {
+      // Restore will surface the browser storage error without mounting private data.
+    }
+    if (problem.value?.code === 'logout_unconfirmed') problem.value = null
+    void restoreSession()
+  }
+
+  function watchSessionChanges() {
+    return onSessionRevisionChanged(synchronizeSession)
+  }
+
   async function authenticate(
     operation: 'login' | 'register',
     request: () => Promise<AuthenticatedAccount>,
@@ -114,17 +165,34 @@ export const useAuthStore = defineStore('auth', () => {
     pending.value = operation
     problem.value = null
     const ticket = ++generation
+    const previousStatus = status.value
+    clearWorkspace()
+    let recheck = false
     try {
-      const result = await request()
+      const { result, revision } = await changeSession(request)
       if (ticket !== generation) return false
-      accept(result)
-      return true
+      if (isCurrentSessionRevision(revision, readSessionRevision())) {
+        accept(result, revision)
+        return true
+      }
+      recheck = true
     } catch (cause) {
-      if (ticket === generation) problem.value = authFailure(cause)
+      if (ticket === generation) {
+        problem.value = authFailure(cause)
+        status.value = previousStatus === 'unavailable' ? 'unavailable' : 'anonymous'
+        try {
+          const current = readSessionRevision()
+          if (!current.changing) observedRevision = current.revision
+        } catch {
+          observedRevision = null
+        }
+      }
       return false
     } finally {
       pending.value = null
     }
+    if (recheck) await restoreSession()
+    return status.value === 'authenticated'
   }
 
   function login(input: LoginInput) {
@@ -142,10 +210,15 @@ export const useAuthStore = defineStore('auth', () => {
     clearWorkspace()
     status.value = 'checking'
     problem.value = null
+    let recheck = false
     try {
-      await logoutAccount()
-      status.value = 'anonymous'
-      return true
+      const { revision } = await changeSession(logoutAccount)
+      if (isCurrentSessionRevision(revision, readSessionRevision())) {
+        observedRevision = revision
+        status.value = 'anonymous'
+        return true
+      }
+      recheck = true
     } catch {
       problem.value = {
         code: 'logout_unconfirmed',
@@ -156,6 +229,8 @@ export const useAuthStore = defineStore('auth', () => {
     } finally {
       pending.value = null
     }
+    if (recheck) await restoreSession()
+    return (status.value as AuthStatus) === 'anonymous'
   }
 
   return {
@@ -171,5 +246,7 @@ export const useAuthStore = defineStore('auth', () => {
     register,
     logout,
     expireSession,
+    synchronizeSession,
+    watchSessionChanges,
   }
 })

@@ -3,6 +3,7 @@ import { computed, nextTick, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import workspaceMark from './assets/offerpilot-mark.png'
+import { createSessionExpiryTimer } from './modules/auth/sessionExpiry'
 import { useAuthStore } from './modules/auth/store'
 import { safeReturnPath } from './router/auth-navigation'
 import StatePanel from './shared/ui/StatePanel.vue'
@@ -29,26 +30,27 @@ watch(
   },
 )
 
-let sessionTimer: ReturnType<typeof setTimeout> | undefined
-watch(
-  () => auth.session?.expires_at,
-  (expiresAt) => {
-    clearTimeout(sessionTimer)
-    if (!expiresAt) return
-    const delay = Math.min(Math.max(Date.parse(expiresAt) - Date.now(), 60_000), 2_147_000_000)
-    sessionTimer = setTimeout(() => {
-      if (auth.status === 'authenticated') void auth.restoreSession()
-    }, delay)
-  },
-  { immediate: true },
-)
+const readSessionExpiry = () =>
+  auth.status === 'authenticated' ? auth.session?.expires_at : undefined
+const sessionExpiryTimer = createSessionExpiryTimer(readSessionExpiry, () => auth.restoreSession())
+watch(readSessionExpiry, sessionExpiryTimer.refresh, { immediate: true })
+const stopSessionSync = auth.watchSessionChanges()
+function checkVisibleSession() {
+  if (document.visibilityState === 'visible') auth.synchronizeSession()
+}
 function checkRestoredPage(event: PageTransitionEvent) {
   if (event.persisted) void auth.restoreSession()
+  else auth.synchronizeSession()
 }
 window.addEventListener('pageshow', checkRestoredPage)
+window.addEventListener('focus', checkVisibleSession)
+document.addEventListener('visibilitychange', checkVisibleSession)
 onUnmounted(() => {
-  clearTimeout(sessionTimer)
+  stopSessionSync()
+  sessionExpiryTimer.dispose()
   window.removeEventListener('pageshow', checkRestoredPage)
+  window.removeEventListener('focus', checkVisibleSession)
+  document.removeEventListener('visibilitychange', checkVisibleSession)
 })
 
 async function logout() {
