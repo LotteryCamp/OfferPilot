@@ -1,6 +1,7 @@
-import axios from 'axios'
+import axios, { AxiosHeaders } from 'axios'
 import { z } from 'zod'
 import { http } from '../../shared/http'
+import { SessionSyncError } from '../../shared/sessionCoordination'
 import { authenticatedAccountSchema, type LoginInput, type RegisterInput } from './contracts'
 
 export async function registerAccount(input: RegisterInput) {
@@ -42,6 +43,9 @@ export interface AuthProblem {
 }
 
 export function authFailure(cause: unknown): AuthProblem {
+  if (cause instanceof SessionSyncError) {
+    return { code: 'session_sync_unavailable', message: cause.message }
+  }
   if (axios.isAxiosError(cause)) {
     const status = cause.response?.status
     const body = errorBody.safeParse(cause.response?.data)
@@ -53,7 +57,13 @@ export function authFailure(cause: unknown): AuthProblem {
           issue.message,
         ]),
       )
-      const retryAfter = cause.response?.headers['retry-after']
+      const headers = cause.response?.headers
+      const retryAfter =
+        headers instanceof AxiosHeaders
+          ? headers.get('Retry-After')
+          : Object.entries(headers ?? {}).find(
+              ([name]) => name.toLowerCase() === 'retry-after',
+            )?.[1]
       const messages: Record<string, string> = {
         authentication_required: '登录已失效，请重新登录后继续。',
         invalid_credentials: '邮箱或密码不正确，或账号当前不可用。请核对后重试。',
@@ -67,7 +77,10 @@ export function authFailure(cause: unknown): AuthProblem {
         message: messages[error.code] ?? error.message,
         status,
         fields,
-        retryAfter: retryAfter === undefined ? undefined : String(retryAfter),
+        retryAfter:
+          typeof retryAfter === 'string' || typeof retryAfter === 'number'
+            ? String(retryAfter)
+            : undefined,
       }
     }
     return {
