@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from backend.agent import (
     AgentErrorCode,
@@ -24,6 +25,8 @@ from backend.agent import (
     ToolGateway,
     WrittenTask,
 )
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 class InMemorySourceReader:
@@ -134,6 +137,7 @@ class InMemoryCandidatePersistence:
     def __init__(self, *, fail_first_confirm_timeout: bool = False) -> None:
         self.plans: dict[str, dict[str, Any]] = {}
         self.decisions: dict[str, str] = {}
+        self.rejected_requirements: list[str] = []
         self.write_calls = 0
         self.fail_first_confirm_timeout = fail_first_confirm_timeout
         self._confirm_attempts = 0
@@ -234,6 +238,9 @@ class InMemoryCandidatePersistence:
             "replayed": False,
         }
 
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        self.rejected_requirements.extend(requirement_ids)
+
 
 _SRC_ID = "b0000000-0000-4000-8000-000000000101"
 _SNAP_ID = "b0000000-0000-4000-8000-000000000102"
@@ -264,6 +271,7 @@ def test_happy_path_waits_for_confirmation_then_writes_idempotently() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=5)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -303,6 +311,7 @@ def test_reject_plan_persists_rejected_and_cannot_override_completed() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -336,6 +345,7 @@ def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     persistence = InMemoryCandidatePersistence(fail_first_confirm_timeout=True)
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -378,6 +388,7 @@ def test_confirm_timeout_allows_retry_and_version_conflict_blocks() -> None:
 def test_cold_start_recovery_and_missing_persistence_guard() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1)
     orch_no_persist = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -396,6 +407,7 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
 
     persistence = InMemoryCandidatePersistence()
     orch1 = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -407,6 +419,7 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
 
     # Simulate process restart with a fresh orchestrator instance
     orch2 = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -429,6 +442,7 @@ def test_cold_start_recovery_and_missing_persistence_guard() -> None:
 def test_missing_consent_or_model_timeout_reports_failure() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=False)
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -446,8 +460,24 @@ def test_missing_consent_or_model_timeout_reports_failure() -> None:
     assert res_no_consent.error is not None
     assert res_no_consent.error.code == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
 
+    res_public_only_no_consent = orch.start_run(
+        RunContext(
+            user_id="u1",
+            matter_id="m1",
+            goal="仅公开通知分析",
+            workspace_version=1,
+        )
+    )
+    assert res_public_only_no_consent.status == RunStatus.FAILED
+    assert res_public_only_no_consent.error is not None
+    assert (
+        res_public_only_no_consent.error.code
+        == AgentErrorCode.CONSENT_REQUIRED_OR_REVOKED
+    )
+
     backend_ok = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=True)
     orch_timeout = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()], fail_on_plan=True),
         backend=backend_ok,
@@ -519,6 +549,7 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
     backend = InMemoryWorkspaceBackend(workspace_version=1, consent_valid=False)
     persistence = InMemoryCandidatePersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=InMemoryModelAdapter([_sample_req()]),
         backend=backend,
@@ -548,6 +579,7 @@ def test_ownership_consent_retry_and_recorder_resilience() -> None:
             return super().generate_candidate_plan(context, sources, evaluations)
 
     orch_revoke = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=InMemorySourceReader([_sample_doc()]),
         model_adapter=RevokingModelAdapter([_sample_req()]),
         backend=backend,
@@ -634,7 +666,6 @@ def test_gateway_requires_valid_transfer_consent_when_required() -> None:
             user_id="u1",
             matter_id="m1",
             expected_workspace_version=1,
-            requires_transfer_consent=True,
             fn=list,
         )
         raise AssertionError("Expected GatewayError")
@@ -648,9 +679,81 @@ def test_gateway_requires_valid_transfer_consent_when_required() -> None:
         user_id="u1",
         matter_id="m1",
         expected_workspace_version=1,
-        requires_transfer_consent=True,
         fn=list,
     )
     assert result == []
     assert record.succeeded is True
     assert backend.consent_calls == 2
+
+
+def test_cancelled_before_persist_leaves_no_candidate() -> None:
+    class CancelAfterPlanModel(InMemoryModelAdapter):
+        def __init__(self, requirements: list[ExtractedRequirement]) -> None:
+            super().__init__(requirements)
+            self.cancelled = False
+
+        def generate_candidate_plan(
+            self,
+            context: RunContext,
+            sources: list[SourceDocument],
+            evaluations: list[RequirementEvaluation],
+        ) -> CandidatePlan:
+            plan = super().generate_candidate_plan(context, sources, evaluations)
+            self.cancelled = True
+            return plan
+
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
+    model = CancelAfterPlanModel([_sample_req()])
+    orch = AgentOrchestrator(
+        timezone=SHANGHAI,
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=model,
+        backend=backend,
+        persistence=persistence,
+        is_cancelled=lambda: model.cancelled,
+    )
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理夏令营申请计划",
+        workspace_version=1,
+        confirmed_facts={"major": "软件工程"},
+    )
+
+    res = orch.start_run(ctx)
+    assert res.status == RunStatus.CANCELLED
+    assert res.error is not None
+    assert res.error.code == AgentErrorCode.CANCELLED
+    assert res.persisted_plan_id is None
+    assert persistence.plans == {}
+
+
+def test_cancelled_after_persist_returns_artifacts_for_cleanup() -> None:
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
+    orch = AgentOrchestrator(
+        timezone=SHANGHAI,
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter([_sample_req()]),
+        backend=backend,
+        persistence=persistence,
+        is_cancelled=lambda: bool(persistence.plans),
+    )
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理夏令营申请计划",
+        workspace_version=1,
+        confirmed_facts={"major": "软件工程"},
+    )
+
+    res = orch.start_run(ctx)
+    assert res.status == RunStatus.CANCELLED
+    assert res.error is not None
+    assert res.error.code == AgentErrorCode.CANCELLED
+    plan_id = res.persisted_plan_id
+    assert plan_id is not None
+    assert res.persisted_requirement_ids
+    assert persistence.get_candidate_plan(plan_id)["status"] == "pending"
+    assert persistence.write_calls == 0

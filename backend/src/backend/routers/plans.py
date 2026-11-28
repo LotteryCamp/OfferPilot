@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 
 from backend.errors import error_payload
+from backend.routers.agent_runs import AgentRunServiceDep
 from backend.routers.deps import (
     ClockDep,
     CurrentUserDep,
@@ -32,10 +34,16 @@ def create_candidate_plan(
     current_user: CurrentUserDep,
     session: SessionDep,
     clock: ClockDep,
+    settings: SettingsDep,
 ) -> dict:
     return {
         "plan": plan_service.create_plan(
-            session, current_user, matter_id, body, now=clock.now()
+            session,
+            current_user,
+            matter_id,
+            body,
+            now=clock.now(),
+            timezone=ZoneInfo(settings.timezone),
         )
     }
 
@@ -59,16 +67,12 @@ def confirm_candidate_plan(
     plan_id: UUID,
     operation_id: IdempotencyKeyDep,
     current_user: CurrentUserDep,
-    session: SessionDep,
-    settings: SettingsDep,
+    service: AgentRunServiceDep,
     clock: ClockDep,
 ):
-    result = decision_service.decide_plan(
-        session,
-        current_user,
-        settings,
+    result = service.confirm_candidate_plan(
         plan_id,
-        decision="confirmed",
+        current_user,
         operation_id=operation_id,
         now=clock.now(),
     )

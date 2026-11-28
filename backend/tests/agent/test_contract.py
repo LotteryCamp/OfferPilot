@@ -8,12 +8,12 @@ import re
 from datetime import UTC, date, datetime
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from pydantic import BaseModel
 
 from backend.agent import (
-    SHANGHAI,
     AgentErrorCode,
     AgentOrchestrator,
     AuthLevel,
@@ -46,6 +46,8 @@ from backend.agent import (
     source_document_from_public_result,
 )
 from backend.schemas import CandidatePlanCreate
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 FX_S4_EXCERPT = (
     "（5）符合推荐条件的学生，由本人自愿向学院提出申请，并于2026年9月10日下午15:00前提交"
@@ -108,6 +110,7 @@ class InMemoryPersistence:
         self.plan_payloads: list[dict[str, Any]] = []
         self.plans: dict[str, dict[str, Any]] = {}
         self.written_tasks: list[dict[str, Any]] = []
+        self.rejected_requirements: list[str] = []
         self._clock_fn = clock_fn
 
     def persist_requirements(
@@ -163,6 +166,9 @@ class InMemoryPersistence:
         plan = self.plans[plan_id]
         plan["status"] = "rejected"
         return {"plan_id": plan_id, "status": "rejected", "tasks": []}
+
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        self.rejected_requirements.extend(requirement_ids)
 
 
 def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
@@ -311,6 +317,7 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
     persistence = InMemoryPersistence(clock_fn=lambda: current_clock[0])
 
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
         model_adapter=StructuredModelAdapter(replay_call_model),
         backend=backend,
@@ -358,7 +365,9 @@ def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
 
     # Production clock (2026-11-18) must refuse confirmation via backend with DEADLINE_EXPIRED
     current_clock[0] = prod_clock
-    assert find_expired_plan_tasks(result.candidate_plan, prod_clock) == [
+    assert find_expired_plan_tasks(
+        result.candidate_plan, prod_clock, timezone=SHANGHAI
+    ) == [
         "T-01",
         "T-02",
     ]
@@ -438,6 +447,7 @@ def test_p1_citation_rejects_fictional_locator_excerpt_or_mismatched_uuid() -> N
             return response_model.model_validate(payload.model_dump())
 
         orch = AgentOrchestrator(
+            timezone=SHANGHAI,
             source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
             model_adapter=StructuredModelAdapter(bad_model),
             backend=InMemoryWorkspaceBackend(),
@@ -480,6 +490,7 @@ def test_a14_and_a03_failures_and_scope_year_forwarding() -> None:
 
         persistence = InMemoryPersistence()
         orch = AgentOrchestrator(
+            timezone=SHANGHAI,
             source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
             model_adapter=StructuredModelAdapter(fail_model),
             backend=InMemoryWorkspaceBackend(),
@@ -509,6 +520,7 @@ def test_a14_and_a03_failures_and_scope_year_forwarding() -> None:
         return response_model.model_validate({})
 
     orch_src_fail = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=PublicHtmlSourceReader(read_public_html_fn=fail_reader),
         model_adapter=StructuredModelAdapter(dummy_model),
         backend=InMemoryWorkspaceBackend(),
@@ -804,11 +816,41 @@ def test_source_bridges_and_pr41_contract_payloads() -> None:
         ],
     )
     plan_payload = build_candidate_plan_create_payload(
-        plan, sources_map, {"R-1": str(uuid4())}
+        plan, sources_map, {"R-1": str(uuid4())}, timezone=SHANGHAI
     )
     assert plan_payload["items"][0]["sources"][0]["locator_kind"] == "section"
     assert plan_payload["items"][0]["official_deadline_date"] == "2026-09-10"
     assert "所需证据：电子版PDF" in plan_payload["items"][0]["detail"]
+
+
+def test_candidate_plan_payload_uses_configured_timezone() -> None:
+    snap_id, doc = _fragment_doc()
+    plan = CandidatePlan(
+        candidate_id="plan-timezone",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=[
+            CandidateTask(
+                task_id="t1",
+                title="提交材料",
+                basis=[SourceCitation(source_version_id=snap_id, locator="正文第3段")],
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                official_deadline_at=datetime(2026, 9, 11, 6, 0, tzinfo=UTC),
+                evidence_required="回执",
+            )
+        ],
+    )
+
+    payload = build_candidate_plan_create_payload(
+        plan, {snap_id: doc}, timezone=ZoneInfo("America/Los_Angeles")
+    )
+    assert payload["items"][0]["official_deadline_date"] == "2026-09-10"
+
+    shanghai_payload = build_candidate_plan_create_payload(
+        plan, {snap_id: doc}, timezone=SHANGHAI
+    )
+    assert shanghai_payload["items"][0]["official_deadline_date"] == "2026-09-11"
 
 
 def test_candidate_plan_payload_deduplicates_item_sources() -> None:
@@ -834,7 +876,9 @@ def test_candidate_plan_payload_deduplicates_item_sources() -> None:
         ],
     )
 
-    payload = build_candidate_plan_create_payload(plan, {snap_id: doc})
+    payload = build_candidate_plan_create_payload(
+        plan, {snap_id: doc}, timezone=SHANGHAI
+    )
 
     assert payload["items"][0]["sources"] == [
         {
@@ -876,7 +920,9 @@ def test_candidate_plan_payload_skips_blank_locators_and_truncates_after_trim() 
         ],
     )
 
-    payload = build_candidate_plan_create_payload(plan, {snap_id: doc})
+    payload = build_candidate_plan_create_payload(
+        plan, {snap_id: doc}, timezone=SHANGHAI
+    )
 
     assert [source["locator"] for source in payload["items"][0]["sources"]] == [
         "正文第3段",
@@ -911,7 +957,9 @@ def test_candidate_plan_payload_deduplicates_locator_after_final_normalization()
         ],
     )
 
-    payload = build_candidate_plan_create_payload(plan, {snap_id: doc})
+    payload = build_candidate_plan_create_payload(
+        plan, {snap_id: doc}, timezone=SHANGHAI
+    )
 
     assert [source["locator"] for source in payload["items"][0]["sources"]] == [
         short_locator
@@ -1194,6 +1242,8 @@ def test_outbound_model_payload_strips_personal_fields_and_unlisted_scope() -> N
     assert "email" not in sent["scope_attrs"]
     assert "confirmed_facts" not in sent
     for sent_ev in sent["evaluations"]:
+        assert "status" not in sent_ev
+        assert "computed_deadline" not in sent_ev
         assert "reason" not in sent_ev
         assert "missing_fields" not in sent_ev
         assert sent_ev["basis"][0]["locator"] == "提交申请表"
@@ -1267,6 +1317,12 @@ def test_citation_validation_rejects_empty_excerpt_and_kind_mismatch() -> None:
         SourceCitation(source_version_id=snap_id, locator="正文第3段", excerpt="   "),
         SourceCitation(
             source_version_id=snap_id,
+            locator_kind="section",
+            locator="正文第3段",
+            excerpt="（3）成绩排名前\t30%。",
+        ),
+        SourceCitation(
+            source_version_id=snap_id,
             locator_kind="table_row",
             locator="正文第3段",
             excerpt="成绩排名前 30%",
@@ -1278,6 +1334,28 @@ def test_citation_validation_rejects_empty_excerpt_and_kind_mismatch() -> None:
             raise AssertionError("Expected ModelInvocationError")
         except ModelInvocationError as exc:
             assert exc.code == AgentErrorCode.VALIDATION_FAILED
+
+    no_fragment_doc = SourceDocument(
+        source_version_id=str(uuid4()),
+        title="无片段来源",
+        publisher="某校",
+        content="期限 2026-09-10 前提交",
+    )
+    try:
+        _validate_and_enrich_citations(
+            [
+                SourceCitation(
+                    source_version_id=no_fragment_doc.source_version_id,
+                    locator="正文",
+                    excerpt="期限 2026-09-10\t前提交",
+                )
+            ],
+            {no_fragment_doc.source_version_id},
+            {no_fragment_doc.source_version_id: no_fragment_doc},
+        )
+        raise AssertionError("Expected ModelInvocationError")
+    except ModelInvocationError as exc:
+        assert exc.code == AgentErrorCode.VALIDATION_FAILED
 
     good = _validate_and_enrich_citations(
         [SourceCitation(source_version_id=snap_id, locator="正文第3段")],
@@ -1370,7 +1448,7 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         input_snapshot_id=snap_id,
         tasks=resolved,
     )
-    assert validate_candidate_plan(plan, 1) == []
+    assert validate_candidate_plan(plan, 1, timezone=SHANGHAI) == []
 
     # Missing or ambiguous prefix must still be rejected by validate_candidate_plan
     t_dup = CandidateTask(
@@ -1397,7 +1475,7 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         input_snapshot_id=snap_id,
         tasks=ambiguous_resolved,
     )
-    violations = validate_candidate_plan(bad_plan, 1)
+    violations = validate_candidate_plan(bad_plan, 1, timezone=SHANGHAI)
     assert len(violations) == 2
 
     # Empty/whitespace dependency must not match task IDs starting with '-' or '_'
@@ -1422,7 +1500,9 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
         assert (
             len(
                 validate_candidate_plan(
-                    plan.model_copy(update={"tasks": blank_resolved}), 1
+                    plan.model_copy(update={"tasks": blank_resolved}),
+                    1,
+                    timezone=SHANGHAI,
                 )
             )
             == 1
@@ -1455,6 +1535,7 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
             tasks=long_resolved,
         ),
         {snap_id: doc},
+        timezone=SHANGHAI,
     )
     CandidatePlanCreate.model_validate(long_plan_payload)
     assert long_plan_payload["items"][0]["client_item_id"] == long_id[:80]
@@ -1472,9 +1553,14 @@ def test_task_dependency_prefix_resolution_and_missing_guard() -> None:
                 ]
             }
         )
-        assert any("冲突" in v for v in validate_candidate_plan(conflicting_plan, 1))
+        assert any(
+            "冲突" in v
+            for v in validate_candidate_plan(conflicting_plan, 1, timezone=SHANGHAI)
+        )
         with pytest.raises(ValueError, match="冲突"):
-            build_candidate_plan_create_payload(conflicting_plan, {snap_id: doc})
+            build_candidate_plan_create_payload(
+                conflicting_plan, {snap_id: doc}, timezone=SHANGHAI
+            )
 
 
 def test_colliding_task_ids_rejected_before_persisting_requirements() -> None:
@@ -1551,6 +1637,7 @@ def test_colliding_task_ids_rejected_before_persisting_requirements() -> None:
 
     persistence = InMemoryPersistence()
     orch = AgentOrchestrator(
+        timezone=SHANGHAI,
         source_reader=PublicHtmlSourceReader(preloaded_sources=[doc]),
         model_adapter=_CollidingModelAdapter(),
         backend=InMemoryWorkspaceBackend(workspace_version=1),

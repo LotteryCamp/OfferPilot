@@ -6,6 +6,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -116,6 +117,7 @@ class SqlCandidatePersistence:
     ) -> None:
         self._current_user = current_user
         self._settings = settings
+        self._timezone = ZoneInfo(settings.timezone)
         self._session_factory = session_factory
         self._clock = clock
         self._expected_fact_versions = expected_fact_versions
@@ -159,11 +161,27 @@ class SqlCandidatePersistence:
                     UUID(matter_id),
                     body,
                     now=self._clock.now(),
+                    timezone=self._timezone,
                     expected_fact_versions=self._expected_fact_versions,
                 )
         except ApiError as exc:
             raise _to_persistence_error(exc) from exc
         return result
+
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        if not requirement_ids:
+            return
+        try:
+            with self._session_factory() as session:
+                requirement_service.reject_requirements(
+                    session,
+                    self._current_user,
+                    UUID(matter_id),
+                    [UUID(requirement_id) for requirement_id in requirement_ids],
+                    now=self._clock.now(),
+                )
+        except ApiError as exc:
+            raise _to_persistence_error(exc) from exc
 
     def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
         try:

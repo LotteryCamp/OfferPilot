@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
+
+MAX_DURATION_SECONDS = 3_153_600_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -15,6 +18,9 @@ class Settings:
     timezone: str = "Asia/Shanghai"
     model_provider: str = "OpenAI 兼容模型服务"
     model_name: str = ""
+    model_api_url: str = ""
+    model_api_key: str = ""
+    model_timeout_seconds: float = 180.0
     session_ttl_seconds: int = 43_200
     remember_session_ttl_seconds: int = 2_592_000
     cookie_secure: bool = False
@@ -23,6 +29,7 @@ class Settings:
     login_email_window_seconds: int = 900
     login_email_limit: int = 5
     login_lock_seconds: int = 900
+    config_file: str | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -38,6 +45,11 @@ class Settings:
                 "OFFERPILOT_MODEL_PROVIDER", "OpenAI 兼容模型服务"
             ),
             model_name=os.environ.get("OFFERPILOT_MODEL_NAME", ""),
+            model_api_url=os.environ.get("OFFERPILOT_MODEL_API_URL", ""),
+            model_api_key=os.environ.get("OFFERPILOT_MODEL_API_KEY", ""),
+            model_timeout_seconds=_positive_float_env(
+                "OFFERPILOT_MODEL_TIMEOUT_SECONDS", 180.0
+            ),
             session_ttl_seconds=_int_env("OFFERPILOT_SESSION_TTL_SECONDS", 43_200),
             remember_session_ttl_seconds=_int_env(
                 "OFFERPILOT_REMEMBER_SESSION_TTL_SECONDS", 2_592_000
@@ -50,6 +62,7 @@ class Settings:
             ),
             login_email_limit=_non_negative_int_env("OFFERPILOT_LOGIN_EMAIL_LIMIT", 5),
             login_lock_seconds=_int_env("OFFERPILOT_LOGIN_LOCK_SECONDS", 900),
+            config_file=_optional_str_env("OFFERPILOT_CONFIG_FILE"),
         )
 
 
@@ -60,6 +73,8 @@ def _int_env(name: str, default: int) -> int:
     value = int(raw.strip())
     if value <= 0:
         raise RuntimeError(f"{name} must be a positive integer")
+    if value > MAX_DURATION_SECONDS:
+        raise RuntimeError(f"{name} must not exceed {MAX_DURATION_SECONDS}")
     return value
 
 
@@ -71,6 +86,28 @@ def _non_negative_int_env(name: str, default: int) -> int:
     if value < 0:
         raise RuntimeError(f"{name} must be a non-negative integer")
     return value
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        raise RuntimeError(f"{name} must be a number") from None
+    if value <= 0:
+        raise RuntimeError(f"{name} must be a positive number")
+    if not math.isfinite(value):
+        raise RuntimeError(f"{name} must be finite")
+    return value
+
+
+def _optional_str_env(name: str) -> str | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    return raw.strip()
 
 
 def _bool_env(name: str, default: bool) -> bool:
