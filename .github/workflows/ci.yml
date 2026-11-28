@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "frontend/**"
+      - "backend/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    uses: ./.github/workflows/frontend-ci.yml
+
+  backend:
+    name: Backend
+    uses: ./.github/workflows/backend-ci.yml
+
+  coverage:
+    name: Combined coverage
+    needs: [frontend, backend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download frontend coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: frontend-coverage
+          path: coverage/frontend
+
+      - name: Download backend coverage report
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: backend-coverage
+          path: coverage/backend
+
+      - name: Resolve coverage paths from repository root
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path.cwd().resolve()
+          for module in ("frontend", "backend"):
+              report = Path("coverage") / module / "lcov.info"
+              lines = []
+              source_count = 0
+              for line in report.read_text(encoding="utf-8").splitlines():
+                  if line.startswith("SF:"):
+                      source = (Path(module) / line[3:]).resolve(strict=True)
+                      relative = source.relative_to(root)
+                      if not source.is_file() or relative.parts[0] != module:
+                          raise ValueError(f"Invalid {module} coverage source: {source}")
+                      line = f"SF:{relative.as_posix()}"
+                      source_count += 1
+                  lines.append(line)
+              if source_count == 0:
+                  raise ValueError(f"Empty {module} coverage report")
+              report.write_text("\n".join(lines) + "\n", encoding="utf-8")
+              print(f"{module}: {source_count} source files")
+          PY
+
+      - name: Upload combined coverage to Coveralls
+        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+        with:
+          files: coverage/frontend/lcov.info coverage/backend/lcov.info
+          format: lcov
+          base-path: .
+          compare-ref: main
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fail-on-error: false
