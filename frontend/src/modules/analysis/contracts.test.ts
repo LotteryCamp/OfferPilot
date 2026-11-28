@@ -32,6 +32,16 @@ describe('分析运行与已保存候选的边界', () => {
     expect(() => assertStartedRun({ ...run, status: '已完成' })).toThrow('任务写入')
   })
 
+  it('恢复原请求时可读取已完成运行及已有任务', () => {
+    expect(() =>
+      assertStartedRun({ ...run, status: '已完成', written_tasks: [{}] }, 'recover'),
+    ).not.toThrow()
+    expect(() => assertStartedRun({ ...run, written_tasks: [{}] }, 'recover')).toThrow('任务写入')
+    expect(() =>
+      assertStartedRun({ ...run, status: '失败', written_tasks: [{}] }, 'recover'),
+    ).toThrow('任务写入')
+  })
+
   it('HTTP 成功响应里的失败状态仍显示失败和原因', () => {
     const result = runResponse.parse({
       run: {

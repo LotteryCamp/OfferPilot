@@ -66,6 +66,17 @@ describe('用户级模型传输同意协议', () => {
       ),
     ).toBe(false)
   })
+
+  it('恢复分析前，披露范围与已有同意不匹配时提示重新确认', () => {
+    for (const changed of [
+      { ...disclosure, purposes: ['requirement_extraction'] },
+      { ...disclosure, field_categories: ['public_sources'] },
+    ]) {
+      expect(consentBlockReason({ disclosure: changed, consent })).toBe(
+        '已有授权与披露用途或字段范围不一致，请先撤回后重新确认。',
+      )
+    }
+  })
   it('范围顺序不影响校验，重复类别不能掩盖缺项', () => {
     expect(
       consentMatches({ ...consent, purposes: [...consent.purposes].reverse() }, disclosure),

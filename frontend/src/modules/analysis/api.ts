@@ -1,19 +1,21 @@
 import axios from 'axios'
 import { z } from 'zod'
 import { http } from '../../shared/http'
-import { assertStartedRun, runResponse } from './contracts'
+import { analysisRequestSchema, assertStartedRun, runResponse } from './contracts'
+import type { AnalysisMode } from './contracts'
 import { agentRunTimeoutMs } from './timing'
 
-export const analysisInput = z.strictObject({
-  source_urls: z.array(z.string().min(1)).min(1),
-  publisher: z.string().min(1),
-  scope_year: z.number().int(),
-  scope: z.string().optional(),
+export const analysisInput = analysisRequestSchema.extend({
   operation_id: z.uuid(),
 })
 export type AnalysisInput = z.infer<typeof analysisInput>
 
-export async function startAnalysis(matterId: string, input: AnalysisInput, signal: AbortSignal) {
+export async function startAnalysis(
+  matterId: string,
+  input: AnalysisInput,
+  signal: AbortSignal,
+  mode: AnalysisMode = 'start',
+) {
   const response = await http.post<unknown>(
     `/matters/${matterId}/agent-runs`,
     analysisInput.parse(input),
@@ -23,7 +25,7 @@ export async function startAnalysis(matterId: string, input: AnalysisInput, sign
     },
   )
   const { run } = runResponse.parse(response.data)
-  assertStartedRun(run)
+  assertStartedRun(run, mode)
   return run
 }
 

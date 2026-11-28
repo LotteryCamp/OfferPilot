@@ -18,12 +18,32 @@ export const runResponse = z.object({
     }),
 })
 export type AnalysisRun = z.infer<typeof runResponse>['run']
+export const analysisRequestSchema = z.strictObject({
+  source_urls: z
+    .array(
+      z.url().refine((value) => {
+        try {
+          const url = new URL(value)
+          return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+        } catch {
+          return false
+        }
+      }),
+    )
+    .min(1),
+  publisher: z.string().min(1),
+  scope_year: z.number().int(),
+  scope: z.string().optional(),
+})
+export type AnalysisRequest = z.infer<typeof analysisRequestSchema>
+export type AnalysisMode = 'start' | 'recover'
 export const analysisAttemptSchema = z.object({
   matterId: z.uuid(),
   sourceId: z.uuid(),
   operationId: z.uuid(),
   runId: z.string().min(1).max(200).nullable(),
   status: z.string().nullable(),
+  request: analysisRequestSchema.optional(),
 })
 export type AnalysisAttempt = z.infer<typeof analysisAttemptSchema>
 
@@ -33,8 +53,11 @@ export function restoreAnalysisAttempt(raw: string, matterId: string) {
   return value
 }
 
-export function assertStartedRun(run: AnalysisRun) {
-  if (run.written_tasks.length || run.status === '已完成')
+export function assertStartedRun(run: AnalysisRun, mode: AnalysisMode = 'start') {
+  if (
+    (run.written_tasks.length || run.status === '已完成') &&
+    !(mode === 'recover' && run.status === '已完成')
+  )
     throw new Error('分析入口返回了意外的任务写入状态，请先核对候选和正式任务。')
   if (run.status === '等待确认' && !run.persisted_plan_id)
     throw new Error('服务未返回已保存的候选计划，分析结果尚无法确认。')
