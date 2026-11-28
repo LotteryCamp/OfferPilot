@@ -1904,10 +1904,15 @@ def test_extraction_instruction_and_self_check_gap_alignment() -> None:
     from backend.agent import collect_source_gaps
     from backend.agent.model_bridge import _EXTRACTION_INSTRUCTION
 
-    assert "makeup_or_repeat_courses" in _EXTRACTION_INSTRUCTION
-    assert "all_required_credits" in _EXTRACTION_INSTRUCTION
-    assert "related_requirement_ids" in _EXTRACTION_INSTRUCTION
-    assert "is_ambiguous" in _EXTRACTION_INSTRUCTION
+    assert "填入 gaps[*].related_requirement_ids" in _EXTRACTION_INSTRUCTION
+    assert "补考或重修门数统一使用 makeup_or_repeat_courses" in _EXTRACTION_INSTRUCTION
+    assert "应修学分是否修满统一使用 all_required_credits" in _EXTRACTION_INSTRUCTION
+    assert "严禁省略补考/重修或学分条件" in _EXTRACTION_INSTRUCTION
+    assert (
+        "独立的学分、在读身份或无处分等布尔资格条件使用单路径 rule_kind='any_of'"
+        in _EXTRACTION_INSTRUCTION
+    )
+    assert "必须将 is_ambiguous 设为 true" in _EXTRACTION_INSTRUCTION
 
     src_id = "b0000000-0000-4000-8000-000000000031"
     snap_id = "b0000000-0000-4000-8000-000000000032"
@@ -1917,15 +1922,9 @@ def test_extraction_instruction_and_self_check_gap_alignment() -> None:
         snapshot_id=snap_id,
         title="2027 届材料学院推荐工作方案",
         publisher="福州大学材料科学与工程学院",
-        content="修满规定学分，综合成绩排名前35%且无补考或重修，或前20%且至多1门补考或重修。",
+        content="修满规定学分，综合成绩排名前35%且无补考或重修，或前20%且至多1门补考或重修；提交纸质成绩单。",
     )
-    r003 = ExtractedRequirement(
-        requirement_id="R-003",
-        title="应修学分要求",
-        obligation=ObligationType.OFFICIAL_REQUIRED,
-        basis=[SourceCitation(source_version_id=snap_id, locator="第4段")],
-    )
-    r004 = ExtractedRequirement(
+    r_rank = ExtractedRequirement(
         requirement_id="R-004",
         title="排名及补考/重修课程限制",
         field_key="gpa.rank",
@@ -1933,48 +1932,154 @@ def test_extraction_instruction_and_self_check_gap_alignment() -> None:
         basis=[SourceCitation(source_version_id=snap_id, locator="第5段")],
         rule_kind="any_of",
         rule_parameters={
+            "all_required": [
+                {"fact": "all_required_credits", "operator": "==", "value": True}
+            ],
             "paths": [
                 {
-                    "label": "前35%",
-                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                    "label": "前35%无补考重修",
+                    "checks": [
+                        {"fact": "gpa.rank", "operator": "<=", "value": 35},
+                        {
+                            "fact": "makeup_or_repeat_courses",
+                            "operator": "<=",
+                            "value": 0,
+                        },
+                    ],
                 },
                 {
-                    "label": "前20%",
-                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 20}],
+                    "label": "前20%至多1门补考重修",
+                    "checks": [
+                        {"fact": "gpa.rank", "operator": "<=", "value": 20},
+                        {
+                            "fact": "makeup_or_repeat_courses",
+                            "operator": "<=",
+                            "value": 1,
+                        },
+                    ],
                 },
-            ]
+            ],
         },
     )
-    adapter_gaps = [
-        SourceGap(
-            gap_type="missing_personal_fact",
-            description="缺少补考/重修与应修学分事实",
-            source_version_id=snap_id,
-            locator="第5段",
-            related_requirement_ids=["R-004"],
-        )
-    ]
-    evals, err = evaluate_requirements(
-        [r003, r004],
-        {snap_id: doc},
-        {"gpa.rank": 10.0},
-        adapter_gaps=adapter_gaps,
+    r_mat = ExtractedRequirement(
+        requirement_id="R-006",
+        title="提交纸质成绩单",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id=snap_id, locator="第6段")],
+        rule_kind="materials",
+        rule_parameters={"required_facts": ["paper_transcript"]},
     )
-    assert err is not None
-    assert err.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
-    assert [ev.status for ev in evals] == [
-        EvaluationStatus.NEEDS_USER_REVIEW,
-        EvaluationStatus.NEEDS_USER_REVIEW,
-    ]
+    facts: dict[str, object] = {
+        "gpa.rank": 10.0,
+        "makeup_or_repeat_courses": 0,
+        "all_required_credits": True,
+        "paper_transcript": True,
+    }
+    sources_map = {snap_id: doc}
 
-    gaps = collect_source_gaps([doc], evals)
-    for gap in adapter_gaps:
-        if gap not in gaps:
-            gaps.append(gap)
-    payload = build_requirements_batch_payload(
-        [r003, r004], evals, {snap_id: doc}, gaps
+    # Baseline without adapter gaps evaluates cleanly as MATCHED
+    base_evals, base_err = evaluate_requirements([r_rank, r_mat], sources_map, facts)
+    assert [ev.status for ev in base_evals] == [
+        EvaluationStatus.MATCHED,
+        EvaluationStatus.MATCHED,
+    ]
+    assert base_err is None
+
+    # 1. Locator-scoped gap affects only R-004 on 第5段 and stays isolated from R-006 on 第6段
+    loc_gap = SourceGap(
+        gap_type="missing_personal_fact",
+        description="排名认定尚需教务复核补考情况",
+        source_version_id=snap_id,
+        locator="第5段",
     )
-    for item in payload["requirements"]:
-        assert item["extract_status"] == "to_review"
-        assert item["self_check"]["conclusion"] == "needs_user_review"
-        assert item["self_check"]["gaps"]
+    evals_loc, err_loc = evaluate_requirements(
+        [r_rank, r_mat], sources_map, facts, adapter_gaps=[loc_gap]
+    )
+    assert [ev.status for ev in evals_loc] == [
+        EvaluationStatus.NEEDS_USER_REVIEW,
+        EvaluationStatus.MATCHED,
+    ]
+    assert (
+        err_loc is not None
+        and err_loc.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+    )
+    gaps_loc = collect_source_gaps([doc], evals_loc) + [loc_gap]
+    payload_loc = {
+        item["label"]: item
+        for item in build_requirements_batch_payload(
+            [r_rank, r_mat], evals_loc, sources_map, gaps_loc
+        )["requirements"]
+    }
+    assert payload_loc["排名及补考/重修课程限制"]["extract_status"] == "to_review"
+    assert (
+        payload_loc["排名及补考/重修课程限制"]["self_check"]["conclusion"]
+        == "needs_user_review"
+    )
+    assert "排名认定尚需教务复核补考情况" in [
+        g["description"]
+        for g in payload_loc["排名及补考/重修课程限制"]["self_check"]["gaps"]
+    ]
+    assert payload_loc["提交纸质成绩单"]["extract_status"] == "checked"
+    assert payload_loc["提交纸质成绩单"]["self_check"]["conclusion"] == "matched"
+    assert payload_loc["提交纸质成绩单"]["self_check"]["gaps"] == []
+
+    # 2. Description-only and source-less locator-only gaps align identically across evaluation & payload
+    desc_gap = SourceGap(
+        gap_type="ambiguous_clause",
+        description="R-004 的补考条款尚待教务系统确认",
+    )
+    sourceless_loc_gap = SourceGap(
+        gap_type="missing_attachment",
+        description="无来源版本的局部说明",
+        locator="第6段",
+    )
+    evals_desc, _ = evaluate_requirements(
+        [r_rank, r_mat],
+        sources_map,
+        facts,
+        adapter_gaps=[desc_gap, sourceless_loc_gap],
+    )
+    assert [ev.status for ev in evals_desc] == [
+        EvaluationStatus.NEEDS_USER_REVIEW,
+        EvaluationStatus.MATCHED,
+    ]
+    payload_desc = {
+        item["label"]: item
+        for item in build_requirements_batch_payload(
+            [r_rank, r_mat],
+            evals_desc,
+            sources_map,
+            [desc_gap, sourceless_loc_gap],
+        )["requirements"]
+    }
+    assert [
+        g["description"]
+        for g in payload_desc["排名及补考/重修课程限制"]["self_check"]["gaps"]
+    ] == ["R-004 的补考条款尚待教务系统确认"]
+    assert payload_desc["提交纸质成绩单"]["self_check"]["gaps"] == []
+
+    # 3. Source-version-only gap reconciles all requirements citing that source version
+    src_gap = SourceGap(
+        gap_type="missing_basis",
+        description="缺少上位校级推免细则",
+        source_version_id=snap_id,
+    )
+    evals_src, _ = evaluate_requirements(
+        [r_rank, r_mat], sources_map, facts, adapter_gaps=[src_gap]
+    )
+    assert [ev.status for ev in evals_src] == [
+        EvaluationStatus.NEEDS_USER_REVIEW,
+        EvaluationStatus.NEEDS_USER_REVIEW,
+    ]
+    payload_src = {
+        item["label"]: item
+        for item in build_requirements_batch_payload(
+            [r_rank, r_mat], evals_src, sources_map, [src_gap]
+        )["requirements"]
+    }
+    for label in ("排名及补考/重修课程限制", "提交纸质成绩单"):
+        assert payload_src[label]["extract_status"] == "to_review"
+        assert payload_src[label]["self_check"]["conclusion"] == "needs_user_review"
+        assert [g["description"] for g in payload_src[label]["self_check"]["gaps"]] == [
+            "缺少上位校级推免细则"
+        ]

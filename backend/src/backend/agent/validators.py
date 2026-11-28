@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import math
-import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Literal
 
-from backend.agent.contracts import build_client_item_id_map
+from backend.agent.contracts import build_client_item_id_map, gap_matches_requirement
 from backend.agent.schemas import (
     AgentError,
     AgentErrorCode,
@@ -152,6 +151,7 @@ def evaluate_requirements(
     evaluations: list[RequirementEvaluation] = []
     missing_fields: list[str] = []
     has_review_gap = False
+    all_requirement_ids = [req.requirement_id for req in requirements]
 
     for req in requirements:
         source_issues = _collect_source_issues(req, sources_by_id)
@@ -174,7 +174,13 @@ def evaluate_requirements(
 
         ev = _evaluate_single_requirement(req, confirmed_facts)
         if adapter_gaps:
-            matched_gaps = _matching_adapter_gaps(req, adapter_gaps)
+            matched_gaps = [
+                gap
+                for gap in adapter_gaps
+                if gap_matches_requirement(
+                    req, gap, all_requirement_ids=all_requirement_ids
+                )
+            ]
             if matched_gaps:
                 ev = _reconcile_with_adapter_gaps(ev, matched_gaps)
         evaluations.append(ev)
@@ -201,40 +207,6 @@ def evaluate_requirements(
     return evaluations, None
 
 
-def _normalize_locator(text: str) -> str:
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _matching_adapter_gaps(
-    req: ExtractedRequirement,
-    adapter_gaps: list[SourceGap],
-) -> list[SourceGap]:
-    basis_pairs = {
-        (cite.source_version_id, _normalize_locator(cite.locator)) for cite in req.basis
-    }
-    basis_locators = {_normalize_locator(cite.locator) for cite in req.basis}
-    id_pattern = re.compile(
-        rf"(?<![A-Za-z0-9_-]){re.escape(req.requirement_id)}(?![A-Za-z0-9_-])"
-    )
-    matched: list[SourceGap] = []
-    for gap in adapter_gaps:
-        if gap.related_requirement_ids:
-            if req.requirement_id in gap.related_requirement_ids:
-                matched.append(gap)
-            continue
-        if gap.locator and gap.locator.strip():
-            norm_locator = _normalize_locator(gap.locator)
-            if gap.source_version_id is not None:
-                if (gap.source_version_id, norm_locator) in basis_pairs:
-                    matched.append(gap)
-            elif norm_locator in basis_locators:
-                matched.append(gap)
-            continue
-        if id_pattern.search(gap.description) is not None:
-            matched.append(gap)
-    return matched
-
-
 def _reconcile_with_adapter_gaps(
     ev: RequirementEvaluation,
     matched_gaps: list[SourceGap],
@@ -254,7 +226,8 @@ def _reconcile_with_adapter_gaps(
             update={"status": EvaluationStatus.NEEDS_USER_REVIEW, "reason": reason}
         )
     if ev.status == EvaluationStatus.NOT_MATCHED and any(
-        g.gap_type in CRITICAL_BASIS_GAP_TYPES for g in matched_gaps
+        g.gap_type in CRITICAL_BASIS_GAP_TYPES or g.gap_type == "missing_attachment"
+        for g in matched_gaps
     ):
         reason = (
             f"条款或来源存在关键缺口，待用户核对：{gap_notes}"
@@ -1129,21 +1102,30 @@ def _eval_materials(
     confirmed_facts: dict[str, object],
 ) -> RequirementEvaluation:
     raw_required = params.get("required_facts")
-    if raw_required is not None and not isinstance(raw_required, list):
-        return RequirementEvaluation(
-            requirement_id=req.requirement_id,
-            title=req.title,
-            status=EvaluationStatus.NEEDS_USER_REVIEW,
-            reason="材料规则缺少有效的 required_facts 列表，待用户结合原文核对",
-            basis=req.basis,
-            scope=req.scope,
-        )
+    param_keys: list[str] = []
+    if raw_required is not None:
+        if not isinstance(raw_required, list):
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.NEEDS_USER_REVIEW,
+                reason="材料规则缺少有效的 required_facts 列表，待用户结合原文核对",
+                basis=req.basis,
+                scope=req.scope,
+            )
+        for item in raw_required:
+            if not isinstance(item, str) or not item.strip():
+                return RequirementEvaluation(
+                    requirement_id=req.requirement_id,
+                    title=req.title,
+                    status=EvaluationStatus.NEEDS_USER_REVIEW,
+                    reason="材料规则 required_facts 须全部为非空字符串键，待用户结合原文核对",
+                    basis=req.basis,
+                    scope=req.scope,
+                )
+            param_keys.append(item.strip())
     merged = [
-        *[
-            str(k).strip()
-            for k in (raw_required or [])
-            if k is not None and str(k).strip()
-        ],
+        *param_keys,
         *[
             k.strip()
             for k in req.required_fact_keys
@@ -1341,11 +1323,25 @@ def _eval_legacy(
             scope=req.scope,
         )
 
+    false_keys = [k for k in required_keys if confirmed_facts.get(k) is False]
+    if false_keys:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NOT_MATCHED,
+            reason=f"已确认个人条件未满足：{', '.join(false_keys)}",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
     return RequirementEvaluation(
         requirement_id=req.requirement_id,
         title=req.title,
-        status=EvaluationStatus.MATCHED,
-        reason="规则依据与所需已确认事实齐全",
+        status=EvaluationStatus.NEEDS_USER_REVIEW,
+        reason=(
+            f"已提供个人字段（{', '.join(required_keys)}），"
+            "缺少可执行判定规则，待用户结合原文核对"
+        ),
         basis=req.basis,
         scope=req.scope,
     )

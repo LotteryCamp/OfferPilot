@@ -171,10 +171,12 @@ _EXTRACTION_INSTRUCTION = (
     '{"fact": "makeup_or_repeat_courses", "operator": "<=", "value": 1}]}]}；'
     "严禁省略补考/重修或学分条件，也不得输出仅按不同阈值比较同一字段的多条 paths；\n"
     '     * 多项英语分数任一达标使用 rule_kind=\'any_minimum\'，rule_parameters 为 {"minimum": {"cet6": 425, "cet4": 480}, "operator": ">="}；\n'
-    "     * 独立的学分、身份资格或材料核验要求使用 rule_kind='materials'（rule_parameters 为 {\"required_facts\": [str]}）并填写 required_fact_keys；"
+    "     * 独立的学分、在读身份或无处分等布尔资格条件使用单路径 rule_kind='any_of'（如 "
+    '{"paths": [{"label": "修满应修学分", "checks": [{"fact": "all_required_credits", "operator": "==", "value": true}]}]}）并填写 required_fact_keys；'
+    "纸质或电子材料准备清单使用 rule_kind='materials'（rule_parameters 为 {\"required_facts\": [str]}）并填写 required_fact_keys；"
     '固定期限与缺位核对分别使用 fixed_deadline（{"before": ISO8601, "fact": str, "operator": "<="}）、'
     'coverage_gap（{"missing_documents": [str]}）。\n'
-    "     * 需要用户个人事实或情况核验的要求，禁止同时留空 rule_kind 与 required_fact_keys；若无法表示为可执行规则，须填写 required_fact_keys 或将 is_ambiguous 设为 true。"
+    "     * 无法表示为可执行规则的要求必须将 is_ambiguous 设为 true（可在 required_fact_keys 列出供核对的键名），严禁仅填 required_fact_keys 且保留 rule_kind=null 与 is_ambiguous=false。"
 )
 
 

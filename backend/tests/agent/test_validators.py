@@ -115,7 +115,16 @@ def test_evaluate_requirements_four_states() -> None:
             title="成绩排名",
             obligation=ObligationType.OFFICIAL_REQUIRED,
             basis=[SourceCitation(source_version_id="src-ok", locator="第二条")],
-            required_fact_keys=["gpa_rank"],
+            required_fact_keys=["gpa.rank"],
+            rule_kind="any_of",
+            rule_parameters={
+                "paths": [
+                    {
+                        "label": "前10%",
+                        "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 10}],
+                    }
+                ]
+            },
         ),
         ExtractedRequirement(
             requirement_id="req-2",
@@ -128,10 +137,10 @@ def test_evaluate_requirements_four_states() -> None:
     evals_missing, err_missing = evaluate_requirements(reqs[:1], sources, {})
     assert err_missing is not None
     assert err_missing.code == AgentErrorCode.MISSING_PERSONAL_FACT
-    assert err_missing.missing_fields == ["gpa_rank"]
+    assert err_missing.missing_fields == ["gpa.rank"]
     assert evals_missing[0].status == EvaluationStatus.MISSING_INFO
 
-    evals_review, err_review = evaluate_requirements(reqs, sources, {"gpa_rank": "5%"})
+    evals_review, err_review = evaluate_requirements(reqs, sources, {"gpa.rank": 5.0})
     assert err_review is not None
     assert err_review.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
     assert evals_review[0].status == EvaluationStatus.MATCHED
@@ -716,6 +725,20 @@ def test_evaluate_any_of_rejects_subsumed_paths_and_unmodeled_required_facts() -
         assert err is not None
         assert err.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
 
+    # Non-subsuming multi-path compound rule evaluates normally without triggering subsumption guard
+    valid_multi_path = _rank_compound_requirement()
+    ev_valid_partial, _ = evaluate_requirements(
+        [valid_multi_path], docs, {"gpa.rank": 10.0}
+    )
+    assert ev_valid_partial[0].status == EvaluationStatus.MISSING_INFO
+    ev_valid_matched, err_valid_matched = evaluate_requirements(
+        [valid_multi_path],
+        docs,
+        {"gpa.rank": 10.0, "makeup_or_repeat_courses": 0, "all_required_credits": True},
+    )
+    assert ev_valid_matched[0].status == EvaluationStatus.MATCHED
+    assert err_valid_matched is None
+
     single_path_with_extra_keys = ExtractedRequirement(
         requirement_id="R-004-EXTRA",
         title="排名及补考/重修课程限制",
@@ -804,6 +827,22 @@ def test_evaluate_conservative_fallbacks_for_legacy_and_empty_materials() -> Non
         rule_kind="materials",
         rule_parameters={"required_facts": "all_required_credits"},
     )
+    non_str_mat = ExtractedRequirement(
+        requirement_id="R-MAT-NONSTR",
+        title="含非字符串键的材料要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="materials",
+        rule_parameters={"required_facts": [123]},
+    )
+    blank_str_mat = ExtractedRequirement(
+        requirement_id="R-MAT-BLANK",
+        title="含空白键的材料要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="materials",
+        rule_parameters={"required_facts": ["paper_transcript", "   "]},
+    )
     merged_mat = ExtractedRequirement(
         requirement_id="R-MAT-MERGE",
         title="合并清单材料要求",
@@ -813,10 +852,77 @@ def test_evaluate_conservative_fallbacks_for_legacy_and_empty_materials() -> Non
         rule_kind="materials",
         rule_parameters={"required_facts": ["paper_transcript"]},
     )
-    for req in (empty_mat, bad_mat):
-        ev, err = evaluate_requirements([req], docs, {})
+    for req in (empty_mat, bad_mat, non_str_mat, blank_str_mat):
+        ev, err = evaluate_requirements(
+            [req], docs, {"123": True, "paper_transcript": True}
+        )
         assert ev[0].status == EvaluationStatus.NEEDS_USER_REVIEW
         assert err is not None
+
+    # Standalone boolean eligibility (e.g. credits) modeled as any_of handles False -> NOT_MATCHED
+    credit_req = ExtractedRequirement(
+        requirement_id="R-003-BOOL",
+        title="应修学分要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        required_fact_keys=["all_required_credits"],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "修满应修学分",
+                    "checks": [
+                        {
+                            "fact": "all_required_credits",
+                            "operator": "==",
+                            "value": True,
+                        }
+                    ],
+                }
+            ]
+        },
+    )
+    assert (
+        evaluate_requirements([credit_req], docs, {})[0][0].status
+        == EvaluationStatus.MISSING_INFO
+    )
+    assert (
+        evaluate_requirements([credit_req], docs, {"all_required_credits": False})[0][
+            0
+        ].status
+        == EvaluationStatus.NOT_MATCHED
+    )
+    assert (
+        evaluate_requirements([credit_req], docs, {"all_required_credits": True})[0][
+            0
+        ].status
+        == EvaluationStatus.MATCHED
+    )
+
+    # Ruleless key-only requirement without executable checks never returns MATCHED
+    key_only_req = ExtractedRequirement(
+        requirement_id="R-KEY-ONLY",
+        title="无可执行规则的仅键要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        required_fact_keys=["all_required_credits"],
+    )
+    assert (
+        evaluate_requirements([key_only_req], docs, {})[0][0].status
+        == EvaluationStatus.MISSING_INFO
+    )
+    assert (
+        evaluate_requirements([key_only_req], docs, {"all_required_credits": False})[0][
+            0
+        ].status
+        == EvaluationStatus.NOT_MATCHED
+    )
+    ev_key_populated, err_key_populated = evaluate_requirements(
+        [key_only_req], docs, {"all_required_credits": True}
+    )
+    assert ev_key_populated[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert err_key_populated is not None
+    assert err_key_populated.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
     ev_merged, _ = evaluate_requirements([merged_mat], docs, {"paper_transcript": True})
     assert ev_merged[0].status == EvaluationStatus.MISSING_INFO
     assert ev_merged[0].missing_fields == ["sealed_transcript"]
@@ -939,7 +1045,33 @@ def test_evaluate_reconciles_adapter_gaps_without_false_matched() -> None:
         title="其他独立材料要求",
         obligation=ObligationType.OFFICIAL_REQUIRED,
         basis=[SourceCitation(source_version_id="src-v1", locator="二、1")],
-        required_fact_keys=["extra_doc_ready"],
+        rule_kind="materials",
+        rule_parameters={"required_facts": ["extra_doc_ready"]},
+    )
+    other_source_docs = {
+        **docs,
+        "src-v2": SourceDocument(
+            source_version_id="src-v2",
+            title="校级推荐工作通知",
+            publisher="福州大学教务处",
+            content="第一条 资格与材料要求。",
+        ),
+    }
+    other_source_req = ExtractedRequirement(
+        requirement_id="R-OTHER-SRC",
+        title="校级通知排名要求",
+        field_key="gpa.rank",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="src-v2", locator="一、2（3）")],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "前35%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                }
+            ]
+        },
     )
 
     # 1. Matched by related_requirement_ids
@@ -1041,3 +1173,53 @@ def test_evaluate_reconciles_adapter_gaps_without_false_matched() -> None:
         ],
     )
     assert ev_not_matched_critical[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+
+    # 5. Missing attachment gap downgrades NOT_MATCHED conservatively
+    ev_not_matched_attachment, _ = evaluate_requirements(
+        [compound],
+        docs,
+        {"gpa.rank": 40.0},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_attachment",
+                description="缺少成绩折算说明附件",
+                source_version_id="src-v1",
+                related_requirement_ids=["GR-01"],
+            )
+        ],
+    )
+    assert ev_not_matched_attachment[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+
+    # 6. Source-less locator-only gap does not match across unrelated sources
+    ev_sourceless_loc, _ = evaluate_requirements(
+        [rank_only_req, other_source_req],
+        other_source_docs,
+        {"gpa.rank": 10.0},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_attachment",
+                description="未指定来源版本的局部缺口说明",
+                locator="一、2（3）",
+            )
+        ],
+    )
+    assert [ev.status for ev in ev_sourceless_loc] == [
+        EvaluationStatus.MATCHED,
+        EvaluationStatus.MATCHED,
+    ]
+
+    # 7. Source-version-only gap reconciles only requirements citing that source version
+    ev_source_only, _ = evaluate_requirements(
+        [rank_only_req, other_source_req],
+        other_source_docs,
+        {"gpa.rank": 10.0},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_basis",
+                description="缺少上位细则附件",
+                source_version_id="src-v1",
+            )
+        ],
+    )
+    assert ev_source_only[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert ev_source_only[1].status == EvaluationStatus.MATCHED

@@ -80,8 +80,8 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
      - 部分事实缺失评估：前置失败或全部路径均因已确认事实失败时直接判定 `按现有信息不符合`；部分事实已通过且仍有可行路径时保持 `待补充信息`，`missing_fields` 仅保留尚未提供的字段并说明已核验结果。
    - **保守评估兜底与抽取缺口收敛**：
      - `_eval_any_of` 检测多路径条件包含或冗余（例如仅比较同一字段不同阈值的退化路径），发现冗余路径即降级为 `待用户核对`；同时合并核查 `required_fact_keys` 中未进入可执行规则的必需个人字段，缺项保持 `待补充信息`，已填但无可执行谓词时保持 `待用户核对`。
-     - 未定义可执行规则且未指定 `required_fact_keys`（无截止时间）的要求，以及 `required_facts` 为空的 `materials` 规则，均保持 `待用户核对`；仅携带带时区 `official_deadline` 且未声明 `required_fact_keys` 的历史期限要求确认官方截止时间依据（缺时区时保持 `待用户核对`），显式声明单一时间字段时按 `official_deadline` 核验并在解析失败或缺少时区时保持 `待用户核对`。
-     - `evaluate_requirements(..., adapter_gaps=...)` 结合抽取阶段返回的 `adapter_gaps`（按 `related_requirement_ids`、精确 `(source_version_id, locator)` 或独立要求编号匹配）对单条评估结果执行保守收敛，存在未核验或关键缺口时禁止保留 `按现有信息符合`。
+     - 独立的布尔资格或学分条件使用 `rule_kind="any_of"`（确认 `false` 直接判为 `按现有信息不符合`），材料准备清单使用 `rule_kind="materials"`（拒绝空列表及非字符串/空白键名并保持 `待用户核对`）。无可执行规则且无 `official_deadline` 的仅键要求，缺项返回 `待补充信息`、确认 `false` 返回 `按现有信息不符合`、已填其余值保持 `待用户核对`。仅携带带时区 `official_deadline` 且未声明 `required_fact_keys` 的历史期限要求确认官方截止时间依据（缺时区时保持 `待用户核对`），显式声明单一时间字段时按 `official_deadline` 核验并在解析失败或缺少时区时保持 `待用户核对`。
+     - `evaluate_requirements(..., adapter_gaps=...)` 与 `_build_self_check_payload` 共用 `gap_matches_requirement`，统一按 `related_requirement_ids`、精确 `(source_version_id, locator)`、描述中独立要求编号以及来源级归属执行缺口匹配与降级收敛，存在未核验缺口时禁止保留 `按现有信息符合`，匹配到关键缺口或 `missing_attachment` 时也将 `按现有信息不符合` 降级为 `待用户核对`。
 4. **候选任务依赖与编号冲突校验**：
    - `validate_candidate_plan` 校验工作区版本一致、`task_id` 唯一、经 `build_client_item_id_map` 规范化并截断至 `80` 字符后的 `client_item_id` 非空且无冲突、`depends_on` 仅引用同计划内已存在任务且依赖图无环、`suggested_date` 不晚于官方截止日期。
    - Agent 运行仅保存 `WAITING_CONFIRMATION` 状态的待确认候选计划，必须在用户显式确认后才创建正式任务。
