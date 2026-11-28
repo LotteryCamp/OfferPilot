@@ -10,6 +10,7 @@ from datetime import date, datetime, tzinfo
 from typing import Any, Literal
 from uuid import UUID
 
+from backend.agent.model_bridge import collect_registered_fact_types
 from backend.agent.schemas import (
     CandidatePlan,
     CandidateTask,
@@ -278,6 +279,7 @@ def build_candidate_plan_create_payload(
     requirement_id_map: dict[str, str] | None = None,
     *,
     timezone: tzinfo,
+    requirements: list[ExtractedRequirement] | None = None,
 ) -> dict[str, Any]:
     """Build exact POST /api/v1/matters/{matter_id}/candidate-plans request body."""
     items_payload: list[dict[str, Any]] = []
@@ -354,7 +356,12 @@ def build_candidate_plan_create_payload(
             }
         )
 
-    return {"items": items_payload}
+    payload: dict[str, Any] = {"items": items_payload}
+    if requirements is not None:
+        referenced_fact_types = collect_registered_fact_types(requirements)
+        if referenced_fact_types:
+            payload["referenced_fact_types"] = referenced_fact_types
+    return payload
 
 
 def _format_iso_dt(value: datetime | None) -> str | None:

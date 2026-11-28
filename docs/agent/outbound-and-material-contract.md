@@ -73,6 +73,11 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
 3. **四态自查与缺口表达 (`validators.py`)**：
    - 规则结论固定为四态：`按现有信息符合`、`按现有信息不符合`、`待补充信息`、`待用户核对`。
    - 缺少上位文件、附件、来源冲突或规则参数不足时，保持 `待用户核对` 并在 `gaps` 中显式记录，不生成确定性资格结论。
+   - **已注册事实键与复合规则 (`any_of`)**：
+     - 已注册事实键固定为 `gpa.rank`（0–100 百分位数值，如 `10/100` 对应 `10`，前 N% 使用 `<= N`）、`gpa.score`（0–4.0）、`cet4`、`cet6`、`toefl`、`ielts`、`cert`、`comp`，通过 `PUT /api/v1/matters/{matter_id}/facts/{fact_type}` 按事项持久保存；要求抽取涉及单一已注册事实时，`normalize_requirement_field_key` 将 `field_key` 对齐至对应标准键，多事实要求同时通过 `CandidatePlanCreate.referenced_fact_types` 将规则引用的全部已注册事实绑定至候选 `basis_input`。
+     - 尚未纳入 `core.fact` 注册表的复合条件事实（如 `makeup_or_repeat_courses` 与 `all_required_credits`）通过 `POST /api/v1/matters/{matter_id}/agent-runs` 请求级 `confirmed_facts` 传入（契约见 `docs/backend/api.md` 第 7.1 节），未提供时保持明确 `missing_info` 缺口。
+     - 多路径复合规则（如排名阈值叠加补考重修次数与应修学分）使用 `rule_kind="any_of"`，`rule_parameters` 支持 `all_required`（公共前置条件列表）与 `paths[*].{label, checks}`（任一路径满足即达标），单条条件为 `{"fact", "operator" ("<=" | "<" | ">=" | ">" | "=="), "value"}`。
+     - 部分事实缺失评估：前置失败或全部路径均因已确认事实失败时直接判定 `按现有信息不符合`；部分事实已通过且仍有可行路径时保持 `待补充信息`，`missing_fields` 仅保留尚未提供的字段并说明已核验结果。
 4. **候选任务依赖与编号冲突校验**：
    - `validate_candidate_plan` 校验工作区版本一致、`task_id` 唯一、经 `build_client_item_id_map` 规范化并截断至 `80` 字符后的 `client_item_id` 非空且无冲突、`depends_on` 仅引用同计划内已存在任务且依赖图无环、`suggested_date` 不晚于官方截止日期。
    - Agent 运行仅保存 `WAITING_CONFIRMATION` 状态的待确认候选计划，必须在用户显式确认后才创建正式任务。

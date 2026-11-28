@@ -15,6 +15,7 @@ RuleKind = Literal[
     "relative_deadline",
     "notice_deadline",
     "any_minimum",
+    "any_of",
     "letters",
     "coverage_gap",
     "catalog_row",
