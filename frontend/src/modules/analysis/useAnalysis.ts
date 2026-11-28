@@ -1,4 +1,4 @@
-import { onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import {
   analysisError,
   getAnalysis,
@@ -9,6 +9,9 @@ import {
 import type { AnalysisInput } from './api'
 import { canStartAnotherRun, restoreAnalysisAttempt } from './contracts'
 import type { AnalysisAttempt, AnalysisRun } from './contracts'
+import type { AnalysisMode } from './contracts'
+import { canRecoverAnalysisAttempt, createAnalysisAttempt, recoverAnalysisAttempt } from './attempt'
+import type { PreparedAnalysisAttempt } from './attempt'
 
 export function useAnalysis(matterId: () => string, onRead: () => void) {
   const run = ref<AnalysisRun | null>(null)
@@ -17,6 +20,9 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
   const checking = ref(false)
   const error = ref('')
   const storageReady = ref(true)
+  const recoverable = computed(
+    () => !busy.value && !checking.value && canRecoverAnalysisAttempt(attempt.value),
+  )
   let generation = 0
   let controller: AbortController | undefined
   const storageKey = (id: string) => `offerpilot:analysis:${id}`
@@ -62,7 +68,7 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
     }
   }
 
-  async function start(sourceId: string, input: Omit<AnalysisInput, 'operation_id'>) {
+  async function submit(current: PreparedAnalysisAttempt, mode: AnalysisMode) {
     if (busy.value || checking.value) {
       error.value = '已有分析正在执行或查询，请等待当前操作结束。'
       return null
@@ -72,6 +78,7 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
       return null
     }
     if (
+      mode === 'start' &&
       !canStartAnotherRun(
         run.value?.status ?? (attempt.value?.status === '不可查询' ? null : attempt.value?.status),
       )
@@ -79,16 +86,9 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
       error.value = `当前运行状态不允许再次发起：${run.value?.status ?? attempt.value?.status}`
       return null
     }
-    const context = matterId()
+    const context = current.matterId
     const ticket = generation
     error.value = ''
-    const current: AnalysisAttempt = {
-      matterId: context,
-      sourceId,
-      operationId: crypto.randomUUID(),
-      runId: null,
-      status: null,
-    }
     try {
       save(current)
     } catch {
@@ -102,8 +102,9 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
     try {
       const result = await startAnalysis(
         context,
-        { ...input, operation_id: current.operationId },
+        { ...current.request, operation_id: current.operationId },
         controller.signal,
+        mode,
       )
       if (ticket !== generation) return null
       run.value = result
@@ -112,12 +113,34 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
       return result
     } catch (cause) {
       if (ticket === generation) {
-        if (isConsentRejectedStart(cause)) remember({ ...current, status: '未发起' })
+        if (mode === 'start' && isConsentRejectedStart(cause))
+          remember({ ...current, status: '未发起' })
         error.value = analysisError(cause)
       }
       return null
     } finally {
       if (ticket === generation) busy.value = false
+    }
+  }
+
+  async function start(sourceId: string, input: Omit<AnalysisInput, 'operation_id'>) {
+    try {
+      return await submit(createAnalysisAttempt(matterId(), sourceId, input), 'start')
+    } catch (cause) {
+      error.value = analysisError(cause)
+      return null
+    }
+  }
+
+  async function recover(sourceId: string, scopeYear: number | null) {
+    try {
+      return await submit(
+        recoverAnalysisAttempt(attempt.value, matterId(), sourceId, scopeYear),
+        'recover',
+      )
+    } catch (cause) {
+      error.value = analysisError(cause)
+      return null
     }
   }
 
@@ -139,7 +162,9 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
         attempt.value = value
         if (value.runId) void check()
         else if (value.status === null)
-          error.value = '上次分析请求结果尚未确认，请先刷新已保存的来源和候选结果。'
+          error.value = value.request
+            ? '上次分析请求结果尚未确认，可恢复上次分析，或先刷新已保存的来源和候选结果。'
+            : '上次分析请求结果尚未确认，记录缺少恢复参数。请先核对已保存结果，再决定是否重新发起分析。'
         else if (value.status === '不可查询')
           error.value = '上次运行已不可查询，请读取已保存结果或重新发起分析。'
         else if (value.status === '未发起')
@@ -155,5 +180,5 @@ export function useAnalysis(matterId: () => string, onRead: () => void) {
     generation++
     controller?.abort()
   })
-  return { run, attempt, busy, checking, error, storageReady, start, check }
+  return { run, attempt, busy, checking, error, storageReady, recoverable, start, recover, check }
 }

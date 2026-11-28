@@ -6,6 +6,7 @@ import type { Matter } from '../matters/types'
 import { safeSourceUrl } from '../sources/presentation'
 import { canStartAnotherRun, runStatusText } from './contracts'
 import { useAnalysis } from './useAnalysis'
+import { analysisRecoveryBlockReason } from './attempt'
 import { useTransferConsent } from './useTransferConsent'
 import { consentBlockReason, transferScopeLabel } from './consentContracts'
 import { AnalysisNotStartedError, analysisTriggerBlockReason } from './trigger'
@@ -27,9 +28,11 @@ const analysis = useAnalysis(
   () => props.matter.id,
   () => emit('changed'),
 )
-const { run, attempt, busy, checking, error, storageReady } = analysis
+const { run, attempt, busy, checking, error, storageReady, recoverable } = analysis
 const linkedPlan = computed(() =>
-  run.value?.status === '等待确认' ? run.value.persisted_plan_id : null,
+  run.value && ['等待确认', '已完成'].includes(run.value.status)
+    ? run.value.persisted_plan_id
+    : null,
 )
 const transfer = useTransferConsent(() => props.matter.id)
 const {
@@ -67,20 +70,35 @@ const blockedReason = computed(() =>
 const recheckBlockedReason = computed(() =>
   analysisTriggerBlockReason(props.rankingSaving, commonBlockedReason.value, 'saved-ranking'),
 )
+const recoveryBlockedReason = computed(
+  () =>
+    blockedReason.value ||
+    analysisRecoveryBlockReason(
+      attempt.value,
+      props.matter.id,
+      props.source?.id ?? null,
+      props.matter.scope_year,
+    ),
+)
 
-async function startRun(trigger: AnalysisTrigger, expectedSourceId?: string) {
+async function startRun(trigger: AnalysisTrigger, expectedSourceId?: string, recovering = false) {
   function stop(reason: string): null {
     error.value = `尚未发起分析：${reason}`
     if (trigger === 'saved-ranking') throw new AnalysisNotStartedError(reason)
     return null
   }
   const source = props.source
-  const reason = trigger === 'manual' ? blockedReason.value : recheckBlockedReason.value
+  const reason = recovering
+    ? recoveryBlockedReason.value
+    : trigger === 'manual'
+      ? blockedReason.value
+      : recheckBlockedReason.value
   if (reason) return stop(reason)
   if (!source) return stop('当前没有选中的来源，请重新选择。')
   if (expectedSourceId && source.id !== expectedSourceId)
     return stop('保存期间选中的来源已变化，请核对后重新自查。')
   if (
+    !recovering &&
     attempt.value &&
     attempt.value.status === null &&
     !window.confirm(
@@ -98,19 +116,29 @@ async function startRun(trigger: AnalysisTrigger, expectedSourceId?: string) {
   const consentReason = consentBlockReason(currentConsent)
   if (consentReason) return stop(consentReason)
   const previousOperation = attempt.value?.operationId
-  const result = await analysis.start(source.id, {
-    source_urls: [url],
-    publisher: source.publisher,
-    scope_year: source.scope_year,
-    ...(source.scope ? { scope: source.scope } : {}),
-  })
-  if (!result && props.matter.id === context && attempt.value?.operationId === previousOperation)
+  const result = recovering
+    ? await analysis.recover(source.id, props.matter.scope_year)
+    : await analysis.start(source.id, {
+        source_urls: [url],
+        publisher: source.publisher,
+        scope_year: source.scope_year,
+        ...(source.scope ? { scope: source.scope } : {}),
+      })
+  if (
+    !recovering &&
+    !result &&
+    props.matter.id === context &&
+    attempt.value?.operationId === previousOperation
+  )
     return stop(error.value || '分析入口未建立新请求，请核对运行状态后重试。')
   if (!result && props.matter.id === context) await transfer.refresh()
   return result
 }
 function start() {
   return startRun('manual')
+}
+function recover() {
+  return startRun('manual', undefined, true)
 }
 function startAfterRanking(sourceId: string) {
   return startRun('saved-ranking', sourceId)
@@ -223,15 +251,28 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
       >
       <p class="muted">撤回影响后续调用检查；已发出的请求由模型服务按其数据处理条款处理。</p>
     </section>
+    <p v-if="recoverable" class="muted" data-testid="analysis-recovery-notice">
+      上次分析结果尚未确认。恢复会使用上次的公开来源请求，并核对已有结果；原运行已失败、取消或中断时，后端会重新执行。
+      补录排名后如需新的自查结果，请重新发起分析。
+    </p>
     <div class="module-actions">
       <ElButton
+        v-if="recoverable"
         type="primary"
+        data-testid="analysis-recover"
+        :disabled="Boolean(recoveryBlockedReason)"
+        :loading="busy"
+        @click="recover()"
+        >恢复上次分析</ElButton
+      >
+      <ElButton
+        :type="recoverable ? undefined : 'primary'"
         data-testid="analysis-start"
         :disabled="Boolean(blockedReason)"
         :loading="busy"
         @click="start()"
       >
-        {{ attempt ? '重新发起分析' : '开始分析' }}
+        {{ recoverable ? '开始新的分析' : attempt ? '重新发起分析' : '开始分析' }}
       </ElButton>
       <ElButton
         data-testid="analysis-status-refresh"
@@ -253,6 +294,18 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
         >{{ linkedPlan ? '审阅本次候选计划' : '查看候选计划' }} →</RouterLink
       >
     </div>
+    <p
+      v-if="
+        recoverable &&
+        recoveryBlockedReason &&
+        recoveryBlockedReason !== blockedReason &&
+        !busy &&
+        !checking
+      "
+      class="muted"
+    >
+      {{ recoveryBlockedReason }}
+    </p>
     <p v-if="blockedReason && !busy && !checking" class="muted">{{ blockedReason }}</p>
     <p v-if="busy" role="status">
       正在等待完整分析流程返回，真实模型可能需要数分钟，请勿重复提交。离开页面不会停止后台运行。
