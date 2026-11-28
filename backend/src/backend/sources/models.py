@@ -1,4 +1,4 @@
-"""Input and locator types for public HTML sources."""
+"""Input and locator types for public sources."""
 
 from datetime import UTC, datetime
 from typing import Annotated, Literal, Self
@@ -77,6 +77,11 @@ class SectionLocator(Contract):
     section: Annotated[Text, Field(max_length=300)]
 
 
+class PageLocator(Contract):
+    kind: Literal["page"]
+    page: PositiveInt
+
+
 class TextSpanLocator(Contract):
     kind: Literal["text_span"]
     paragraph: PositiveInt
@@ -99,7 +104,7 @@ class TableRowLocator(Contract):
 
 
 Locator = Annotated[
-    SectionLocator | TextSpanLocator | TableRowLocator,
+    SectionLocator | PageLocator | TextSpanLocator | TableRowLocator,
     Field(discriminator="kind"),
 ]
 
@@ -109,6 +114,8 @@ def locator_text(locator: Locator) -> str:
     match locator:
         case SectionLocator(section=section):
             return section
+        case PageLocator(page=page):
+            return f"第{page}页"
         case TextSpanLocator(paragraph=paragraph, start=start, end=end):
             return f"第{paragraph}段，字符[{start}:{end}]"
         case TableRowLocator(table=table, row=row):

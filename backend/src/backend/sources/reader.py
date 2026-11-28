@@ -1,4 +1,4 @@
-"""Read one public HTML source and produce versioned, reviewable evidence."""
+"""Read a public HTML or PDF source and produce versioned evidence."""
 
 from __future__ import annotations
 
@@ -15,15 +15,19 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import UTC, date, datetime
 from hashlib import sha256
 from html.parser import HTMLParser
+from io import BytesIO
 from threading import BoundedSemaphore
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import Field, HttpUrl, TypeAdapter, ValidationError
+from pypdf import PdfReader
+from pypdf.errors import PyPdfError
 
 from .models import (
     Contract,
     Locator,
+    PageLocator,
     Text,
     Timestamp,
     WebUrl,
@@ -55,6 +59,11 @@ _PUBLICATION_DATE_RE = re.compile(
     r"^(?:发布日期|发布时间)\s*[:：]\s*(\d{4}-\d{2}-\d{2})(?=\s|$)"
 )
 _MAX_FRAGMENT_COUNT = 4096
+_MAX_PDF_BYTES = 4 * 1024 * 1024
+_MAX_PDF_PAGES = 50
+_MAX_PDF_TEXT_CHARS = 250_000
+_HTML_TYPES = frozenset({"text/html", "application/xhtml+xml"})
+_PDF_TYPES = frozenset({"application/pdf", "application/octet-stream"})
 _DNS_EXECUTOR = ThreadPoolExecutor(max_workers=4, thread_name_prefix="offerpilot-dns")
 _DNS_SLOTS = BoundedSemaphore(4)
 AnnotatedText = Text
@@ -112,7 +121,7 @@ class PublicSourceResult(Contract):
     scope: Text | None = None
     published_date: date | None = None
     fetched_at: Timestamp
-    content_type: Literal["text/html", "application/xhtml+xml"]
+    content_type: Literal["text/html", "application/xhtml+xml", "application/pdf"]
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     normalized_text: Text
     fragments: list[SourceFragment] = Field(min_length=1)
@@ -270,7 +279,7 @@ def _open_public_response(
                 "GET",
                 path,
                 headers={
-                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept": "text/html,application/xhtml+xml,application/pdf",
                     "Host": host_header,
                     "User-Agent": "OfferPilot/0.1",
                 },
@@ -489,7 +498,7 @@ def _read_body(
     length = response.headers.get("Content-Length")
     if length and length.isdigit() and int(length) > max_bytes:
         raise SourceReadError(
-            "response_too_large", "HTML response exceeds the configured size limit"
+            "response_too_large", "source response exceeds the configured size limit"
         )
     chunks: list[bytes] = []
     total = 0
@@ -517,7 +526,8 @@ def _read_body(
         total += len(chunk)
         if total > max_bytes:
             raise SourceReadError(
-                "response_too_large", "HTML response exceeds the configured size limit"
+                "response_too_large",
+                "source response exceeds the configured size limit",
             )
         chunks.append(chunk)
     return b"".join(chunks)
@@ -671,6 +681,19 @@ def read_public_html(
     request: PublicSourceRequest | dict[str, Any],
 ) -> PublicSourceResult:
     """Fetch one public HTML page and return normalized text plus traceable fragments."""
+    return _read_public_source(request, allow_pdf=False)
+
+
+def read_public_source(
+    request: PublicSourceRequest | dict[str, Any],
+) -> PublicSourceResult:
+    """Fetch a public HTML page or PDF through the existing public URL reader."""
+    return _read_public_source(request, allow_pdf=True)
+
+
+def _read_public_source(
+    request: PublicSourceRequest | dict[str, Any], *, allow_pdf: bool
+) -> PublicSourceResult:
     request = _request_model(request)
     deadline = time.monotonic() + request.timeout_seconds
     connection = None
@@ -685,15 +708,18 @@ def read_public_html(
                 f"source returned HTTP {response.status}",
                 retryable=response.status >= 500,
             )
-        header_type = response.headers.get("Content-Type")
-        if header_type is None or response.headers.get_content_type() not in {
-            "text/html",
-            "application/xhtml+xml",
-        }:
+        header_type = response.headers.get("Content-Type", "")
+        media_type = response.headers.get_content_type()
+        is_pdf_type = allow_pdf and media_type in _PDF_TYPES
+        if media_type not in _HTML_TYPES and not is_pdf_type:
             raise SourceReadError(
-                "unsupported_content_type", "source is not an HTML document"
+                "unsupported_content_type", "source is not a supported document"
             )
-        body = _read_body(response, request.max_bytes, deadline)
+        # Official attachment endpoints can serve PDFs as generic downloads.
+        max_bytes = request.max_bytes
+        if is_pdf_type:
+            max_bytes = _pdf_byte_limit(request)
+        body = _read_body(response, max_bytes, deadline)
     except SourceReadError:
         raise
     except (http.client.HTTPException, OSError, TimeoutError) as error:
@@ -706,10 +732,97 @@ def read_public_html(
         if connection is not None:
             connection.close()
 
+    if media_type == "application/pdf" or (is_pdf_type and body.startswith(b"%PDF-")):
+        return parse_public_pdf(
+            body, final_url=final_url, request=request, fetched_at=datetime.now(UTC)
+        )
     return parse_public_html(
         body,
         content_type=header_type,
         final_url=final_url,
         request=request,
         fetched_at=datetime.now(UTC),
+    )
+
+
+def _pdf_byte_limit(request: PublicSourceRequest) -> int:
+    if "max_bytes" in request.model_fields_set:
+        return min(request.max_bytes, _MAX_PDF_BYTES)
+    return _MAX_PDF_BYTES
+
+
+def parse_public_pdf(
+    body: bytes,
+    *,
+    final_url: str,
+    request: PublicSourceRequest | dict[str, Any],
+    fetched_at: datetime,
+) -> PublicSourceResult:
+    """Extract page citations from a verified public PDF response."""
+    request = _request_model(request)
+    if len(body) > _pdf_byte_limit(request):
+        raise SourceReadError(
+            "response_too_large", "PDF response exceeds the configured size limit"
+        )
+    if not body.startswith(b"%PDF-"):
+        raise SourceReadError("pdf_parse_error", "source has an invalid PDF header")
+
+    fragments: list[SourceFragment] = []
+    text_chars = 0
+    try:
+        with BytesIO(body) as pdf_file:
+            pdf = PdfReader(pdf_file, strict=True)
+            if pdf.is_encrypted:
+                raise SourceReadError("pdf_encrypted", "PDF is encrypted")
+            if len(pdf.pages) > _MAX_PDF_PAGES:
+                raise SourceReadError("pdf_page_limit", "PDF exceeds the page limit")
+            for page_number, page in enumerate(pdf.pages, start=1):
+                quote = _normalize_text(page.extract_text())
+                if not quote:
+                    continue
+                text_chars += len(quote)
+                if (
+                    text_chars > _MAX_PDF_TEXT_CHARS
+                    or len(fragments) >= request.max_fragments
+                ):
+                    raise SourceReadError(
+                        "too_many_fragments", "PDF exceeds the extracted text limit"
+                    )
+                locator = PageLocator(kind="page", page=page_number)
+                fragments.append(
+                    SourceFragment(
+                        locator=locator, locator_text=locator_text(locator), quote=quote
+                    )
+                )
+            metadata = pdf.metadata
+            title = request.title or _normalize_text(
+                (metadata.title or "") if metadata else ""
+            )
+    except SourceReadError:
+        raise
+    except (PyPdfError, ValueError, RecursionError) as error:
+        raise SourceReadError(
+            "pdf_parse_error", "PDF text extraction failed"
+        ) from error
+    if not fragments:
+        raise SourceReadError("pdf_no_text", "PDF has no extractable text")
+
+    final_url, _ = _canonical_url(final_url)
+    content_hash = sha256(body).hexdigest()
+    return PublicSourceResult(
+        status="success",
+        matter_id=request.matter_id,
+        origin="official_retrieval",
+        source_id=uuid5(NAMESPACE_URL, final_url),
+        snapshot_id=uuid5(NAMESPACE_URL, f"{final_url}#{content_hash}"),
+        url=final_url,
+        title=title or "公开 PDF 附件",
+        publisher=request.publisher,
+        scope_year=request.scope_year,
+        scope=request.scope,
+        fetched_at=fetched_at,
+        content_type="application/pdf",
+        content_hash=content_hash,
+        normalized_text="\n\n".join(fragment.quote for fragment in fragments),
+        fragments=fragments,
     )

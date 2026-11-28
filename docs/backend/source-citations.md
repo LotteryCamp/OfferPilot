@@ -1,6 +1,6 @@
 # 公开来源读取接口
 
-本模块读取一份约定的公开 HTML 通知，返回可供当前事项和 Agent 引用的正文片段。HTML 是超文本标记语言，URL 是统一资源定位符，Agent 是项目中的领域智能体。
+本模块读取公开 HTML 通知或 PDF 附件，返回可供当前事项引用的正文片段。
 
 ## 调用
 
@@ -35,13 +35,13 @@ except SourceReadError as error:
 | `matter_id` | 调用方传入的事项标识 |
 | `normalized_text`、`fragments` | 规范化正文和按原文顺序整理的片段。每个片段含原文、结构化位置和可读位置 |
 
-定位使用现有证据类型中的 `section`、`text_span` 和 `table_row`。列表项按文本段编号，章节标题和表格行使用各自的定位。
+HTML 支持章节、文本段和表格行定位。PDF 用 `page` 保存从 1 开始的实际页码，显示为「第 N 页」。跳过没有文字的页面时，后续引用保留原页码。PDF 仅提取文字层，下载上限为 4 MiB，最多读取 50 页、提取 25 万字符。
 
-读取只访问公开 HTTP/HTTPS 页面，校验每次跳转的目的地址，并限制总耗时和响应大小。地址不合规、网络失败、非 HTML、空正文或解析失败时，接口抛出 `SourceReadError`。命令行以非零状态退出，将错误码及是否可重试写入标准错误。
+读取只访问公开 HTTP/HTTPS 地址，并校验每次跳转的目的地址。文件超限返回 `response_too_large`，超页数返回 `pdf_page_limit`，无法解析返回 `pdf_parse_error`，加密返回 `pdf_encrypted`，无可提取文字返回 `pdf_no_text`。这些错误都在登记快照前返回。命令行以非零状态退出，并输出错误码和是否可重试。
 
 ## 事项接入和引用
 
-1. 前端在已确认归属的事项下调用 [业务接口](api.md) `POST /api/v1/matters/{matter_id}/sources/read`，请求体包含 `url`、`publisher`、`scope_year` 和可选的 `scope`、`title`。业务接口读取公开 HTML 页面，保存共享来源、快照和原文片段，立即关联当前事项，并返回 `source`、`snapshot`、`created` 与 `document`。
+1. 前端在已确认归属的事项下调用 `POST /api/v1/matters/{matter_id}/sources/read`，请求体包含 `url`、`publisher`、`scope_year` 和可选的 `scope`、`title`。业务接口读取公开 HTML 或 PDF，保存共享来源、快照和原文片段，立即关联当前事项，并返回 `source`、`snapshot`、`created` 与 `document`。[业务接口](api.md)
 2. `document` 是 Agent 输入，包含登记后的来源与快照标识、版本号、获取时间、来源状态和原文片段。Agent 用它生成要求与出处。
 3. Agent 将生成的要求和出处交给同一事项的 `POST /api/v1/matters/{matter_id}/requirements`。要求保存后与来源快照一并出现在 `GET /api/v1/matters/{matter_id}/sources`；尚未生成要求时，已读取来源同样可以回看，其要求列表为空。
 
@@ -54,5 +54,5 @@ except SourceReadError as error:
 接口联调由 `tests/test_api_flow.py` 中的 `test_read_public_source_registers_snapshot_for_citation` 覆盖：使用同一网页快照回放读取，经业务接口登记来源与快照，再用返回的片段写入要求并读取来源链。该测试需要 PostgreSQL 测试库。
 
 ```powershell
-uv run --locked pytest tests/test_public_source_reader.py -q
+uv run --locked pytest tests/test_public_source_reader.py tests/test_public_pdf_source.py -q
 ```

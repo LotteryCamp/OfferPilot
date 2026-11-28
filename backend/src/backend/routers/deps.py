@@ -15,7 +15,8 @@ from backend.errors import ApiError
 from backend.identity import CurrentUser
 from backend.runtime_config import RuntimeConfig
 from backend.services import auth as auth_service
-from backend.services.sources import SourceReader, read_public_html
+from backend.services.sources import SourceReader
+from backend.sources import read_public_source
 
 SessionDep = Annotated[Session, Depends(get_session)]
 
@@ -96,7 +97,7 @@ IdempotencyKeyDep = Annotated[UUID, Depends(idempotency_key)]
 
 
 def get_source_reader() -> SourceReader:
-    return read_public_html
+    return read_public_source
 
 
 SourceReaderDep = Annotated[SourceReader, Depends(get_source_reader)]

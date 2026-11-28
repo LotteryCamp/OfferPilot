@@ -50,12 +50,16 @@ _SOURCE_READ_MESSAGES = {
     "invalid_request": "来源读取请求不符合契约",
     "network_error": "来源暂时无法访问",
     "http_error": "来源返回了错误响应",
-    "unsupported_content_type": "来源不是可读取的 HTML 页面",
+    "unsupported_content_type": "来源不是可读取的 HTML 页面或 PDF 附件",
     "empty_content": "来源页面没有可读取的正文",
     "response_too_large": "来源页面超过读取大小限制",
     "too_many_fragments": "来源页面段落数量超过读取限制",
     "decode_error": "来源页面编码无法识别",
     "parse_error": "来源页面无法解析",
+    "pdf_encrypted": "PDF 已加密，无法读取正文",
+    "pdf_no_text": "PDF 没有可提取的文字，扫描件需人工核对",
+    "pdf_page_limit": "PDF 页数超过读取限制",
+    "pdf_parse_error": "PDF 文件损坏或无法解析",
 }
 
 
