@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, tzinfo
 from typing import Any, Literal
@@ -18,6 +19,7 @@ from backend.agent.schemas import (
     SourceDocument,
     SourceGap,
 )
+from backend.basis import CRITICAL_BASIS_GAP_TYPES
 
 
 def normalize_candidate_deadlines(plan: CandidatePlan, timezone: tzinfo) -> list[str]:
@@ -143,6 +145,8 @@ def evaluate_requirements(
     requirements: list[ExtractedRequirement],
     sources_by_id: dict[str, SourceDocument],
     confirmed_facts: dict[str, object],
+    *,
+    adapter_gaps: list[SourceGap] | None = None,
 ) -> tuple[list[RequirementEvaluation], AgentError | None]:
     """Deterministically evaluate extracted requirements into the four-state contract."""
     evaluations: list[RequirementEvaluation] = []
@@ -169,6 +173,10 @@ def evaluate_requirements(
             continue
 
         ev = _evaluate_single_requirement(req, confirmed_facts)
+        if adapter_gaps:
+            matched_gaps = _matching_adapter_gaps(req, adapter_gaps)
+            if matched_gaps:
+                ev = _reconcile_with_adapter_gaps(ev, matched_gaps)
         evaluations.append(ev)
         if ev.status == EvaluationStatus.MISSING_INFO:
             for f in ev.missing_fields:
@@ -191,6 +199,72 @@ def evaluate_requirements(
         )
 
     return evaluations, None
+
+
+def _normalize_locator(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _matching_adapter_gaps(
+    req: ExtractedRequirement,
+    adapter_gaps: list[SourceGap],
+) -> list[SourceGap]:
+    basis_pairs = {
+        (cite.source_version_id, _normalize_locator(cite.locator)) for cite in req.basis
+    }
+    basis_locators = {_normalize_locator(cite.locator) for cite in req.basis}
+    id_pattern = re.compile(
+        rf"(?<![A-Za-z0-9_-]){re.escape(req.requirement_id)}(?![A-Za-z0-9_-])"
+    )
+    matched: list[SourceGap] = []
+    for gap in adapter_gaps:
+        if gap.related_requirement_ids:
+            if req.requirement_id in gap.related_requirement_ids:
+                matched.append(gap)
+            continue
+        if gap.locator and gap.locator.strip():
+            norm_locator = _normalize_locator(gap.locator)
+            if gap.source_version_id is not None:
+                if (gap.source_version_id, norm_locator) in basis_pairs:
+                    matched.append(gap)
+            elif norm_locator in basis_locators:
+                matched.append(gap)
+            continue
+        if id_pattern.search(gap.description) is not None:
+            matched.append(gap)
+    return matched
+
+
+def _reconcile_with_adapter_gaps(
+    ev: RequirementEvaluation,
+    matched_gaps: list[SourceGap],
+) -> RequirementEvaluation:
+    gap_notes = "；".join(
+        dict.fromkeys(
+            g.description.strip() for g in matched_gaps if g.description.strip()
+        )
+    )
+    if ev.status == EvaluationStatus.MATCHED:
+        reason = (
+            f"存在未核验缺口，待用户核对：{gap_notes}"
+            if gap_notes
+            else "存在未核验缺口，待用户核对"
+        )
+        return ev.model_copy(
+            update={"status": EvaluationStatus.NEEDS_USER_REVIEW, "reason": reason}
+        )
+    if ev.status == EvaluationStatus.NOT_MATCHED and any(
+        g.gap_type in CRITICAL_BASIS_GAP_TYPES for g in matched_gaps
+    ):
+        reason = (
+            f"条款或来源存在关键缺口，待用户核对：{gap_notes}"
+            if gap_notes
+            else "条款或来源存在关键缺口，待用户核对"
+        )
+        return ev.model_copy(
+            update={"status": EvaluationStatus.NEEDS_USER_REVIEW, "reason": reason}
+        )
+    return ev
 
 
 def _evaluate_single_requirement(
@@ -757,6 +831,95 @@ def _evaluate_check_group(
     return passed, failed, missing, invalid
 
 
+def _condition_implies(stronger: _ConditionCheck, weaker: _ConditionCheck) -> bool:
+    if stronger.fact != weaker.fact:
+        return False
+    if stronger == weaker:
+        return True
+
+    s_val = stronger.value
+    w_val = weaker.value
+    s_op = stronger.operator
+    w_op = weaker.operator
+
+    if s_op in {"<=", "<"} and w_op in {"<=", "<"}:
+        if (
+            isinstance(s_val, bool)
+            or isinstance(w_val, bool)
+            or not isinstance(s_val, (int, float))
+            or not isinstance(w_val, (int, float))
+        ):
+            return False
+        s_num = float(s_val)
+        w_num = float(w_val)
+        return s_num < w_num or (s_num == w_num and (s_op == "<" or w_op == "<="))
+
+    if s_op in {">=", ">"} and w_op in {">=", ">"}:
+        if (
+            isinstance(s_val, bool)
+            or isinstance(w_val, bool)
+            or not isinstance(s_val, (int, float))
+            or not isinstance(w_val, (int, float))
+        ):
+            return False
+        s_num = float(s_val)
+        w_num = float(w_val)
+        return s_num > w_num or (s_num == w_num and (s_op == ">" or w_op == ">="))
+
+    if (
+        s_op == "=="
+        and w_op in _ORDER_OPS
+        and not isinstance(s_val, bool)
+        and isinstance(s_val, (int, float))
+        and not isinstance(w_val, bool)
+        and isinstance(w_val, (int, float))
+    ):
+        s_num = float(s_val)
+        w_num = float(w_val)
+        if w_op == "<=":
+            return s_num <= w_num
+        if w_op == "<":
+            return s_num < w_num
+        if w_op == ">=":
+            return s_num >= w_num
+        return s_num > w_num
+
+    if s_op == "==" and w_op == "==":
+        if isinstance(s_val, bool) or isinstance(w_val, bool):
+            return (
+                isinstance(s_val, bool) and isinstance(w_val, bool) and s_val is w_val
+            )
+        if isinstance(s_val, (int, float)) and isinstance(w_val, (int, float)):
+            return float(s_val) == float(w_val)
+        if isinstance(s_val, str) and isinstance(w_val, str):
+            return s_val.lower() == w_val.lower()
+        return False
+
+    return False
+
+
+def _path_subsumes(
+    weaker_checks: list[_ConditionCheck], stronger_checks: list[_ConditionCheck]
+) -> bool:
+    return all(
+        any(_condition_implies(sb, wa) for sb in stronger_checks)
+        for wa in weaker_checks
+    )
+
+
+def _has_subsumed_any_of_paths(
+    paths: list[tuple[str, list[_ConditionCheck]]],
+) -> bool:
+    if len(paths) < 2:
+        return False
+    return any(
+        _path_subsumes(paths[i][1], paths[j][1])
+        for i in range(len(paths))
+        for j in range(len(paths))
+        if i != j
+    )
+
+
 def _eval_any_of(
     req: ExtractedRequirement,
     params: dict[str, Any],
@@ -774,6 +937,30 @@ def _eval_any_of(
         )
 
     all_required, paths = parsed
+    if _has_subsumed_any_of_paths(paths):
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="any_of 规则多条路径存在条件包含或缺少区分项，无法自动判定，待用户核对原条款",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    modeled_keys = {c.fact for c in all_required} | {
+        c.fact for _, checks in paths for c in checks
+    }
+    extra_required_keys = list(
+        dict.fromkeys(
+            k.strip()
+            for k in req.required_fact_keys
+            if isinstance(k, str) and k.strip() and k.strip() not in modeled_keys
+        )
+    )
+    extra_missing = [
+        k for k in extra_required_keys if _is_missing(confirmed_facts.get(k))
+    ]
+
     req_passed, req_failed, req_missing, req_invalid = _evaluate_check_group(
         all_required, confirmed_facts
     )
@@ -819,7 +1006,7 @@ def _eval_any_of(
                 scope=req.scope,
             )
         if req_missing:
-            dedup_missing = list(dict.fromkeys(req_missing))
+            dedup_missing = list(dict.fromkeys([*req_missing, *extra_missing]))
             return RequirementEvaluation(
                 requirement_id=req.requirement_id,
                 title=req.title,
@@ -833,6 +1020,31 @@ def _eval_any_of(
                 scope=req.scope,
             )
         verified = [*req_passed, *p_passed]
+        if extra_missing:
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.MISSING_INFO,
+                reason=(
+                    f"已核验 {label}（{'；'.join(verified)}）；"
+                    f"待补充其余必需条件：{', '.join(extra_missing)}"
+                ),
+                missing_fields=extra_missing,
+                basis=req.basis,
+                scope=req.scope,
+            )
+        if extra_required_keys:
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.NEEDS_USER_REVIEW,
+                reason=(
+                    f"已核验 {label}（{'；'.join(verified)}）；"
+                    f"存在未纳入可执行规则核验的必需个人事实：{', '.join(extra_required_keys)}，待用户核对"
+                ),
+                basis=req.basis,
+                scope=req.scope,
+            )
         return RequirementEvaluation(
             requirement_id=req.requirement_id,
             title=req.title,
@@ -872,7 +1084,11 @@ def _eval_any_of(
     if pending_paths:
         dedup_missing = list(
             dict.fromkeys(
-                [*req_missing, *(f for _, _, pm in pending_paths for f in pm)]
+                [
+                    *req_missing,
+                    *(f for _, _, pm in pending_paths for f in pm),
+                    *extra_missing,
+                ]
             )
         )
         verified = list(
@@ -912,7 +1128,38 @@ def _eval_materials(
     params: dict[str, Any],
     confirmed_facts: dict[str, object],
 ) -> RequirementEvaluation:
-    required = [str(k) for k in params.get("required_facts", req.required_fact_keys)]
+    raw_required = params.get("required_facts")
+    if raw_required is not None and not isinstance(raw_required, list):
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="材料规则缺少有效的 required_facts 列表，待用户结合原文核对",
+            basis=req.basis,
+            scope=req.scope,
+        )
+    merged = [
+        *[
+            str(k).strip()
+            for k in (raw_required or [])
+            if k is not None and str(k).strip()
+        ],
+        *[
+            k.strip()
+            for k in req.required_fact_keys
+            if isinstance(k, str) and k.strip()
+        ],
+    ]
+    required = list(dict.fromkeys(merged))
+    if not required:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="材料规则缺少必需核验项定义，待用户结合原文核对",
+            basis=req.basis,
+            scope=req.scope,
+        )
     gaps = [k for k in required if confirmed_facts.get(k) is not True]
     if gaps:
         return RequirementEvaluation(
@@ -985,40 +1232,85 @@ def _eval_legacy(
     req: ExtractedRequirement,
     confirmed_facts: dict[str, object],
 ) -> RequirementEvaluation:
-    if req.official_deadline is not None and len(req.required_fact_keys) == 1:
-        fact_key = req.required_fact_keys[0]
-        raw_val = confirmed_facts.get(fact_key)
-        if _is_missing(raw_val):
+    required_keys = list(
+        dict.fromkeys(
+            k.strip()
+            for k in req.required_fact_keys
+            if isinstance(k, str) and k.strip()
+        )
+    )
+    if req.official_deadline is not None:
+        if len(required_keys) <= 1:
+            fact_key = required_keys[0] if required_keys else "submitted_at"
+            raw_val = confirmed_facts.get(fact_key)
+            if _is_missing(raw_val):
+                return RequirementEvaluation(
+                    requirement_id=req.requirement_id,
+                    title=req.title,
+                    status=EvaluationStatus.MISSING_INFO,
+                    reason=f"缺少已确认个人字段：{fact_key}",
+                    missing_fields=[fact_key],
+                    basis=req.basis,
+                    computed_deadline=req.official_deadline,
+                    scope=req.scope,
+                )
+            parsed = _parse_aware_datetime(raw_val)
+            if parsed is not None and req.official_deadline.tzinfo is not None:
+                passed = parsed < req.official_deadline
+                return RequirementEvaluation(
+                    requirement_id=req.requirement_id,
+                    title=req.title,
+                    status=EvaluationStatus.MATCHED
+                    if passed
+                    else EvaluationStatus.NOT_MATCHED,
+                    reason="操作时间在官方期限内" if passed else "操作时间超出官方期限",
+                    basis=req.basis,
+                    computed_deadline=req.official_deadline,
+                    scope=req.scope,
+                )
             return RequirementEvaluation(
                 requirement_id=req.requirement_id,
                 title=req.title,
-                status=EvaluationStatus.MISSING_INFO,
-                reason=f"缺少已确认个人字段：{fact_key}",
-                missing_fields=[fact_key],
-                basis=req.basis,
-                computed_deadline=req.official_deadline,
-                scope=req.scope,
-            )
-        parsed = _parse_aware_datetime(raw_val)
-        if parsed is not None and req.official_deadline.tzinfo is not None:
-            passed = parsed < req.official_deadline
-            return RequirementEvaluation(
-                requirement_id=req.requirement_id,
-                title=req.title,
-                status=EvaluationStatus.MATCHED
-                if passed
-                else EvaluationStatus.NOT_MATCHED,
-                reason="操作时间在官方期限内" if passed else "操作时间超出官方期限",
+                status=EvaluationStatus.NEEDS_USER_REVIEW,
+                reason=f"时间字段 {fact_key} 格式无法识别或缺少时区",
                 basis=req.basis,
                 computed_deadline=req.official_deadline,
                 scope=req.scope,
             )
 
-    req_missing = [
-        k
-        for k in req.required_fact_keys
-        if k not in confirmed_facts or confirmed_facts[k] is None
-    ]
+        req_missing = [k for k in required_keys if _is_missing(confirmed_facts.get(k))]
+        if req_missing:
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.MISSING_INFO,
+                reason=f"缺少已确认个人字段：{', '.join(req_missing)}",
+                missing_fields=req_missing,
+                basis=req.basis,
+                computed_deadline=req.official_deadline,
+                scope=req.scope,
+            )
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="期限规则包含多个个人字段且缺少可执行比对规则，待用户核对",
+            basis=req.basis,
+            computed_deadline=req.official_deadline,
+            scope=req.scope,
+        )
+
+    if not required_keys:
+        return RequirementEvaluation(
+            requirement_id=req.requirement_id,
+            title=req.title,
+            status=EvaluationStatus.NEEDS_USER_REVIEW,
+            reason="该要求未定义可执行核验规则与所需个人事实，待用户结合原文核对",
+            basis=req.basis,
+            scope=req.scope,
+        )
+
+    req_missing = [k for k in required_keys if _is_missing(confirmed_facts.get(k))]
     if req_missing:
         return RequirementEvaluation(
             requirement_id=req.requirement_id,

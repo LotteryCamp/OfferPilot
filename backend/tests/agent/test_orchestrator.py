@@ -12,6 +12,7 @@ from backend.agent import (
     AuthLevel,
     CandidatePlan,
     CandidateTask,
+    EvaluationStatus,
     ExecutionRecord,
     ExtractedRequirement,
     GatewayError,
@@ -22,6 +23,7 @@ from backend.agent import (
     RunStatus,
     SourceCitation,
     SourceDocument,
+    SourceGap,
     ToolGateway,
     WrittenTask,
 )
@@ -50,10 +52,12 @@ class InMemoryModelAdapter:
         self,
         requirements: list[ExtractedRequirement],
         *,
+        gaps: list[SourceGap] | None = None,
         fail_on_plan: bool = False,
         cycle_plan: bool = False,
     ) -> None:
         self._requirements = requirements
+        self._gaps = list(gaps or [])
         self._fail_on_plan = fail_on_plan
         self._cycle_plan = cycle_plan
 
@@ -61,6 +65,11 @@ class InMemoryModelAdapter:
         self, goal: str, sources: list[SourceDocument]
     ) -> list[ExtractedRequirement]:
         return list(self._requirements)
+
+    def extract_requirements_with_metadata(
+        self, goal: str, sources: list[SourceDocument]
+    ) -> tuple[list[ExtractedRequirement], list[SourceGap], dict[str, Any]]:
+        return list(self._requirements), list(self._gaps), {}
 
     def generate_candidate_plan(
         self,
@@ -135,6 +144,7 @@ class InMemoryWorkspaceBackend:
 
 class InMemoryCandidatePersistence:
     def __init__(self, *, fail_first_confirm_timeout: bool = False) -> None:
+        self.requirement_payloads: list[dict[str, Any]] = []
         self.plans: dict[str, dict[str, Any]] = {}
         self.decisions: dict[str, str] = {}
         self.rejected_requirements: list[str] = []
@@ -145,6 +155,7 @@ class InMemoryCandidatePersistence:
     def persist_requirements(
         self, matter_id: str, payload: dict[str, Any]
     ) -> list[dict[str, Any]]:
+        self.requirement_payloads.append(payload)
         return [{"id": str(uuid4()), **item} for item in payload["requirements"]]
 
     def persist_candidate_plan(
@@ -684,6 +695,73 @@ def test_gateway_requires_valid_transfer_consent_when_required() -> None:
     assert result == []
     assert record.succeeded is True
     assert backend.consent_calls == 2
+
+
+def test_start_run_reconciles_adapter_gaps_into_requirement_self_checks() -> None:
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
+    requirements = [
+        ExtractedRequirement(
+            requirement_id="R-003",
+            title="应修学分要求",
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            basis=[SourceCitation(source_version_id=_SNAP_ID, locator="第三条")],
+        ),
+        ExtractedRequirement(
+            requirement_id="R-004",
+            title="排名及补考/重修课程限制",
+            field_key="gpa.rank",
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            basis=[SourceCitation(source_version_id=_SNAP_ID, locator="第四条")],
+            rule_kind="any_of",
+            rule_parameters={
+                "paths": [
+                    {
+                        "label": "前35%",
+                        "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                    }
+                ]
+            },
+        ),
+    ]
+    adapter_gaps = [
+        SourceGap(
+            gap_type="missing_personal_fact",
+            description="R-004 缺少补考/重修门数事实，未纳入可执行检查",
+            source_version_id=_SNAP_ID,
+            related_requirement_ids=["R-004"],
+        )
+    ]
+    orch = AgentOrchestrator(
+        timezone=SHANGHAI,
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter(requirements, gaps=adapter_gaps),
+        backend=backend,
+        persistence=persistence,
+    )
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理材料学院推免申请计划",
+        workspace_version=1,
+        confirmed_facts={"gpa.rank": 10.0},
+    )
+
+    result = orch.start_run(ctx)
+    assert result.status == RunStatus.WAITING_CONFIRMATION
+    assert [ev.status for ev in result.evaluations] == [
+        EvaluationStatus.NEEDS_USER_REVIEW,
+        EvaluationStatus.NEEDS_USER_REVIEW,
+    ]
+    assert len(persistence.requirement_payloads) == 1
+    persisted_items = {
+        item["label"]: item
+        for item in persistence.requirement_payloads[0]["requirements"]
+    }
+    for title in ("应修学分要求", "排名及补考/重修课程限制"):
+        assert persisted_items[title]["extract_status"] == "to_review"
+        assert persisted_items[title]["self_check"]["conclusion"] == "needs_user_review"
+        assert persisted_items[title]["self_check"]["gaps"]
 
 
 def test_cancelled_before_persist_leaves_no_candidate() -> None:

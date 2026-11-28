@@ -78,6 +78,10 @@ P0 阶段的所有外部模型调用仅传输当前运行的事项目标、白�
      - 尚未纳入 `core.fact` 注册表的复合条件事实（如 `makeup_or_repeat_courses` 与 `all_required_credits`）通过 `POST /api/v1/matters/{matter_id}/agent-runs` 请求级 `confirmed_facts` 传入（契约见 `docs/backend/api.md` 第 7.1 节），未提供时保持明确 `missing_info` 缺口。
      - 多路径复合规则（如排名阈值叠加补考重修次数与应修学分）使用 `rule_kind="any_of"`，`rule_parameters` 支持 `all_required`（公共前置条件列表）与 `paths[*].{label, checks}`（任一路径满足即达标），单条条件为 `{"fact", "operator" ("<=" | "<" | ">=" | ">" | "=="), "value"}`。
      - 部分事实缺失评估：前置失败或全部路径均因已确认事实失败时直接判定 `按现有信息不符合`；部分事实已通过且仍有可行路径时保持 `待补充信息`，`missing_fields` 仅保留尚未提供的字段并说明已核验结果。
+   - **保守评估兜底与抽取缺口收敛**：
+     - `_eval_any_of` 检测多路径条件包含或冗余（例如仅比较同一字段不同阈值的退化路径），发现冗余路径即降级为 `待用户核对`；同时合并核查 `required_fact_keys` 中未进入可执行规则的必需个人字段，缺项保持 `待补充信息`，已填但无可执行谓词时保持 `待用户核对`。
+     - 未定义可执行规则且未指定 `required_fact_keys`（无截止时间）的要求，以及 `required_facts` 为空的 `materials` 规则，均保持 `待用户核对`；仅带 `official_deadline` 且 `required_fact_keys` 为空时默认核对 `submitted_at`，未填时返回 `待补充信息`，时间解析失败或缺少时区返回 `待用户核对`。
+     - `evaluate_requirements(..., adapter_gaps=...)` 结合抽取阶段返回的 `adapter_gaps`（按 `related_requirement_ids`、精确 `(source_version_id, locator)` 或独立要求编号匹配）对单条评估结果执行保守收敛，存在未核验或关键缺口时禁止保留 `按现有信息符合`。
 4. **候选任务依赖与编号冲突校验**：
    - `validate_candidate_plan` 校验工作区版本一致、`task_id` 唯一、经 `build_client_item_id_map` 规范化并截断至 `80` 字符后的 `client_item_id` 非空且无冲突、`depends_on` 仅引用同计划内已存在任务且依赖图无环、`suggested_date` 不晚于官方截止日期。
    - Agent 运行仅保存 `WAITING_CONFIRMATION` 状态的待确认候选计划，必须在用户显式确认后才创建正式任务。

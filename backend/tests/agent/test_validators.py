@@ -12,6 +12,8 @@ from backend.agent import (
     ObligationType,
     SourceCitation,
     SourceDocument,
+    SourceGap,
+    collect_source_gaps,
     evaluate_requirements,
     find_expired_plan_tasks,
     validate_candidate_plan,
@@ -604,3 +606,387 @@ def test_evaluate_any_of_handles_oversized_ints_malformed_shapes_and_all_operato
     )
     assert both_invalid_evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
     assert both_invalid_evals[0].missing_fields == ["credits", "tier"]
+
+
+def test_evaluate_any_of_rejects_subsumed_paths_and_unmodeled_required_facts() -> None:
+    docs = _rank_doc()
+
+    degraded_rank_only = ExtractedRequirement(
+        requirement_id="R-004",
+        title="排名及补考/重修课程限制",
+        field_key="gpa.rank",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "前35%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                },
+                {
+                    "label": "前20%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 20}],
+                },
+            ]
+        },
+    )
+    partial_omission = ExtractedRequirement(
+        requirement_id="R-004-PARTIAL",
+        title="排名及补考/重修课程限制",
+        field_key="gpa.rank",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "前35%（缺失补考条件）",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                },
+                {
+                    "label": "前20%至多1门补考重修",
+                    "checks": [
+                        {"fact": "gpa.rank", "operator": "<=", "value": 20},
+                        {
+                            "fact": "makeup_or_repeat_courses",
+                            "operator": "<=",
+                            "value": 1,
+                        },
+                    ],
+                },
+            ]
+        },
+    )
+    lower_bound_subsumed = ExtractedRequirement(
+        requirement_id="R-ENG-SUBSUMED",
+        title="外语成绩分层冗余路径",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {"checks": [{"fact": "cet6", "operator": ">=", "value": 425}]},
+                {"checks": [{"fact": "cet6", "operator": ">=", "value": 500}]},
+            ]
+        },
+    )
+    eq_and_bound_subsumed = ExtractedRequirement(
+        requirement_id="R-EQ-SUBSUMED",
+        title="档位包含路径",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {"checks": [{"fact": "tier", "operator": "<=", "value": 1}]},
+                {
+                    "checks": [
+                        {"fact": "tier", "operator": "==", "value": 1},
+                        {"fact": "bonus", "operator": ">=", "value": 2},
+                    ]
+                },
+            ]
+        },
+    )
+    strict_bound_subsumed = ExtractedRequirement(
+        requirement_id="R-STRICT-SUBSUMED",
+        title="严格不等式包含路径",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {"checks": [{"fact": "score", "operator": "<=", "value": 60}]},
+                {"checks": [{"fact": "score", "operator": "<", "value": 60}]},
+            ]
+        },
+    )
+    subsumed_cases: tuple[tuple[ExtractedRequirement, dict[str, object]], ...] = (
+        (degraded_rank_only, {"gpa.rank": 10.0}),
+        (partial_omission, {"gpa.rank": 10.0}),
+        (lower_bound_subsumed, {"cet6": 520}),
+        (eq_and_bound_subsumed, {"tier": 1, "bonus": 3}),
+        (strict_bound_subsumed, {"score": 50}),
+    )
+    for req, facts in subsumed_cases:
+        evals, err = evaluate_requirements([req], docs, facts)
+        assert evals[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+        assert "包含" in evals[0].reason
+        assert err is not None
+        assert err.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+
+    single_path_with_extra_keys = ExtractedRequirement(
+        requirement_id="R-004-EXTRA",
+        title="排名及补考/重修课程限制",
+        field_key="gpa.rank",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        required_fact_keys=[
+            "gpa.rank",
+            "makeup_or_repeat_courses",
+            "all_required_credits",
+        ],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "前35%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                }
+            ]
+        },
+    )
+    # Only gpa.rank=10 is provided; credits and makeup/repeat are missing -> MISSING_INFO
+    evals_missing, err_missing = evaluate_requirements(
+        [single_path_with_extra_keys], docs, {"gpa.rank": 10.0}
+    )
+    assert evals_missing[0].status == EvaluationStatus.MISSING_INFO
+    assert evals_missing[0].missing_fields == [
+        "makeup_or_repeat_courses",
+        "all_required_credits",
+    ]
+    assert err_missing is not None
+    assert err_missing.code == AgentErrorCode.MISSING_PERSONAL_FACT
+
+    # Even when extra keys are populated, unmodeled checks keep NEEDS_USER_REVIEW
+    evals_unmodeled, err_unmodeled = evaluate_requirements(
+        [single_path_with_extra_keys],
+        docs,
+        {
+            "gpa.rank": 10.0,
+            "makeup_or_repeat_courses": 0,
+            "all_required_credits": True,
+        },
+    )
+    assert evals_unmodeled[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert "makeup_or_repeat_courses" in evals_unmodeled[0].reason
+    assert err_unmodeled is not None
+    assert err_unmodeled.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+
+    # Modeled rank failure still reports NOT_MATCHED
+    evals_failed, _ = evaluate_requirements(
+        [single_path_with_extra_keys], docs, {"gpa.rank": 40.0}
+    )
+    assert evals_failed[0].status == EvaluationStatus.NOT_MATCHED
+
+
+def test_evaluate_conservative_fallbacks_for_legacy_and_empty_materials() -> None:
+    docs = _rank_doc()
+    deadline = datetime(2026, 9, 10, 15, 0, tzinfo=SHANGHAI)
+
+    # Ruleless requirement without required facts (e.g. unmodeled credit requirement)
+    r003 = ExtractedRequirement(
+        requirement_id="R-003",
+        title="应修学分要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+    )
+    ev_r003, err_r003 = evaluate_requirements([r003], docs, {"gpa.rank": 10.0})
+    assert ev_r003[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert err_r003 is not None
+    assert err_r003.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+
+    # Empty or malformed materials rule stays conservative
+    empty_mat = ExtractedRequirement(
+        requirement_id="R-MAT-EMPTY",
+        title="未定义字段的材料要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="materials",
+        rule_parameters={},
+    )
+    bad_mat = ExtractedRequirement(
+        requirement_id="R-MAT-BAD",
+        title="非列表参数材料要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        rule_kind="materials",
+        rule_parameters={"required_facts": "all_required_credits"},
+    )
+    merged_mat = ExtractedRequirement(
+        requirement_id="R-MAT-MERGE",
+        title="合并清单材料要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        required_fact_keys=["sealed_transcript"],
+        rule_kind="materials",
+        rule_parameters={"required_facts": ["paper_transcript"]},
+    )
+    for req in (empty_mat, bad_mat):
+        ev, err = evaluate_requirements([req], docs, {})
+        assert ev[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+        assert err is not None
+    ev_merged, _ = evaluate_requirements([merged_mat], docs, {"paper_transcript": True})
+    assert ev_merged[0].status == EvaluationStatus.MISSING_INFO
+    assert ev_merged[0].missing_fields == ["sealed_transcript"]
+
+    # Legacy official_deadline with no required_fact_keys defaults to submitted_at
+    legacy_dl = ExtractedRequirement(
+        requirement_id="GR-02",
+        title="提交申请材料截止",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        official_deadline=deadline,
+    )
+    ev_dl_missing, err_dl_missing = evaluate_requirements([legacy_dl], docs, {})
+    assert ev_dl_missing[0].status == EvaluationStatus.MISSING_INFO
+    assert ev_dl_missing[0].missing_fields == ["submitted_at"]
+    assert ev_dl_missing[0].computed_deadline == deadline
+    assert err_dl_missing is not None
+    assert err_dl_missing.code == AgentErrorCode.MISSING_PERSONAL_FACT
+    assert "missing_personal_fact" in {
+        g.gap_type for g in collect_source_gaps(list(docs.values()), ev_dl_missing)
+    }
+
+    ev_dl_naive, _ = evaluate_requirements(
+        [legacy_dl], docs, {"submitted_at": "2026-09-10T14:00:00"}
+    )
+    assert ev_dl_naive[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert ev_dl_naive[0].computed_deadline == deadline
+
+    ev_dl_ok, _ = evaluate_requirements(
+        [legacy_dl], docs, {"submitted_at": "2026-09-10T14:59:00+08:00"}
+    )
+    assert ev_dl_ok[0].status == EvaluationStatus.MATCHED
+
+    ev_dl_late, _ = evaluate_requirements(
+        [legacy_dl], docs, {"submitted_at": "2026-09-10T15:01:00+08:00"}
+    )
+    assert ev_dl_late[0].status == EvaluationStatus.NOT_MATCHED
+
+
+def test_evaluate_reconciles_adapter_gaps_without_false_matched() -> None:
+    docs = _rank_doc()
+    rank_only_req = ExtractedRequirement(
+        requirement_id="R-004",
+        title="排名及补考/重修课程限制",
+        field_key="gpa.rank",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="src-v1", locator="一、2（3）")],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "前35%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                }
+            ]
+        },
+    )
+    unrelated_req = ExtractedRequirement(
+        requirement_id="R-005",
+        title="外语水平要求",
+        field_key="cet4",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="src-v1", locator="一、2（4）")],
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 480}, "operator": ">="},
+    )
+    similar_prefix_req = ExtractedRequirement(
+        requirement_id="R-0040",
+        title="其他独立材料要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id="src-v1", locator="二、1")],
+        required_fact_keys=["extra_doc_ready"],
+    )
+
+    # 1. Matched by related_requirement_ids
+    ev_by_id, err_by_id = evaluate_requirements(
+        [rank_only_req, unrelated_req],
+        docs,
+        {"gpa.rank": 10.0, "cet4": 520},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_personal_fact",
+                description="缺少补考/重修门数与学分事实，未纳入可执行检查",
+                source_version_id="src-v1",
+                related_requirement_ids=["R-004"],
+            )
+        ],
+    )
+    assert ev_by_id[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert "缺少补考/重修门数" in ev_by_id[0].reason
+    assert ev_by_id[1].status == EvaluationStatus.MATCHED
+    assert err_by_id is not None
+    assert err_by_id.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+
+    # 2. Matched by exact (source_version_id, locator) when related_requirement_ids is empty
+    ev_by_loc, _ = evaluate_requirements(
+        [rank_only_req, unrelated_req],
+        docs,
+        {"gpa.rank": 10.0, "cet4": 520},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_personal_fact",
+                description="一、2（3）仅校验了排名阈值",
+                source_version_id="src-v1",
+                locator="  一、2（3）\n ",
+            )
+        ],
+    )
+    assert ev_by_loc[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert ev_by_loc[1].status == EvaluationStatus.MATCHED
+
+    # 3. Matched by standalone requirement_id mention in description without matching R-0040
+    ev_by_desc, _ = evaluate_requirements(
+        [rank_only_req, similar_prefix_req],
+        docs,
+        {"gpa.rank": 10.0, "extra_doc_ready": True},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="ambiguous_clause",
+                description="R-004 的补考条款需核对教务记录",
+            )
+        ],
+    )
+    assert ev_by_desc[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+    assert ev_by_desc[1].status == EvaluationStatus.MATCHED
+
+    # 4. Keeps MISSING_INFO and keeps NOT_MATCHED unless critical basis gap applies
+    compound = _rank_compound_requirement()
+    ev_missing_kept, _ = evaluate_requirements(
+        [compound],
+        docs,
+        {"gpa.rank": 10.0},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_personal_fact",
+                description="缺少补考和学分事实",
+                related_requirement_ids=["GR-01"],
+            )
+        ],
+    )
+    assert ev_missing_kept[0].status == EvaluationStatus.MISSING_INFO
+    assert ev_missing_kept[0].missing_fields == [
+        "all_required_credits",
+        "makeup_or_repeat_courses",
+    ]
+
+    ev_not_matched_kept, _ = evaluate_requirements(
+        [compound],
+        docs,
+        {"gpa.rank": 40.0},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="missing_personal_fact",
+                description="缺少补考和学分事实",
+                related_requirement_ids=["GR-01"],
+            )
+        ],
+    )
+    assert ev_not_matched_kept[0].status == EvaluationStatus.NOT_MATCHED
+
+    ev_not_matched_critical, _ = evaluate_requirements(
+        [compound],
+        docs,
+        {"gpa.rank": 40.0},
+        adapter_gaps=[
+            SourceGap(
+                gap_type="ambiguous_clause",
+                description="条款适用范围尚待明确",
+                related_requirement_ids=["GR-01"],
+            )
+        ],
+    )
+    assert ev_not_matched_critical[0].status == EvaluationStatus.NEEDS_USER_REVIEW

@@ -1898,3 +1898,83 @@ def test_referenced_fact_types_emitted_in_plan_create_payload_for_multi_fact_pla
         CandidatePlanCreate.model_validate(
             {**payload, "referenced_fact_types": ["Invalid Key!"]}
         )
+
+
+def test_extraction_instruction_and_self_check_gap_alignment() -> None:
+    from backend.agent import collect_source_gaps
+    from backend.agent.model_bridge import _EXTRACTION_INSTRUCTION
+
+    assert "makeup_or_repeat_courses" in _EXTRACTION_INSTRUCTION
+    assert "all_required_credits" in _EXTRACTION_INSTRUCTION
+    assert "related_requirement_ids" in _EXTRACTION_INSTRUCTION
+    assert "is_ambiguous" in _EXTRACTION_INSTRUCTION
+
+    src_id = "b0000000-0000-4000-8000-000000000031"
+    snap_id = "b0000000-0000-4000-8000-000000000032"
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        title="2027 届材料学院推荐工作方案",
+        publisher="福州大学材料科学与工程学院",
+        content="修满规定学分，综合成绩排名前35%且无补考或重修，或前20%且至多1门补考或重修。",
+    )
+    r003 = ExtractedRequirement(
+        requirement_id="R-003",
+        title="应修学分要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id=snap_id, locator="第4段")],
+    )
+    r004 = ExtractedRequirement(
+        requirement_id="R-004",
+        title="排名及补考/重修课程限制",
+        field_key="gpa.rank",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[SourceCitation(source_version_id=snap_id, locator="第5段")],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "前35%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}],
+                },
+                {
+                    "label": "前20%",
+                    "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 20}],
+                },
+            ]
+        },
+    )
+    adapter_gaps = [
+        SourceGap(
+            gap_type="missing_personal_fact",
+            description="缺少补考/重修与应修学分事实",
+            source_version_id=snap_id,
+            locator="第5段",
+            related_requirement_ids=["R-004"],
+        )
+    ]
+    evals, err = evaluate_requirements(
+        [r003, r004],
+        {snap_id: doc},
+        {"gpa.rank": 10.0},
+        adapter_gaps=adapter_gaps,
+    )
+    assert err is not None
+    assert err.code == AgentErrorCode.RULE_CONFLICT_OR_AMBIGUOUS
+    assert [ev.status for ev in evals] == [
+        EvaluationStatus.NEEDS_USER_REVIEW,
+        EvaluationStatus.NEEDS_USER_REVIEW,
+    ]
+
+    gaps = collect_source_gaps([doc], evals)
+    for gap in adapter_gaps:
+        if gap not in gaps:
+            gaps.append(gap)
+    payload = build_requirements_batch_payload(
+        [r003, r004], evals, {snap_id: doc}, gaps
+    )
+    for item in payload["requirements"]:
+        assert item["extract_status"] == "to_review"
+        assert item["self_check"]["conclusion"] == "needs_user_review"
+        assert item["self_check"]["gaps"]
