@@ -821,7 +821,7 @@ def test_evaluate_conservative_fallbacks_for_legacy_and_empty_materials() -> Non
     assert ev_merged[0].status == EvaluationStatus.MISSING_INFO
     assert ev_merged[0].missing_fields == ["sealed_transcript"]
 
-    # Legacy official_deadline with no required_fact_keys defaults to submitted_at
+    # Legacy official_deadline with no required_fact_keys confirms deadline basis without inventing facts
     legacy_dl = ExtractedRequirement(
         requirement_id="GR-02",
         title="提交申请材料截止",
@@ -829,7 +829,34 @@ def test_evaluate_conservative_fallbacks_for_legacy_and_empty_materials() -> Non
         basis=[_cite()],
         official_deadline=deadline,
     )
-    ev_dl_missing, err_dl_missing = evaluate_requirements([legacy_dl], docs, {})
+    ev_dl_basis, err_dl_basis = evaluate_requirements([legacy_dl], docs, {})
+    assert ev_dl_basis[0].status == EvaluationStatus.MATCHED
+    assert ev_dl_basis[0].missing_fields == []
+    assert ev_dl_basis[0].computed_deadline == deadline
+    assert err_dl_basis is None
+
+    naive_dl = ExtractedRequirement(
+        requirement_id="GR-02-NAIVE",
+        title="未带时区的提交截止",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        official_deadline=datetime(2026, 9, 10, 15, 0),
+    )
+    ev_dl_naive_rule, _ = evaluate_requirements([naive_dl], docs, {})
+    assert ev_dl_naive_rule[0].status == EvaluationStatus.NEEDS_USER_REVIEW
+
+    # Legacy official_deadline declaring one time fact checks that fact cleanly
+    legacy_dl_with_key = ExtractedRequirement(
+        requirement_id="GR-02-FACT",
+        title="按操作时间核对提交截止",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        official_deadline=deadline,
+        required_fact_keys=["submitted_at"],
+    )
+    ev_dl_missing, err_dl_missing = evaluate_requirements(
+        [legacy_dl_with_key], docs, {}
+    )
     assert ev_dl_missing[0].status == EvaluationStatus.MISSING_INFO
     assert ev_dl_missing[0].missing_fields == ["submitted_at"]
     assert ev_dl_missing[0].computed_deadline == deadline
@@ -840,20 +867,44 @@ def test_evaluate_conservative_fallbacks_for_legacy_and_empty_materials() -> Non
     }
 
     ev_dl_naive, _ = evaluate_requirements(
-        [legacy_dl], docs, {"submitted_at": "2026-09-10T14:00:00"}
+        [legacy_dl_with_key], docs, {"submitted_at": "2026-09-10T14:00:00"}
     )
     assert ev_dl_naive[0].status == EvaluationStatus.NEEDS_USER_REVIEW
     assert ev_dl_naive[0].computed_deadline == deadline
 
     ev_dl_ok, _ = evaluate_requirements(
-        [legacy_dl], docs, {"submitted_at": "2026-09-10T14:59:00+08:00"}
+        [legacy_dl_with_key], docs, {"submitted_at": "2026-09-10T14:59:00+08:00"}
     )
     assert ev_dl_ok[0].status == EvaluationStatus.MATCHED
 
     ev_dl_late, _ = evaluate_requirements(
-        [legacy_dl], docs, {"submitted_at": "2026-09-10T15:01:00+08:00"}
+        [legacy_dl_with_key], docs, {"submitted_at": "2026-09-10T15:01:00+08:00"}
     )
     assert ev_dl_late[0].status == EvaluationStatus.NOT_MATCHED
+
+    legacy_dl_multi = ExtractedRequirement(
+        requirement_id="GR-02-MULTI",
+        title="多字段截止核对",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[_cite()],
+        official_deadline=deadline,
+        required_fact_keys=["submitted_at", "stamped_at"],
+    )
+    ev_dl_multi_missing, _ = evaluate_requirements(
+        [legacy_dl_multi], docs, {"submitted_at": "2026-09-10T14:59:00+08:00"}
+    )
+    assert ev_dl_multi_missing[0].status == EvaluationStatus.MISSING_INFO
+    assert ev_dl_multi_missing[0].missing_fields == ["stamped_at"]
+
+    ev_dl_multi_review, _ = evaluate_requirements(
+        [legacy_dl_multi],
+        docs,
+        {
+            "submitted_at": "2026-09-10T14:59:00+08:00",
+            "stamped_at": "2026-09-10T14:30:00+08:00",
+        },
+    )
+    assert ev_dl_multi_review[0].status == EvaluationStatus.NEEDS_USER_REVIEW
 
 
 def test_evaluate_reconciles_adapter_gaps_without_false_matched() -> None:

@@ -1240,8 +1240,27 @@ def _eval_legacy(
         )
     )
     if req.official_deadline is not None:
-        if len(required_keys) <= 1:
-            fact_key = required_keys[0] if required_keys else "submitted_at"
+        if not required_keys:
+            if req.official_deadline.tzinfo is None:
+                return RequirementEvaluation(
+                    requirement_id=req.requirement_id,
+                    title=req.title,
+                    status=EvaluationStatus.NEEDS_USER_REVIEW,
+                    reason="官方截止时间缺少时区信息，待用户核对",
+                    basis=req.basis,
+                    scope=req.scope,
+                )
+            return RequirementEvaluation(
+                requirement_id=req.requirement_id,
+                title=req.title,
+                status=EvaluationStatus.MATCHED,
+                reason="官方截止时间依据已确认",
+                basis=req.basis,
+                computed_deadline=req.official_deadline,
+                scope=req.scope,
+            )
+        if len(required_keys) == 1:
+            fact_key = required_keys[0]
             raw_val = confirmed_facts.get(fact_key)
             if _is_missing(raw_val):
                 return RequirementEvaluation(
