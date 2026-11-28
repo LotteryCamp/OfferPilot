@@ -14,8 +14,10 @@
 
 | 附件 | 核对结果 | 回看 |
 | --- | --- | --- |
-| 接收方案附件 4 | PDF 共 2 页，第 1 页表头可核对体格检查表，文本可提取。用于拟录取后体检表单的出处核对 | [体检表附件](https://cl.fzu.edu.cn/system/_content/download.jsp?owner=1747125295&urltype=news.DownloadAttachUrl&wbfileid=18297473) |
-| 校赛通知附件 1 | PDF 共 8 页，第 7 页目录第 59 项为本赛事（GJS202659）。页面人工核对成功，文件没有可提取文字层。校赛报名、答题时间与对象对应正文 | [闽教高〔2026〕7号](https://lib.fzu.edu.cn/system/_content/download.jsp?owner=1745232196&urltype=news.DownloadAttachUrl&wbfileid=18285437) |
+| 接收方案附件 4 | PDF 共 2 页，第 1 页表头可核对体格检查表。来源处理的验证版本可提取两页文本，并在页面显示对应的页码引文 | [体检表附件](https://cl.fzu.edu.cn/system/_content/download.jsp?owner=1747125295&urltype=news.DownloadAttachUrl&wbfileid=18297473) |
+| 校赛通知附件 1 | PDF 共 8 页，第 7 页目录第 59 项为本赛事（GJS202659）。扫描件缺少文字层，应用提示人工核对，来源快照保持原状。校赛报名、答题时间与对象对应正文 | [闽教高〔2026〕7号](https://lib.fzu.edu.cn/system/_content/download.jsp?owner=1745232196&urltype=news.DownloadAttachUrl&wbfileid=18285437) |
+
+应用侧的附件登记、页码引用和扫描件提示在来源处理验证版本 `fe4605d` 上核对。[应用侧验证记录](https://github.com/LotteryCamp/OfferPilot/pull/89)
 
 ## 推免规则回归表
 
@@ -72,10 +74,12 @@ Remove-Item Env:OFFERPILOT_BETA_DOMAIN_LIVE
 
 推免接收、竞赛的正常确认分别用固定时钟 2026-09-22 07:30 和 2026-09-17 10:00（北京时间）回放。候选输入来自人工核对的来源条款，验收记录适用于后端业务 API。排名组合条件由样例判定表覆盖，替代成绩、材料、时间及来源缺口使用现有 Agent 规则校验器。
 
-## 2026-11-26 验证记录
+## 验证记录
 
-以 [main @ ee0a933](https://github.com/LotteryCamp/OfferPilot/commit/ee0a9337ecff573dfd656f42fac091ac412ecb41) 为基线，在 Python 3.13.18 与独立 PostgreSQL 16.16 上应用 18 个迁移和参考种子，通过 55 项 #74 用例。其中 47 项为规则、排名及引文检查，3 项为官方正文在线回看，5 项为 API 冒烟。
+11 月 26 日以 `main @ ee0a933` 为基线，在 Python 3.13.18 与独立 PostgreSQL 16.16 上应用 18 个迁移和参考种子，通过 55 项 #74 用例。其中 47 项为规则、排名及引文检查，3 项为官方正文在线回看，5 项为 API 冒烟。[测试基线](https://github.com/LotteryCamp/OfferPilot/commit/ee0a9337ecff573dfd656f42fac091ac412ecb41)
 
 推免与竞赛两个确认用例各落库两条任务，重复确认复用任务，另一同类事项仍为空。竞赛拒绝与过期确认各保留零条任务。来源年度不符时要求写入返回 `422 scope_year_mismatch`。竞赛截止保留日期字段，时刻字段为空。
+
+11 月 27 日的 P0-04 真实模型联调使用同一份接收通知。候选确认识别到 GR-07 的北京时间 2026-09-22 08:00 截止，过期确认返回 `official_deadline_passed`，事项正式任务为零。[过期场景联调证据](https://github.com/LotteryCamp/OfferPilot/issues/73#issuecomment-7218362003)
 
 P0-04 可用推免接收样例对照条件、日期、引用与候选依赖，并独立复核未定的复试日期和材料缺口。竞赛仅覆盖该年度福州大学校内选拔。竞赛前端与发布范围按 Beta 验收决策确认。[Beta 验收追踪](../../../../../beta-release-tracking.md)
