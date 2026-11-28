@@ -9,6 +9,7 @@ from fastapi import APIRouter, status
 from fastapi.responses import JSONResponse
 
 from backend.errors import error_payload
+from backend.routers.agent_runs import AgentRunServiceDep
 from backend.routers.deps import (
     ClockDep,
     CurrentUserDep,
@@ -66,16 +67,12 @@ def confirm_candidate_plan(
     plan_id: UUID,
     operation_id: IdempotencyKeyDep,
     current_user: CurrentUserDep,
-    session: SessionDep,
-    settings: SettingsDep,
+    service: AgentRunServiceDep,
     clock: ClockDep,
 ):
-    result = decision_service.decide_plan(
-        session,
-        current_user,
-        settings,
+    result = service.confirm_candidate_plan(
         plan_id,
-        decision="confirmed",
+        current_user,
         operation_id=operation_id,
         now=clock.now(),
     )

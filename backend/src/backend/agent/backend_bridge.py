@@ -168,6 +168,21 @@ class SqlCandidatePersistence:
             raise _to_persistence_error(exc) from exc
         return result
 
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        if not requirement_ids:
+            return
+        try:
+            with self._session_factory() as session:
+                requirement_service.reject_requirements(
+                    session,
+                    self._current_user,
+                    UUID(matter_id),
+                    [UUID(requirement_id) for requirement_id in requirement_ids],
+                    now=self._clock.now(),
+                )
+        except ApiError as exc:
+            raise _to_persistence_error(exc) from exc
+
     def get_candidate_plan(self, plan_id: str) -> dict[str, Any]:
         try:
             with self._session_factory() as session:
