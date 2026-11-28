@@ -14,7 +14,7 @@ const props = defineProps<{
   recheckUnavailable: string
   recheck: (sourceId: string | null) => Promise<AnalysisRun | null>
 }>()
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{ changed: []; close: [] }>()
 const ranking = useRanking(
   () => props.matterId,
   () => emit('changed'),
@@ -35,9 +35,10 @@ const {
   uncertain,
   affected,
 } = ranking
-defineExpose({ writing })
+defineExpose({ writing, saved })
 const attempted = ref(false)
 const validated = computed(() => rankingDraftSchema.safeParse(draft))
+const preview = computed(() => rankingDraftSchema.safeParse({ ...draft, confirmed: true }))
 const locked = computed(() => loading.value || busy.value || props.analysisBusy)
 const missing = computed(() =>
   [
@@ -56,8 +57,8 @@ const fieldErrors = computed(() => {
   return errors
 })
 const percent = computed(() =>
-  validated.value.success
-    ? rankingPercentage(validated.value.data.rankPosition, validated.value.data.totalStudents)
+  preview.value.success
+    ? rankingPercentage(preview.value.data.rankPosition, preview.value.data.totalStudents)
     : '',
 )
 
@@ -213,6 +214,13 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
           {{ fieldErrors.totalStudents }}
         </p>
       </div>
+      <div v-if="preview.success" class="ranking-preview ranking-confirmation" role="status">
+        <strong
+          >比例预览：{{ draft.rankPosition.trim() }} ÷ {{ draft.totalStudents.trim() }} × 100% =
+          {{ percent }}</strong
+        >
+        <p class="muted">仅供预览，保存后使用当前事项事实重新自查。</p>
+      </div>
       <div class="ranking-confirmation">
         <ElCheckbox
           id="ranking-confirmed"
@@ -232,7 +240,6 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
         </p>
       </div>
       <div class="module-actions ranking-confirmation">
-        <ElButton :disabled="locked || !ready" @click="checkInput">检查输入</ElButton>
         <ElButton
           native-type="submit"
           data-testid="ranking-save"
@@ -242,12 +249,14 @@ onBeforeUnmount(() => window.removeEventListener('beforeunload', preventClose))
         >
           {{ recheckUnavailable ? '保存排名' : '保存并重新自查' }}
         </ElButton>
+        <ElButton :disabled="locked || !ready" @click="checkInput">检查输入</ElButton>
         <ElButton
           data-testid="ranking-recheck"
           :disabled="locked || !ready || !saved || dirty || Boolean(recheckUnavailable)"
           @click="ranking.recheckSaved(sourceId)"
           >仅重新自查</ElButton
         >
+        <ElButton :disabled="locked" @click="emit('close')">返回来源与条件</ElButton>
       </div>
     </form>
     <p v-if="attempted && validated.success" role="status">

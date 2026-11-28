@@ -1,8 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { AxiosError, AxiosHeaders } from 'axios'
 import { isRetryableReadStatus, readFailure } from './api'
 
 describe('来源读取状态策略', () => {
+  it('会话失效时清除旧资料并提示重新登录', () => {
+    const error = new AxiosError('会话失效', 'ERR_BAD_REQUEST', undefined, undefined, {
+      status: 401,
+      statusText: '',
+      headers: {},
+      config: { headers: new AxiosHeaders() },
+      data: {},
+    })
+    expect(readFailure(error)).toEqual({
+      message: '登录状态已失效，请重新登录后读取当前事项。',
+      retainData: false,
+    })
+  })
   it.each([401, 403, 404, 400, 422])('HTTP %s 清除已展示的资料', (status) => {
     expect(isRetryableReadStatus(status)).toBe(false)
   })

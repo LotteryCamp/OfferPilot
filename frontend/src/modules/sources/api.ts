@@ -42,7 +42,7 @@ export function readFailure(error: unknown): { message: string; retainData: bool
   if (axios.isAxiosError(error)) {
     const status = error.response?.status
     const messages: Record<number, string> = {
-      401: '当前演示身份不可用，请检查后端配置。',
+      401: '登录状态已失效，请重新登录后读取当前事项。',
       403: '当前事项无访问权限。',
       404: '未找到事项或来源接口，请核对事项标识与后端版本。',
       422: '后端未接受当前事项标识，请核对后重试。',

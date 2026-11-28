@@ -11,7 +11,7 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
 <template>
   <section class="panel requirements" data-testid="requirements" :data-snapshot-id="snapshot.id">
     <div class="section-heading">
-      <h2>本版本的要求</h2>
+      <h2>资格条件辅助自查</h2>
       <span class="muted">{{ snapshot.requirements.length }} 条</span>
     </div>
     <ElEmpty v-if="!snapshot.requirements.length" description="已读取，待分析" :image-size="72">
@@ -24,8 +24,14 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
       data-testid="requirement-card"
       :data-requirement-id="rule.id"
     >
-      <h3>{{ rule.label }}</h3>
-      <div class="tags">
+      <div class="section-heading">
+        <h3>{{ rule.label }}</h3>
+        <ElTag v-if="rule.self_check" :type="selfCheckTone(rule.self_check.conclusion)">
+          {{ selfCheckLabel(rule.self_check.conclusion) }}
+        </ElTag>
+        <ElTag v-else type="warning">待核对</ElTag>
+      </div>
+      <div class="tags requirement-tags">
         <ElTag type="info" effect="plain">{{
           statusLabel('obligation', rule.obligation_nature)
         }}</ElTag>
@@ -33,9 +39,6 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
           statusLabel('extraction', rule.extract_status)
         }}</ElTag>
       </div>
-      <p class="requirement-value">{{ rule.value_text || '要求内容待补充' }}</p>
-      <p class="muted">适用范围：{{ rule.scope || '未提供，需核对' }}</p>
-      <p v-if="rule.checked_at" class="muted">检查时间：{{ displayDate(rule.checked_at) }}</p>
       <section
         v-if="rule.self_check"
         class="self-check"
@@ -43,12 +46,6 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
         :data-conclusion="rule.self_check.conclusion"
         :aria-label="`${rule.label}的辅助自查结果`"
       >
-        <div class="section-heading">
-          <strong>辅助自查</strong>
-          <ElTag :type="selfCheckTone(rule.self_check.conclusion)">
-            {{ selfCheckLabel(rule.self_check.conclusion) }}
-          </ElTag>
-        </div>
         <p>{{ rule.self_check.reason }}</p>
         <p v-if="rule.self_check.missing_fields.length" class="muted">
           待补充信息项：{{ rule.self_check.missing_fields.join('、') }}
@@ -75,19 +72,25 @@ const emit = defineEmits<{ 'open-evidence': [sourceId: string, snapshotId: strin
         </div>
       </section>
       <p v-else class="muted">尚无可读取的个人自查结果，请先核对下方来源依据。</p>
-      <p v-if="!rule.evidence.length" class="error-text">尚未提供出处定位，需补充后核对。</p>
-      <div v-for="entry in rule.evidence" :key="entry.id" class="evidence-block">
-        <strong>原文位置 · {{ entry.locator }}</strong>
-        <blockquote>{{ entry.quote || '未提供引文，请回看原文。' }}</blockquote>
-        <p class="muted break-text">来源 {{ entry.source_id }} / 快照 {{ entry.snapshot_id }}</p>
-        <ElButton
-          v-if="availableSnapshots.has(`${entry.source_id}/${entry.snapshot_id}`)"
-          size="small"
-          @click="emit('open-evidence', entry.source_id, entry.snapshot_id)"
-          >查看该出处快照</ElButton
-        >
-        <p v-else class="muted">本列表未返回该出处快照，请按标识核对。</p>
-      </div>
+      <details class="requirement-evidence">
+        <summary>查看要求与原文依据 · {{ rule.evidence.length }} 处</summary>
+        <p class="requirement-value">{{ rule.value_text || '要求内容待补充' }}</p>
+        <p class="muted">适用范围：{{ rule.scope || '未提供，需核对' }}</p>
+        <p v-if="rule.checked_at" class="muted">检查时间：{{ displayDate(rule.checked_at) }}</p>
+        <p v-if="!rule.evidence.length" class="error-text">尚未提供出处定位，需补充后核对。</p>
+        <div v-for="entry in rule.evidence" :key="entry.id" class="evidence-block">
+          <strong>原文位置 · {{ entry.locator }}</strong>
+          <blockquote>{{ entry.quote || '未提供引文，请回看原文。' }}</blockquote>
+          <p class="muted break-text">来源 {{ entry.source_id }} / 快照 {{ entry.snapshot_id }}</p>
+          <ElButton
+            v-if="availableSnapshots.has(`${entry.source_id}/${entry.snapshot_id}`)"
+            size="small"
+            @click="emit('open-evidence', entry.source_id, entry.snapshot_id)"
+            >查看该出处快照</ElButton
+          >
+          <p v-else class="muted">本列表未返回该出处快照，请按标识核对。</p>
+        </div>
+      </details>
     </article>
   </section>
 </template>

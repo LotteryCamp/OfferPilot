@@ -137,6 +137,7 @@ class InMemoryCandidatePersistence:
     def __init__(self, *, fail_first_confirm_timeout: bool = False) -> None:
         self.plans: dict[str, dict[str, Any]] = {}
         self.decisions: dict[str, str] = {}
+        self.rejected_requirements: list[str] = []
         self.write_calls = 0
         self.fail_first_confirm_timeout = fail_first_confirm_timeout
         self._confirm_attempts = 0
@@ -236,6 +237,9 @@ class InMemoryCandidatePersistence:
             "tasks": [],
             "replayed": False,
         }
+
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        self.rejected_requirements.extend(requirement_ids)
 
 
 _SRC_ID = "b0000000-0000-4000-8000-000000000101"
@@ -680,3 +684,76 @@ def test_gateway_requires_valid_transfer_consent_when_required() -> None:
     assert result == []
     assert record.succeeded is True
     assert backend.consent_calls == 2
+
+
+def test_cancelled_before_persist_leaves_no_candidate() -> None:
+    class CancelAfterPlanModel(InMemoryModelAdapter):
+        def __init__(self, requirements: list[ExtractedRequirement]) -> None:
+            super().__init__(requirements)
+            self.cancelled = False
+
+        def generate_candidate_plan(
+            self,
+            context: RunContext,
+            sources: list[SourceDocument],
+            evaluations: list[RequirementEvaluation],
+        ) -> CandidatePlan:
+            plan = super().generate_candidate_plan(context, sources, evaluations)
+            self.cancelled = True
+            return plan
+
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
+    model = CancelAfterPlanModel([_sample_req()])
+    orch = AgentOrchestrator(
+        timezone=SHANGHAI,
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=model,
+        backend=backend,
+        persistence=persistence,
+        is_cancelled=lambda: model.cancelled,
+    )
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理夏令营申请计划",
+        workspace_version=1,
+        confirmed_facts={"major": "软件工程"},
+    )
+
+    res = orch.start_run(ctx)
+    assert res.status == RunStatus.CANCELLED
+    assert res.error is not None
+    assert res.error.code == AgentErrorCode.CANCELLED
+    assert res.persisted_plan_id is None
+    assert persistence.plans == {}
+
+
+def test_cancelled_after_persist_returns_artifacts_for_cleanup() -> None:
+    backend = InMemoryWorkspaceBackend(workspace_version=1)
+    persistence = InMemoryCandidatePersistence()
+    orch = AgentOrchestrator(
+        timezone=SHANGHAI,
+        source_reader=InMemorySourceReader([_sample_doc()]),
+        model_adapter=InMemoryModelAdapter([_sample_req()]),
+        backend=backend,
+        persistence=persistence,
+        is_cancelled=lambda: bool(persistence.plans),
+    )
+    ctx = RunContext(
+        user_id="u1",
+        matter_id="m1",
+        goal="整理夏令营申请计划",
+        workspace_version=1,
+        confirmed_facts={"major": "软件工程"},
+    )
+
+    res = orch.start_run(ctx)
+    assert res.status == RunStatus.CANCELLED
+    assert res.error is not None
+    assert res.error.code == AgentErrorCode.CANCELLED
+    plan_id = res.persisted_plan_id
+    assert plan_id is not None
+    assert res.persisted_requirement_ids
+    assert persistence.get_candidate_plan(plan_id)["status"] == "pending"
+    assert persistence.write_calls == 0

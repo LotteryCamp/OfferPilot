@@ -43,7 +43,10 @@ for (const pageKind of ['workspace', 'stale-save-prop'] as const) {
     await expect(page.getByTestId('consent-active')).toBeVisible()
     const manual = page.getByTestId('analysis-start')
     if (pageKind === 'stale-save-prop') await expect(manual).toBeDisabled()
-    else await expect(manual).toBeEnabled()
+    else {
+      await expect(manual).toBeEnabled()
+      await page.getByTestId('ranking-open').click()
+    }
     await page.locator('#ranking-rankPosition').fill('18')
     await page.locator('#ranking-totalStudents').fill('120')
     await page.getByText('我已核对这两项信息采用同一统计范围，并确认填写内容真实。').click()

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.orm import Session
 
 from backend.errors import ApiError
@@ -49,6 +50,29 @@ def create_requirements(
                 )
             )
         return {"requirements": created}
+
+
+def reject_requirements(
+    session: Session,
+    current_user: CurrentUser,
+    matter_id: UUID,
+    requirement_ids: Sequence[UUID],
+    *,
+    now: datetime,
+) -> None:
+    """Invalidate requirements produced by a cancelled run."""
+    if not requirement_ids:
+        return
+    with transaction(session, current_user):
+        require_matter(session, current_user, matter_id)
+        session.execute(
+            update(requirement)
+            .where(
+                requirement.c.matter_id == matter_id,
+                requirement.c.id.in_(requirement_ids),
+            )
+            .values(extract_status="rejected", checked_at=None, updated_at=now)
+        )
 
 
 def _create_requirement(

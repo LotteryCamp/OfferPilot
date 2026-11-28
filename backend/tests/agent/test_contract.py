@@ -110,6 +110,7 @@ class InMemoryPersistence:
         self.plan_payloads: list[dict[str, Any]] = []
         self.plans: dict[str, dict[str, Any]] = {}
         self.written_tasks: list[dict[str, Any]] = []
+        self.rejected_requirements: list[str] = []
         self._clock_fn = clock_fn
 
     def persist_requirements(
@@ -165,6 +166,9 @@ class InMemoryPersistence:
         plan = self.plans[plan_id]
         plan["status"] = "rejected"
         return {"plan_id": plan_id, "status": "rejected", "tasks": []}
+
+    def reject_requirements(self, matter_id: str, requirement_ids: list[str]) -> None:
+        self.rejected_requirements.extend(requirement_ids)
 
 
 def test_fx_s4_fixed_replay_a04_a05_a10_and_expiry() -> None:
@@ -1672,3 +1676,225 @@ def test_colliding_task_ids_rejected_before_persisting_requirements() -> None:
         )
     assert len(persistence.requirement_payloads) == 0
     assert len(persistence.plan_payloads) == 0
+
+
+def test_normalize_requirement_field_key_aligns_registered_facts() -> None:
+    from backend.agent.model_bridge import normalize_requirement_field_key
+
+    snap_id = "b0000000-0000-4000-8000-000000000022"
+    src_id = "b0000000-0000-4000-8000-000000000021"
+    cite = SourceCitation(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        locator_kind="text_span",
+        locator="第5段",
+        excerpt="学业综合成绩排名在本专业同年级前35%",
+    )
+    rank_params = {
+        "all_required": [
+            {"fact": "all_required_credits", "operator": "==", "value": True}
+        ],
+        "paths": [
+            {
+                "label": "前35%",
+                "checks": [
+                    {"fact": "gpa.rank", "operator": "<=", "value": 35},
+                    {"fact": "makeup_or_repeat_courses", "operator": "<=", "value": 0},
+                ],
+            }
+        ],
+    }
+    for raw_field_key in ("academic_rank_top_percent", None):
+        draft = ExtractedRequirementDraft(
+            requirement_id="GR-01",
+            title="学业排名",
+            obligation=ObligationType.OFFICIAL_REQUIRED,
+            basis=[cite],
+            field_key=raw_field_key,
+            rule_kind="any_of",
+            rule_parameters=rank_params,
+        )
+        normalized_key = normalize_requirement_field_key(draft)
+        assert normalized_key == "gpa.rank"
+
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        title="推荐方案",
+        publisher="材料学院",
+        content="学业综合成绩排名在本专业同年级前35%",
+    )
+    req = ExtractedRequirement(
+        requirement_id="GR-01",
+        title="学业排名",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key=normalize_requirement_field_key(
+            ExtractedRequirementDraft(
+                requirement_id="GR-01",
+                title="学业排名",
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                basis=[cite],
+                field_key="academic_rank_top_percent",
+                rule_kind="any_of",
+                rule_parameters=rank_params,
+            )
+        ),
+        rule_kind="any_of",
+        rule_parameters=rank_params,
+    )
+    evals, _ = evaluate_requirements([req], {snap_id: doc}, {"gpa.rank": 10.0})
+    batch = build_requirements_batch_payload([req], evals, {snap_id: doc})
+    assert batch["requirements"][0]["field_key"] == "gpa.rank"
+
+    existing_registered = ExtractedRequirementDraft(
+        requirement_id="GR-GPA",
+        title="绩点",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="gpa.score",
+        required_fact_keys=["gpa.rank"],
+    )
+    assert normalize_requirement_field_key(existing_registered) == "gpa.score"
+
+    multi_registered = ExtractedRequirementDraft(
+        requirement_id="GR-ENG",
+        title="英语水平",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="english.proficiency",
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 480, "cet6": 425}, "operator": ">="},
+    )
+    assert normalize_requirement_field_key(multi_registered) == "english.proficiency"
+
+    facts_only_rank = ExtractedRequirementDraft(
+        requirement_id="GR-RANK-KEY",
+        title="成绩排名",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="rank_percent",
+        required_fact_keys=["gpa.rank"],
+    )
+    assert normalize_requirement_field_key(facts_only_rank) == "gpa.rank"
+
+
+def test_referenced_fact_types_emitted_in_plan_create_payload_for_multi_fact_plans() -> (
+    None
+):
+    from backend.agent.model_bridge import (
+        collect_registered_fact_types,
+        normalize_requirement_field_key,
+    )
+
+    snap_id = "b0000000-0000-4000-8000-000000000022"
+    src_id = "b0000000-0000-4000-8000-000000000021"
+    cite = SourceCitation(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        locator_kind="text_span",
+        locator="第5段",
+        excerpt="全国六级425分以上或四级480分以上",
+    )
+    materials_draft = ExtractedRequirementDraft(
+        requirement_id="GR-MAT",
+        title="英语水平材料",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="english.cet6",
+        rule_kind="materials",
+        rule_parameters={"required_facts": ["cet6"]},
+    )
+    assert normalize_requirement_field_key(materials_draft) == "cet6"
+
+    deadline_draft = ExtractedRequirementDraft(
+        requirement_id="GR-DL",
+        title="成绩认证时间",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="gpa.cert",
+        rule_kind="fixed_deadline",
+        rule_parameters={"fact": "gpa.score"},
+    )
+    assert normalize_requirement_field_key(deadline_draft) == "gpa.score"
+
+    req_multi = ExtractedRequirement(
+        requirement_id="GR-ENG",
+        title="外语成绩要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="english.proficiency",
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 480, "cet6": 425}, "operator": ">="},
+    )
+    req_rank = ExtractedRequirement(
+        requirement_id="GR-RANK",
+        title="排名要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="gpa.rank",
+        required_fact_keys=["gpa.rank", "gpa.score"],
+    )
+    assert collect_registered_fact_types([req_multi, req_rank]) == [
+        "cet4",
+        "cet6",
+        "gpa.rank",
+        "gpa.score",
+    ]
+
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        title="推荐方案",
+        publisher="材料学院",
+        content="全国六级425分以上或四级480分以上",
+    )
+    plan = CandidatePlan(
+        candidate_id="cand-multi",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=[
+            CandidateTask(
+                task_id="T-01",
+                title="核对英语分数",
+                basis=[cite],
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                evidence_required="成绩单",
+            )
+        ],
+    )
+    payload = build_candidate_plan_create_payload(
+        plan,
+        {snap_id: doc},
+        timezone=SHANGHAI,
+        requirements=[req_multi, req_rank],
+    )
+    assert payload["referenced_fact_types"] == ["cet4", "cet6", "gpa.rank", "gpa.score"]
+    validated = CandidatePlanCreate.model_validate(payload)
+    assert validated.referenced_fact_types == ["cet4", "cet6", "gpa.rank", "gpa.score"]
+
+    req_unregistered = ExtractedRequirement(
+        requirement_id="GR-UNREG",
+        title="无已注册事实要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="application.materials",
+        required_fact_keys=["makeup_or_repeat_courses"],
+    )
+    bare_payload = build_candidate_plan_create_payload(
+        plan,
+        {snap_id: doc},
+        timezone=SHANGHAI,
+        requirements=[req_unregistered],
+    )
+    assert "referenced_fact_types" not in bare_payload
+
+    with pytest.raises(ValueError, match="referenced_fact_types"):
+        CandidatePlanCreate.model_validate(
+            {**payload, "referenced_fact_types": ["Invalid Key!"]}
+        )

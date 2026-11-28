@@ -68,6 +68,7 @@ class AgentOrchestrator:
         persistence: CandidatePersistencePort | None = None,
         gateway: ToolGateway | None = None,
         clock: Callable[[], datetime] | None = None,
+        is_cancelled: Callable[[], bool] | None = None,
     ) -> None:
         self._source_reader = source_reader
         self._model_adapter = model_adapter
@@ -76,6 +77,7 @@ class AgentOrchestrator:
         self._persistence = persistence
         self._gateway = gateway or ToolGateway(backend)
         self._clock = clock or (lambda: datetime.now(UTC))
+        self._is_cancelled = is_cancelled
         self._checkpoints: dict[str, RunCheckpoint] = {}
         self._run_idempotency: dict[tuple[str, str, str], AgentRunResult] = {}
         self._persisted_req_cache: dict[
@@ -130,6 +132,11 @@ class AgentOrchestrator:
         run_id = run_id or f"run-{uuid4().hex[:12]}"
         records = []
 
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id, context=context, records=records
+            )
+
         if self._persistence is None:
             err = AgentError(
                 code=AgentErrorCode.VALIDATION_FAILED,
@@ -163,6 +170,14 @@ class AgentOrchestrator:
                     error=exc.error,
                     records=records,
                 )
+
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+            )
 
         if not sources:
             err = AgentError(
@@ -219,6 +234,15 @@ class AgentOrchestrator:
                 error=exc.error,
                 records=records,
                 sources=sources,
+            )
+
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
             )
 
         sources_by_id = {s.source_version_id: s for s in sources}
@@ -348,6 +372,18 @@ class AgentOrchestrator:
                 scope_summary=merged_scope,
             )
 
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+            )
+
         persist_op_id = (
             f"{context.operation_id}:persist" if context.operation_id else None
         )
@@ -403,6 +439,20 @@ class AgentOrchestrator:
                 evaluations=evaluations,
                 gaps=merged_gaps,
                 scope_summary=merged_scope,
+            )
+
+        if self._run_cancelled():
+            return self._cancelled_result(
+                run_id=run_id,
+                context=context,
+                records=records,
+                sources=sources,
+                extracted_requirements=requirements,
+                evaluations=evaluations,
+                gaps=merged_gaps,
+                scope_summary=merged_scope,
+                persisted_requirement_ids=persisted_req_ids,
+                persisted_plan_id=persisted_plan_id,
             )
 
         checkpoint = RunCheckpoint(
@@ -822,16 +872,38 @@ class AgentOrchestrator:
             if cache_key is not None:
                 self._persisted_req_cache[cache_key] = (persisted_ids, req_id_map)
 
+        if self._run_cancelled():
+            self._reject_persisted_requirements(matter_id, persisted_ids)
+            return persisted_ids, None
+
         plan_payload = build_candidate_plan_create_payload(
             candidate_plan,
             sources_by_id,
             requirement_id_map=req_id_map,
             timezone=self._timezone,
+            requirements=requirements,
         )
-        plan_resp = self._persistence.persist_candidate_plan(matter_id, plan_payload)
+        try:
+            plan_resp = self._persistence.persist_candidate_plan(
+                matter_id, plan_payload
+            )
+        except Exception:
+            self._reject_persisted_requirements(matter_id, persisted_ids)
+            raise
         raw_plan_id = plan_resp.get("id")
-        plan_id = str(raw_plan_id) if raw_plan_id is not None else None
-        return persisted_ids, plan_id
+        if raw_plan_id is None:
+            self._reject_persisted_requirements(matter_id, persisted_ids)
+            return persisted_ids, None
+        return persisted_ids, str(raw_plan_id)
+
+    def _reject_persisted_requirements(
+        self, matter_id: str, requirement_ids: list[str]
+    ) -> None:
+        """Invalidate requirements already written when no candidate plan survives."""
+        if not requirement_ids:
+            return
+        assert self._persistence is not None
+        self._persistence.reject_requirements(matter_id, requirement_ids)
 
     def _result_from_checkpoint(
         self,
@@ -854,6 +926,38 @@ class AgentOrchestrator:
             execution_records=cp.execution_records,
         )
 
+    def _run_cancelled(self) -> bool:
+        return self._is_cancelled is not None and self._is_cancelled()
+
+    def _cancelled_result(
+        self,
+        *,
+        run_id: str,
+        context: RunContext,
+        records: list,
+        sources: list[SourceDocument] | None = None,
+        extracted_requirements: list[ExtractedRequirement] | None = None,
+        evaluations: list[RequirementEvaluation] | None = None,
+        gaps: list[SourceGap] | None = None,
+        scope_summary: dict[str, Any] | None = None,
+        persisted_requirement_ids: list[str] | None = None,
+        persisted_plan_id: str | None = None,
+    ) -> AgentRunResult:
+        return self._save_terminal_or_wait(
+            run_id=run_id,
+            context=context,
+            status=RunStatus.CANCELLED,
+            error=AgentError(code=AgentErrorCode.CANCELLED, message="运行已被用户取消"),
+            records=records,
+            sources=sources,
+            extracted_requirements=extracted_requirements,
+            evaluations=evaluations,
+            gaps=gaps,
+            scope_summary=scope_summary,
+            persisted_requirement_ids=persisted_requirement_ids,
+            persisted_plan_id=persisted_plan_id,
+        )
+
     def _save_terminal_or_wait(
         self,
         *,
@@ -867,6 +971,8 @@ class AgentOrchestrator:
         evaluations: list[RequirementEvaluation] | None = None,
         gaps: list[SourceGap] | None = None,
         scope_summary: dict[str, Any] | None = None,
+        persisted_requirement_ids: list[str] | None = None,
+        persisted_plan_id: str | None = None,
     ) -> AgentRunResult:
         cp = RunCheckpoint(
             run_id=run_id,
@@ -881,6 +987,8 @@ class AgentOrchestrator:
             scope_summary=scope_summary or {},
             error=error,
             execution_records=records,
+            persisted_requirement_ids=persisted_requirement_ids or [],
+            persisted_plan_id=persisted_plan_id,
         )
         self._checkpoints[run_id] = cp
         return AgentRunResult(
@@ -892,6 +1000,8 @@ class AgentOrchestrator:
             scope_summary=scope_summary or {},
             error=error,
             execution_records=records,
+            persisted_requirement_ids=persisted_requirement_ids or [],
+            persisted_plan_id=persisted_plan_id,
         )
 
 

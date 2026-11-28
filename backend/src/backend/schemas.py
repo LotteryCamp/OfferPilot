@@ -364,6 +364,18 @@ class CandidatePlanItemInput(RequestModel):
 
 class CandidatePlanCreate(RequestModel):
     items: list[CandidatePlanItemInput] = Field(min_length=1)
+    referenced_fact_types: list[str] = Field(default_factory=list)
+
+    @field_validator("referenced_fact_types")
+    @classmethod
+    def check_referenced_fact_types(cls, values: list[str]) -> list[str]:
+        pattern = re.compile(FIELD_KEY_PATTERN)
+        invalid = [value for value in values if not pattern.fullmatch(value)]
+        if invalid:
+            raise ValueError(
+                f"referenced_fact_types contains invalid keys: {', '.join(invalid)}"
+            )
+        return sorted(set(values))
 
     @model_validator(mode="after")
     def check_dependencies(self) -> CandidatePlanCreate:
