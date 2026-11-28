@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertDecision,
+  assertPlanScope,
   canConfirmBasis,
   decisionResponse,
   planListResponse,
@@ -79,6 +80,51 @@ describe('候选条目的自查依据', () => {
 
   it('自查结果格式不完整时停止作为有效候选展示', () => {
     expect(planResponse.safeParse(candidate({ conclusion: 'matched' })).success).toBe(false)
+  })
+})
+
+describe('计划与任务的事项归属', () => {
+  function confirmedPlan() {
+    const { plan } = planResponse.parse(candidate(null))
+    plan.status = 'confirmed'
+    plan.tasks = [
+      {
+        id: 'f0000000-0000-4000-8000-000000000001',
+        matter_id: matterId,
+        plan_id: planId,
+        plan_item_id: plan.items[0]!.id,
+        title: '核对申请条件',
+        status: 'pending',
+        official_deadline_date: null,
+        official_deadline_at: null,
+        suggested_date: null,
+        depends_on: [],
+      },
+    ]
+    return plan
+  }
+
+  it('接受同一事项下已确认计划的正式任务', () => {
+    expect(() => assertPlanScope(confirmedPlan(), matterId, planId)).not.toThrow()
+  })
+
+  it.each(['id', 'matter_id', 'matter'] as const)('阻止计划的 %s 与当前上下文不一致', (field) => {
+    const plan = confirmedPlan()
+    if (field === 'matter') plan.matter.id = crypto.randomUUID()
+    else plan[field] = crypto.randomUUID()
+    expect(() => assertPlanScope(plan, matterId, planId)).toThrow('计划与当前事项不一致')
+  })
+
+  it.each(['matter_id', 'plan_id'] as const)('阻止任务的 %s 指向其他上下文', (field) => {
+    const plan = confirmedPlan()
+    plan.tasks[0]![field] = crypto.randomUUID()
+    expect(() => assertPlanScope(plan, matterId, planId)).toThrow('计划任务归属不一致')
+  })
+
+  it.each(['pending', 'rejected', 'expired'])('阻止 %s 计划携带正式任务', (status) => {
+    const plan = confirmedPlan()
+    plan.status = status
+    expect(() => assertPlanScope(plan, matterId, planId)).toThrow('未确认计划包含正式任务')
   })
 })
 
