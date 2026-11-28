@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import gzip
 import json
+import threading
+import time
 from collections.abc import Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -809,6 +813,78 @@ def test_agent_run_retry_after_cancel_starts_new_run(
     assert retried_run["status"] == "等待确认"
 
 
+def test_concurrent_same_operation_start_returns_single_run(
+    database_urls: tuple[str, str],
+    admin: psycopg.Connection,
+    clock,
+    login,
+) -> None:
+    app_url, _ = database_urls
+    settings = Settings(database_url=app_url, timezone="Asia/Shanghai")
+    state = _ReplayState()
+    started = threading.Event()
+    release = threading.Event()
+
+    def hold_before_candidate_plan() -> None:
+        started.set()
+        assert release.wait(timeout=30), "候选计划生成未被释放"
+
+    state.before_candidate_plan = hold_before_candidate_plan
+
+    with ExitStack() as stack:
+        clients: list[TestClient] = []
+        for _ in range(2):
+            app = create_app(
+                settings,
+                clock=clock,
+                model_adapter=StructuredModelAdapter(_replay_call_model(state)),
+                agent_source_reader=_fixture_reader(state),
+            )
+            client = stack.enter_context(TestClient(app))
+            login(client)
+            clients.append(client)
+
+        matter_id = _create_matter(clients[0])
+        _grant_consent(clients[0])
+        payload = {
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学数学与统计学院",
+            "scope": "2027 届、本院、校内推免推荐",
+            "operation_id": "concurrent-same-key",
+        }
+        run_url = f"/api/v1/matters/{matter_id}/agent-runs"
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(clients[0].post, run_url, json=payload)
+            assert started.wait(timeout=30), "首个请求未进入候选计划生成"
+            second = pool.submit(clients[1].post, run_url, json=payload)
+            _wait_for_waiting_advisory_lock(admin)
+            release.set()
+            first_response = first.result(timeout=60)
+            second_response = second.result(timeout=60)
+
+    assert first_response.status_code == 200, first_response.text
+    assert second_response.status_code == 200, second_response.text
+    first_run = first_response.json()["run"]
+    second_run = second_response.json()["run"]
+    assert first_run["status"] == "等待确认"
+    assert second_run["status"] == "等待确认"
+    assert second_run["run_id"] == first_run["run_id"]
+
+    run_row = admin.execute(
+        "SELECT count(*) FROM core.agent_run WHERE operation_id = %s",
+        (payload["operation_id"],),
+    ).fetchone()
+    assert run_row is not None
+    assert run_row[0] == 1
+    plan_row = admin.execute(
+        "SELECT count(*) FROM core.candidate_plan WHERE matter_id = %s AND status = 'pending'",
+        (UUID(matter_id),),
+    ).fetchone()
+    assert plan_row is not None
+    assert plan_row[0] == 1
+
+
 def test_agent_run_reads_and_confirms_after_restart(
     agent_client: TestClient,
     database_urls: tuple[str, str],
@@ -1221,6 +1297,21 @@ def test_agent_run_ignores_other_matter_fact_version_change(
     run = created.json()["run"]
     assert run["status"] == "等待确认", run["error"]
     assert run["persisted_plan_id"] is not None
+
+
+def _wait_for_waiting_advisory_lock(
+    admin: psycopg.Connection, timeout: float = 10.0
+) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        row = admin.execute(
+            "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND NOT granted"
+        ).fetchone()
+        assert row is not None
+        if row[0]:
+            return
+        time.sleep(0.05)
+    raise AssertionError("并发启动请求未等待操作锁")
 
 
 def _task_count(admin: psycopg.Connection, matter_id: str) -> int:

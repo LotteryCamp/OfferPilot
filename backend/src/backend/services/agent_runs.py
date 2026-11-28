@@ -148,6 +148,18 @@ class AgentRunService:
             if body.operation_id is not None
             else None
         )
+        if operation_key is None:
+            return self._start(matter_id, body, current_user, None)
+        with self._operation_lock(operation_key):
+            return self._start(matter_id, body, current_user, operation_key)
+
+    def _start(
+        self,
+        matter_id: UUID,
+        body: AgentRunCreate,
+        current_user: CurrentUser,
+        operation_key: tuple[str, str, str] | None,
+    ) -> AgentRunResult:
         if operation_key is not None:
             with self._lock:
                 cached = self._operations.get(operation_key)
@@ -748,6 +760,25 @@ class AgentRunService:
         if not isinstance(payload, dict):
             return None
         return RunCheckpoint.model_validate(payload)
+
+    @contextmanager
+    def _operation_lock(self, operation_key: tuple[str, str, str]) -> Generator[None]:
+        """Serialize starts sharing one operation key across processes."""
+        key = "offerpilot:agent_run_op:" + ":".join(operation_key)
+        with self._session_factory() as session:
+            session.execute(
+                text("SELECT pg_advisory_lock(hashtextextended(:key, 0))"),
+                {"key": key},
+            )
+            session.commit()
+            try:
+                yield
+            finally:
+                session.execute(
+                    text("SELECT pg_advisory_unlock(hashtextextended(:key, 0))"),
+                    {"key": key},
+                )
+                session.commit()
 
     @contextmanager
     def _run_lock(self, run_id: str) -> Generator[None]:
