@@ -26,7 +26,11 @@ npm run build
 npm run preview
 ```
 
-覆盖率统计 `src` 下的 TypeScript 与 Vue 源码，报告写入 `coverage/`，终端输出未覆盖行。Frontend CI 使用 `npm run test:unit:coverage`，并将 `coverage/lcov.info` 上传到 Coveralls。
+覆盖率统计 `src` 下的 TypeScript 与 Vue 源码，报告写入 `coverage/`，终端输出未覆盖行。Frontend CI 使用 `npm run test:unit:coverage`，产出 `frontend/coverage/lcov.info` 并保存为 LCOV artifact。
+
+`.github/workflows/ci.yml` 是统一 CI 入口。推送 `main` 或提交拉取请求时，如果改动涉及 `frontend/**`、`backend/**` 或 `.github/workflows/**`，就通过 `workflow_call` 同时调用前后端检查；也支持 `workflow_dispatch` 手动运行。后端作业产出 `backend/lcov.info` 并保存为 LCOV artifact。两端检查都通过后，`Combined coverage` 作业下载两份报告，将来源路径统一到仓库根目录，再一次性上传到 Coveralls，与 `main` 比较。
+
+统一上报修复合入后，需先等待 `main` 生成首份包含前后端数据的完整覆盖率基线，再让 #85 同步 `main` 并重跑检查，核对相同统计范围下的覆盖率变化。
 
 纯逻辑测试检查表单、路由和状态语义。浏览器检查使用实际运行的前端，不拦截请求、不替换业务响应：
 

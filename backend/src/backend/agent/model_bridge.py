@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from datetime import date, datetime
 from typing import Any, Literal, Protocol
 
@@ -29,6 +29,7 @@ from backend.agent.source_filter import (
     filter_and_deduplicate_fragments,
 )
 from backend.config import Settings
+from backend.fact_types import supported_fact_types
 
 
 class CallModelFn(Protocol):
@@ -151,8 +152,97 @@ _EXTRACTION_INSTRUCTION = (
     "   当 value_type 为 date 时，value_text 必须严格使用 YYYY-MM-DD 格式（如 2026-09-10），严禁填中文日期或带时刻描述；"
     "精确时刻请单独填入 official_deadline（带时区 ISO 8601）。value_type 为 number 时 value_text 须为纯数字，boolean 时须为 true 或 false。\n"
     "3. 不同条件或适用人群（如申请推荐与放弃推荐）须拆开标注 scope。\n"
-    "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定。"
+    "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定。\n"
+    "5. 若条款涉及已登记个人事实，field_key、required_fact_keys 与 rule_parameters 中的 fact/键名必须使用标准事实键，禁止自造同义键：\n"
+    "   - 标准事实键：gpa.rank（学业排名百分位，0–100 数值越小越靠前，如 10/100 对应 10，“前 N%”使用 <= N）、"
+    "gpa.score（0–4.0 绩点）、cet4、cet6、toefl、ielts、cert、comp。\n"
+    "   - 可执行规则：\n"
+    "     * 排名阈值或“前 N% 且无补考重修 / 前 M% 且至多 1 门”等复合条件使用 rule_kind='any_of'，rule_parameters 为 "
+    '{"all_required": [{"fact": str, "operator": "<=" | "<" | ">=" | ">" | "==", "value": num|bool|str}], '
+    '"paths": [{"label": str, "checks": [{"fact": str, "operator": ..., "value": ...}]}]}；\n'
+    '     * 多项英语分数任一达标使用 rule_kind=\'any_minimum\'，rule_parameters 为 {"minimum": {"cet6": 425, "cet4": 480}, "operator": ">="}；\n'
+    '     * 固定期限/材料清单/缺位核对分别使用 fixed_deadline（{"before": ISO8601, "fact": str, "operator": "<="}）、'
+    'materials（{"required_facts": [str]}）、coverage_gap（{"missing_documents": [str]}）。\n'
+    '   - 涉及学业排名要求时，field_key 固定填 "gpa.rank"。'
 )
+
+
+def _collect_rule_parameter_fact_keys(rule_parameters: Mapping[str, Any]) -> list[str]:
+    keys: list[str] = []
+    all_required = rule_parameters.get("all_required")
+    if isinstance(all_required, list):
+        for check in all_required:
+            if isinstance(check, Mapping) and isinstance(check.get("fact"), str):
+                fact = check["fact"].strip()
+                if fact:
+                    keys.append(fact)
+
+    paths = rule_parameters.get("paths")
+    if isinstance(paths, list):
+        for path in paths:
+            if not isinstance(path, Mapping):
+                continue
+            checks = path.get("checks")
+            if isinstance(checks, list):
+                for check in checks:
+                    if isinstance(check, Mapping) and isinstance(
+                        check.get("fact"), str
+                    ):
+                        fact = check["fact"].strip()
+                        if fact:
+                            keys.append(fact)
+
+    minimum = rule_parameters.get("minimum")
+    if isinstance(minimum, Mapping):
+        for key in minimum:
+            if isinstance(key, str) and key.strip():
+                keys.append(key.strip())
+
+    required_facts = rule_parameters.get("required_facts")
+    if isinstance(required_facts, list):
+        for key in required_facts:
+            if isinstance(key, str) and key.strip():
+                keys.append(key.strip())
+
+    fact_key = rule_parameters.get("fact")
+    if isinstance(fact_key, str) and fact_key.strip():
+        keys.append(fact_key.strip())
+    return keys
+
+
+def normalize_requirement_field_key(draft: ExtractedRequirementDraft) -> str | None:
+    """Align extracted field_key to a uniquely referenced registered personal fact type."""
+    registered = set(supported_fact_types())
+    if draft.field_key in registered:
+        return draft.field_key
+
+    candidates = _collect_rule_parameter_fact_keys(draft.rule_parameters)
+    candidates.extend(
+        k.strip() for k in draft.required_fact_keys if isinstance(k, str) and k.strip()
+    )
+    registered_refs = list(dict.fromkeys(k for k in candidates if k in registered))
+    if len(registered_refs) == 1:
+        return registered_refs[0]
+    return draft.field_key
+
+
+def collect_registered_fact_types(
+    requirements: Iterable[ExtractedRequirement | ExtractedRequirementDraft],
+) -> list[str]:
+    """Collect sorted unique registered fact types referenced by requirements."""
+    registered = set(supported_fact_types())
+    found: set[str] = set()
+    for req in requirements:
+        if req.field_key and req.field_key in registered:
+            found.add(req.field_key)
+        for key in _collect_rule_parameter_fact_keys(req.rule_parameters):
+            if key in registered:
+                found.add(key)
+        for key in req.required_fact_keys:
+            if isinstance(key, str) and key.strip() in registered:
+                found.add(key.strip())
+    return sorted(found)
+
 
 _PLANNING_INSTRUCTION = (
     "你是 OfferPilot 候选计划生成助手。仅根据已核实来源和公开要求摘要生成待用户确认的候选任务：\n"
@@ -394,7 +484,7 @@ class StructuredModelAdapter:
                     official_deadline=draft.official_deadline,
                     required_fact_keys=draft.required_fact_keys,
                     is_ambiguous=draft.is_ambiguous,
-                    field_key=draft.field_key,
+                    field_key=normalize_requirement_field_key(draft),
                     scope=draft.scope,
                     value_text=value_text,
                     value_type=draft.value_type,
