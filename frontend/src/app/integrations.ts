@@ -13,7 +13,6 @@ type WorkspaceModule = (new () => {
 
 export interface WorkspaceIntegrations {
   mattersApi?: MattersApi
-  identity?: { mode: 'single-user-local'; label: string }
   modules?: {
     sources?: WorkspaceModule
     plan?: WorkspaceModule
@@ -23,18 +22,11 @@ export interface WorkspaceIntegrations {
 
 export const workspaceKey: InjectionKey<WorkspaceIntegrations> = Symbol('workspace')
 
-const enableLocalDemo = import.meta.env.DEV && import.meta.env.VITE_LOCAL_DEMO_MATTERS === '1'
-
 export const workspaceIntegrations: WorkspaceIntegrations = {
+  mattersApi: createMattersApi(http),
   modules: {
     sources: defineAsyncComponent(() => import('../modules/sources/SourceConditionsPage.vue')),
     plan: defineAsyncComponent(() => import('../modules/plans/PlanReviewPage.vue')),
     tasks: defineAsyncComponent(() => import('../modules/tasks/MatterTasksPage.vue')),
   },
-  ...(enableLocalDemo
-    ? {
-        mattersApi: createMattersApi(http),
-        identity: { mode: 'single-user-local' as const, label: '单用户本地演示' },
-      }
-    : {}),
 }

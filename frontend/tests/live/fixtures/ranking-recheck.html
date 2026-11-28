@@ -8,13 +8,28 @@
     <div id="app"></div>
     <script type="module">
       import { createApp, h, ref } from 'vue'
+      import { createPinia } from 'pinia'
       import { RouterView } from 'vue-router'
       import 'element-plus/dist/index.css'
       import AgentAnalysis from '../../../src/modules/analysis/AgentAnalysis.vue'
+      import { useAuthStore } from '../../../src/modules/auth/store'
       import RankingSupplement from '../../../src/modules/sources/RankingSupplement.vue'
       import { workspaceIntegrations, workspaceKey } from '../../../src/app/integrations'
       import { router } from '../../../src/router'
-      import { http } from '../../../src/shared/http'
+      import {
+        http,
+        setAuthenticationRequiredHandler,
+        setSessionChangedHandler,
+      } from '../../../src/shared/http'
+
+      const pinia = createPinia()
+      const auth = useAuthStore(pinia)
+      setAuthenticationRequiredHandler(() => auth.expireSession())
+      setSessionChangedHandler(() => void auth.restoreSession())
+      await auth.restoreSession()
+      if (auth.status !== 'authenticated' || !auth.user) {
+        throw new Error('排名自查联调需要有效的真实账户会话。')
+      }
 
       const id = new URLSearchParams(location.search).get('matter')
       const [
@@ -25,6 +40,9 @@
           data: { sources },
         },
       ] = await Promise.all([http.get(`/matters/${id}`), http.get(`/matters/${id}/sources`)])
+      if (matter.workspace_id !== auth.user.workspace_id) {
+        throw new Error('排名自查联调事项需要属于当前测试账户。')
+      }
       const [source] = sources
       const view = {
         setup() {
@@ -47,7 +65,11 @@
         path: '/tests/live/fixtures/ranking-recheck.html',
         component: view,
       })
-      createApp(RouterView).provide(workspaceKey, workspaceIntegrations).use(router).mount('#app')
+      createApp(RouterView)
+        .provide(workspaceKey, workspaceIntegrations)
+        .use(pinia)
+        .use(router)
+        .mount('#app')
     </script>
   </body>
 </html>

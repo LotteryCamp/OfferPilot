@@ -1,21 +1,23 @@
 # 个人事项工作区集成约定
 
-本说明覆盖个人事项工作区及其业务模块接入。事项与分析接口对照 [#41 后端契约（`ad77166`）](https://github.com/LotteryCamp/OfferPilot/blob/ad77166ba66e483e4a50b6cef640a0b650185dcf/docs/backend/api.md)，完整联调依赖截至 `0016_account_management.sql` 的数据库迁移，包括账户会话、事项级排名事实及模型传输同意。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
+本说明覆盖个人事项工作区、账户会话及其业务模块接入。事项与分析接口见[后端契约](../backend/api.md)，账户接口见[账户契约](../backend/accounts.md)。完整联调使用当前数据库迁移，包括账户会话、登录限流、账户资料编辑、事项级排名事实及模型传输同意。基础工作区由 [#43](https://github.com/LotteryCamp/OfferPilot/pull/43) 交付。
 
 ## 责任与文件边界
 
 | 范围                                             | 维护边界                                                                                                      |
 | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `frontend/src/app`、`router`、`modules/matters`  | 陈常群负责入口、导航、事项页面及模块集成，见 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31)       |
+| `frontend/src/app`、`router`、`modules/auth`、`modules/matters` | 陈常群负责账户、会话、工作区入口、导航与模块集成，见 [#75](https://github.com/LotteryCamp/OfferPilot/issues/75) |
 | `frontend/src/shared/ui/StatePanel.vue`          | 共用的加载、空内容、错误和未接通反馈                                                                          |
-| `frontend/src/shared/http.ts`                    | 张锦昊在 [#47](https://github.com/LotteryCamp/OfferPilot/pull/47) 提供的共享 Axios 客户端                     |
-| `workspaceIntegrations.modules.sources` / `plan` | 张锦昊负责来源与条件、分析、自查补录及候选审阅，见 [#32](https://github.com/LotteryCamp/OfferPilot/issues/32) |
-| `workspaceIntegrations.modules.tasks`            | 陈常群负责正式任务整体页面及注册，见 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31)               |
+| `frontend/src/shared/http.ts`                    | 复用 [#47](https://github.com/LotteryCamp/OfferPilot/pull/47) 的共享 Axios，陈常群维护会话失效与账号上下文，张锦昊进行组件评审 |
+| `workspaceIntegrations.modules.sources` / `plan` / `tasks` | 张锦昊负责推免主流程、业务状态和页面体验，见 [#76](https://github.com/LotteryCamp/OfferPilot/issues/76) |
 
 ## 路由与上下文
 
 | 路由                          | 作用                 |
 | ----------------------------- | -------------------- |
+| `/login`                     | 登录（公开）         |
+| `/register`                  | 注册（公开）         |
+| `/account`                   | 当前账户与会话       |
 | `/matters`                    | 个人事项列表         |
 | `/matters/new`                | 新建推免事项         |
 | `/matters/:matterId/overview` | 读取事项并展示概览   |
@@ -33,7 +35,7 @@
 
 | 方法及相对路径        | 输入与返回                                                                                |
 | --------------------- | ----------------------------------------------------------------------------------------- |
-| `GET /matters`        | `{ matters: Matter[] }`，当前演示工作区，按更新时间倒序                                   |
+| `GET /matters`        | `{ matters: Matter[] }`，当前账户工作区，按更新时间倒序                                   |
 | `POST /matters`       | `{ goal, type_code: 'pre_recommend', scope_year, scope_attrs }`；`201 { matter: Matter }` |
 | `GET /matters/{UUID}` | `{ matter: Matter }`；不存在或越界返回 404                                                |
 
@@ -41,7 +43,7 @@
 
 事项响应包含服务端 ID、工作区 ID、类型/类型名、目标、状态、年度、范围、归档/创建/更新时间、`tasks {total,done,open}`、可空的 `latest_plan {id,status,version_no}`。已有事项允许年度和范围为 `null`，页面显示未填写，创建仍要求有效年度。事项、候选及正式任务状态保持独立。
 
-`SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。事项适配器已接入 `src/shared/http.ts` 的 Axios 客户端，与来源、计划及正式任务共用配置。`workspaceIntegrations.modules.sources`、`plan`、`tasks` 均已注册。`VITE_LOCAL_DEMO_MATTERS=1` 启用开发模式的真实后端 API；生产连接由集成负责人配置。各组件遵守 `WorkspaceModule` 约束，接收事项 ID 与只读事项，并声明 `changed` 事件。
+`SharedHttpClient` 定义消费端接口 `request<T>({method,url,data?,signal?}): Promise<{data:T}>`。事项适配器已接入 `src/shared/http.ts` 的 Axios 客户端，与账户、来源、计划及正式任务共用配置。`workspaceIntegrations.modules.sources`、`plan`、`tasks` 均已注册。认证状态确认后挂载业务模块，开发和生产连接采用同一 API 契约。各组件遵守 `WorkspaceModule` 约束，接收事项 ID 与只读事项，并声明 `changed` 事件。
 
 业务错误体为 `{error:{code,message,next?,details?}}`，422 的字段问题位于 `details.issues`。创建遇到 `409 template_version_missing` 时保留表单并提示补齐已发布模板。网络中断、超时（含 HTTP 408）或创建结果无法核验时，保留表单、停用提交并提示先重读列表。未知错误使用前端提供的通用文案。
 
@@ -63,9 +65,13 @@
 
 ## 身份与接口边界
 
-账户接口相对 `/api/v1` 提供注册、登录、退出、读取当前账户与修改密码。登录成功后后端设置 `offerpilot_session` Cookie；业务请求依赖该 Cookie，缺失或失效时返回 `401 authentication_required`。前端不发送自造身份头，收到 401 时清除本地账户状态并跳转登录。
+账户接口相对 `/api/v1` 提供注册、登录、退出、读取当前账户、编辑资料与修改密码。注册或登录成功后后端设置 `offerpilot_session` Cookie。前端已接入 `POST /auth/register`、`POST /auth/login`、`GET /auth/me`、`POST /auth/logout`，通过服务端确认当前账户与会话。业务请求收到 `401 authentication_required` 时清除工作区状态并进入登录页；`invalid_credentials` 和 `invalid_current_password` 留在相应表单反馈。会话恢复使用 `/auth/me`，没有额外续期端点。
 
-开发服务器通过同源 `/api` 代理携带 Cookie。跨源直连时，共享客户端需要启用凭据，并由部署层配置精确的 CORS 来源；HTTPS 部署必须启用安全 Cookie。切换账户后重新挂载工作区并清理旧事项状态。管理员接口使用同一 Cookie，仅管理员账户可调用。服务启动后可通过 `/openapi.json` 核对实际部署的接口。
+开发服务器通过同源 `/api` 代理携带 Cookie。跨源直连时，共享客户端启用凭据，并由部署层配置精确的 CORS 来源；HTTPS 部署必须启用安全 Cookie。退出、会话失效或重新确认账户时取消旧业务请求、清空来源 Store、重挂载工作区，业务运行和决定的待确认标识按账户及事项隔离。退出未获服务端确认时隐藏业务界面并提供重试。管理员接口使用同一 Cookie，仅管理员账户可调用。服务启动后可通过 `/openapi.json` 核对实际部署的接口。
+
+同源标签页通过站点存储中的会话版本与变更标识协调注册、登录和退出。标识不保存 Cookie、密码或账号资料。账户操作发出前发布变更，其他标签页暂停旧工作区请求并通过 `/auth/me` 确认稳定后的真实账户；共享客户端在业务请求实际发送和响应交付时核对已确认会话版本。在支持 Web Locks 的浏览器中，认证操作与业务请求通过同源锁协调，并发会话变化期间取消旧请求。待确认的会话及存储异常隐藏私有界面并反馈重试。服务端权限、归属和会话仍是业务判定依据。开发、部署和验收使用统一前端源，生产使用 HTTPS。
+
+会话计时以服务端返回的 `expires_at` 为依据。到期时重新核对当前账户，超过浏览器单次定时器上限的长会话分段计算剩余时间，保留有效工作区。页面恢复可继续核对当前会话版本，已确认的正常会话不因普通焦点切换重建页面。
 
 事项详情提供事项与任务摘要及最新计划引用。来源、自查和运行详情由对应业务端点读取。基础 PR 提供事项列表、创建、概览和模块挂载点。整体任务页、候选决定、来源与条件和 Agent 运行验收分别跟进 [#31](https://github.com/LotteryCamp/OfferPilot/issues/31) 和 [#32](https://github.com/LotteryCamp/OfferPilot/issues/32)。
 

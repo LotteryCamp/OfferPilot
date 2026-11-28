@@ -1,10 +1,32 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuthStore } from '../modules/auth/store'
+import { safeReturnPath } from './auth-navigation'
 import { isMatterId, matterPath } from './paths'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     { path: '/', redirect: '/matters' },
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../modules/auth/AuthPage.vue'),
+      props: { mode: 'login' },
+      meta: { title: '登录', public: true },
+    },
+    {
+      path: '/register',
+      name: 'register',
+      component: () => import('../modules/auth/AuthPage.vue'),
+      props: { mode: 'register' },
+      meta: { title: '注册', public: true },
+    },
+    {
+      path: '/account',
+      name: 'account',
+      component: () => import('../modules/auth/AccountPage.vue'),
+      meta: { title: '个人账户' },
+    },
     {
       path: '/matters',
       name: 'matters',
@@ -50,8 +72,24 @@ export const router = createRouter({
   scrollBehavior: () => ({ top: 0 }),
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  await auth.ensureSession()
+  if (to.meta.public) {
+    if (auth.status === 'authenticated') return safeReturnPath(to.query.redirect)
+    return true
+  }
+  if (auth.status === 'anonymous') {
+    return {
+      name: 'login',
+      query: {
+        redirect: safeReturnPath(to.fullPath),
+        ...(auth.problem?.code === 'authentication_required' ? { reason: 'expired' } : {}),
+      },
+    }
+  }
   if (to.params.matterId && !isMatterId(to.params.matterId)) return { name: 'not-found' }
+  return true
 })
 
 router.afterEach((to) => {

@@ -1,80 +1,71 @@
 import { expect, test } from '@playwright/test'
 
-test('未连接服务时可导航与校验，不能创建假事项', async ({ page }, testInfo) => {
+test('认证服务未连接时保护工作区并提供会话重试', async ({ page }, testInfo) => {
   const apiRequests: string[] = []
   page.on('request', (request) => {
-    if (new URL(request.url()).pathname.startsWith('/api/')) apiRequests.push(request.url())
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/api/')) apiRequests.push(path)
   })
   await page.setViewportSize({ width: 1440, height: 960 })
   await page.goto('/matters')
-  await expect(page.getByRole('heading', { name: '每一步，都在掌握之中。' })).toBeVisible()
-  await expect(
-    page.getByRole('navigation', { name: '主导航' }).getByRole('link', { name: '事项工作台' }),
-  ).toBeVisible()
-  expect(
-    await page.locator('.brand-mark').evaluate((image: HTMLImageElement) => image.naturalWidth),
-  ).toBe(104)
-  await expect(page.getByRole('heading', { name: '暂时无法读取你的事项' })).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('01-workbench.png'), fullPage: true })
-  await page.getByRole('link', { name: '＋ 新建工作区', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '新建工作区', exact: true })).toBeVisible()
-  await page.screenshot({ path: testInfo.outputPath('02-create.png'), fullPage: true })
-  await page.getByRole('button', { name: '创建工作区', exact: true }).click()
-  await expect(page.getByText('请输入工作区名称', { exact: true })).toBeVisible()
-  await expect(page.getByRole('textbox', { name: '工作区名称', exact: true })).toBeFocused()
-  await page.screenshot({
-    path: testInfo.outputPath('03-create-validation.png'),
-    fullPage: true,
-    animations: 'disabled',
-  })
-  await page.getByRole('textbox', { name: '工作区名称', exact: true }).fill('核对本人推免准备范围')
-  await page.getByRole('textbox', { name: '适用年度', exact: true }).fill('2027')
-  await page.getByRole('button', { name: '创建工作区', exact: true }).click()
-  await expect(page.getByRole('alert').filter({ hasText: '当前内容尚未保存' })).toBeVisible()
-  await expect(page.locator('.el-form-item.is-error')).toHaveCount(0)
-  await expect(page.getByRole('textbox', { name: '工作区名称', exact: true })).toHaveValue(
-    '核对本人推免准备范围',
+  await expect(page.getByRole('heading', { name: '暂时无法确认登录状态' })).toBeVisible()
+  await expect(page.getByRole('link', { name: '前往登录' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: '每一步，都在掌握之中。' })).toHaveCount(
+    0,
   )
-  await expect(page).toHaveURL(/\/matters\/new$/)
-  expect(apiRequests).toEqual([])
-  await page.screenshot({
-    path: testInfo.outputPath('04-create-not-saved.png'),
-    fullPage: true,
-    animations: 'disabled',
-  })
+  await expect(page.getByRole('link', { name: '＋ 新建工作区', exact: true })).toHaveCount(0)
+  expect(apiRequests).toContain('/api/v1/auth/me')
+  expect(apiRequests.some((path) => path.startsWith('/api/v1/matters'))).toBe(false)
+  await page.screenshot({ path: testInfo.outputPath('session-unavailable.png'), fullPage: true })
+  await page.getByRole('link', { name: '前往登录' }).click()
+  await expect(page.getByRole('button', { name: '重新检查会话' })).toBeVisible()
+  const [retried] = await Promise.all([
+    page.waitForRequest((request) => new URL(request.url()).pathname === '/api/v1/auth/me'),
+    page.getByRole('button', { name: '重新检查会话' }).click(),
+  ])
+  expect(retried.method()).toBe('GET')
+  await expect(page.getByRole('button', { name: '重新检查会话' })).toBeVisible()
+  expect(apiRequests.some((path) => path.startsWith('/api/v1/matters'))).toBe(false)
 })
 
-test('桌面宽度与窄屏保留主要操作和键盘入口', async ({ page }) => {
-  await page.goto('/matters/new')
-  for (const width of [1280, 1440, 1920, 640]) {
+test('桌面与窄屏的登录入口及键盘操作', async ({ page }, testInfo) => {
+  await page.goto('/login')
+  await expect(page.getByRole('heading', { name: '登录', exact: true })).toBeVisible()
+  const email = page.getByLabel('邮箱', { exact: true })
+  const password = page.getByLabel('密码', { exact: true })
+  for (const width of [1280, 1440, 1920, 640, 375]) {
     await page.setViewportSize({ width, height: 960 })
-    await expect(page.getByRole('button', { name: '创建工作区', exact: true })).toBeVisible()
+    await expect(email).toBeVisible()
+    await expect(password).toBeVisible()
+    await expect(page.getByRole('button', { name: '登录', exact: true })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
       width,
     )
   }
-  const nameField = page.getByRole('textbox', { name: '工作区名称', exact: true })
   for (let step = 0; step < 24; step++) {
     await page.keyboard.press('Tab')
-    if (await nameField.evaluate((field) => document.activeElement === field)) break
+    if (await email.evaluate((field) => document.activeElement === field)) break
   }
-  await expect(nameField).toBeFocused()
+  await expect(email).toBeFocused()
+  await page.screenshot({ path: testInfo.outputPath('login-narrow.png'), fullPage: true })
 })
 
-test('深链接保留事项，非法编号和未知页面有恢复入口', async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 1440, height: 1135 })
-  await page.goto('/matters/00000000-0000-7000-8000-000000000001/overview')
-  await expect(page.getByRole('heading', { name: '当前事项尚未读取' })).toBeVisible()
-  await page.screenshot({
-    path: testInfo.outputPath('05-overview-unconnected.png'),
-    fullPage: true,
+test('登录与注册公开入口可以往返，保护事项深链接', async ({ page }, testInfo) => {
+  const businessRequests: string[] = []
+  page.on('request', (request) => {
+    const path = new URL(request.url()).pathname
+    if (path.startsWith('/api/v1/matters')) businessRequests.push(path)
   })
-  await page.getByRole('link', { name: '来源与条件', exact: true }).click()
-  await expect(page).toHaveURL(/00000000-0000-7000-8000-000000000001\/sources$/)
-  await page.reload()
-  await expect(page.getByRole('heading', { name: '当前事项尚未读取' })).toBeVisible()
-  await page.goto('/matters/invalid/overview')
-  await expect(page.getByRole('heading', { name: '没有找到这个页面' })).toBeVisible()
-  await page.goto('/unknown')
-  await expect(page.getByRole('link', { name: '返回我的事项', exact: true })).toBeVisible()
+  await page.goto('/login')
+  await page.getByRole('link', { name: '注册账号' }).click()
+  await expect(page.getByRole('heading', { name: '注册', exact: true })).toBeVisible()
+  await expect(page.getByLabel('显示名称', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('确认密码', { exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('registration.png'), fullPage: true })
+  await page.getByRole('link', { name: '返回登录' }).click()
+  await expect(page.getByRole('heading', { name: '登录', exact: true })).toBeVisible()
+  await page.goto('/matters/00000000-0000-7000-8000-000000000001/overview')
+  await expect(page.getByRole('heading', { name: '暂时无法确认登录状态' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: '当前事项页面' })).toHaveCount(0)
+  expect(businessRequests).toEqual([])
 })
