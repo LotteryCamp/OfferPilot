@@ -264,6 +264,17 @@ def _sample_req() -> ExtractedRequirement:
         obligation=ObligationType.OFFICIAL_REQUIRED,
         basis=[SourceCitation(source_version_id=_SNAP_ID, locator="第三条")],
         required_fact_keys=["major"],
+        rule_kind="any_of",
+        rule_parameters={
+            "paths": [
+                {
+                    "label": "目标专业匹配",
+                    "checks": [
+                        {"fact": "major", "operator": "==", "value": "软件工程"}
+                    ],
+                }
+            ]
+        },
     )
 
 

@@ -6,6 +6,7 @@ import json
 import re
 import urllib.error
 import urllib.request
+from collections.abc import Iterable
 from datetime import date, datetime, tzinfo
 from typing import Any, Literal
 from uuid import UUID
@@ -155,19 +156,70 @@ def _format_value_text(
     return stripped
 
 
+def _normalize_locator(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _description_mentions_requirement_id(description: str, requirement_id: str) -> bool:
+    if not description or not requirement_id:
+        return False
+    pattern = re.compile(
+        rf"(?<![A-Za-z0-9_-]){re.escape(requirement_id)}(?![A-Za-z0-9_-])"
+    )
+    return pattern.search(description) is not None
+
+
+def gap_matches_requirement(
+    req: ExtractedRequirement,
+    gap: SourceGap,
+    *,
+    all_requirement_ids: Iterable[str] | None = None,
+) -> bool:
+    """Return whether a SourceGap applies to a specific ExtractedRequirement."""
+    if gap.related_requirement_ids:
+        return req.requirement_id in gap.related_requirement_ids
+
+    if gap.locator and gap.locator.strip():
+        if gap.source_version_id is None:
+            return _description_mentions_requirement_id(
+                gap.description, req.requirement_id
+            )
+        norm_locator = _normalize_locator(gap.locator)
+        return any(
+            cite.source_version_id == gap.source_version_id
+            and _normalize_locator(cite.locator) == norm_locator
+            for cite in req.basis
+        )
+
+    if _description_mentions_requirement_id(gap.description, req.requirement_id):
+        return True
+
+    if gap.source_version_id is not None:
+        if all_requirement_ids is not None and any(
+            other_id != req.requirement_id
+            and _description_mentions_requirement_id(gap.description, other_id)
+            for other_id in all_requirement_ids
+        ):
+            return False
+        cited_versions = {cite.source_version_id for cite in req.basis}
+        return gap.source_version_id in cited_versions
+
+    return False
+
+
 def _build_self_check_payload(
     req: ExtractedRequirement,
     evaluation: RequirementEvaluation,
     gaps: list[SourceGap],
     sources_by_id: dict[str, SourceDocument],
+    *,
+    all_requirement_ids: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     gap_items: list[dict[str, Any]] = []
-    cited_versions = {cite.source_version_id for cite in req.basis}
     for gap in gaps:
-        if gap.related_requirement_ids:
-            if req.requirement_id not in gap.related_requirement_ids:
-                continue
-        elif gap.source_version_id not in cited_versions:
+        if not gap_matches_requirement(
+            req, gap, all_requirement_ids=all_requirement_ids
+        ):
             continue
         doc = (
             sources_by_id.get(gap.source_version_id) if gap.source_version_id else None
@@ -202,6 +254,7 @@ def build_requirements_batch_payload(
     ``self_check`` object for the four-state conclusion, reason, missing facts and gaps.
     """
     eval_by_req = {ev.requirement_id: ev for ev in evaluations}
+    all_req_ids = [req.requirement_id for req in requirements]
     payload_items: list[dict[str, Any]] = []
 
     for req in requirements:
@@ -227,7 +280,13 @@ def build_requirements_batch_payload(
         ev = eval_by_req.get(req.requirement_id)
         extract_status = to_api_extract_status(req, ev)
         self_check = (
-            _build_self_check_payload(req, ev, gaps or [], sources_by_id)
+            _build_self_check_payload(
+                req,
+                ev,
+                gaps or [],
+                sources_by_id,
+                all_requirement_ids=all_req_ids,
+            )
             if ev is not None
             else None
         )

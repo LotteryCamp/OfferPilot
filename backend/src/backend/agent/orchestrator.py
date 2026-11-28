@@ -250,6 +250,7 @@ class AgentOrchestrator:
             requirements,
             sources_by_id,
             context.confirmed_facts,
+            adapter_gaps=adapter_gaps,
         )
         gaps = collect_source_gaps(sources, evaluations)
         for gap in adapter_gaps:

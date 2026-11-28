@@ -152,18 +152,31 @@ _EXTRACTION_INSTRUCTION = (
     "   当 value_type 为 date 时，value_text 必须严格使用 YYYY-MM-DD 格式（如 2026-09-10），严禁填中文日期或带时刻描述；"
     "精确时刻请单独填入 official_deadline（带时区 ISO 8601）。value_type 为 number 时 value_text 须为纯数字，boolean 时须为 true 或 false。\n"
     "3. 不同条件或适用人群（如申请推荐与放弃推荐）须拆开标注 scope。\n"
-    "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定。\n"
-    "5. 若条款涉及已登记个人事实，field_key、required_fact_keys 与 rule_parameters 中的 fact/键名必须使用标准事实键，禁止自造同义键：\n"
-    "   - 标准事实键：gpa.rank（学业排名百分位，0–100 数值越小越靠前，如 10/100 对应 10，“前 N%”使用 <= N）、"
-    "gpa.score（0–4.0 绩点）、cet4、cet6、toefl、ielts、cert、comp。\n"
+    "4. 缺少上位文件、附件或个人依据时，在 gaps 中显式记录，禁止得出最终资格认定；涉及具体要求条目时，必须将对应 requirement_id 填入 gaps[*].related_requirement_ids。\n"
+    "5. field_key、required_fact_keys 与 rule_parameters 中的 fact 键名须遵循以下规范：\n"
+    "   - 已登记标准事实键（涉及以下 8 类个人事实时必须严格使用标准键名，禁止自造同义键）："
+    "gpa.rank（学业排名百分位，0–100 数值越小越靠前，如 10/100 对应 10，“前 N%”使用 <= N）、"
+    'gpa.score（0–4.0 绩点）、cet4、cet6、toefl、ielts、cert、comp。涉及学业排名要求时，field_key 固定填 "gpa.rank"。\n'
+    "   - 其余个人条件事实键：补考或重修门数统一使用 makeup_or_repeat_courses（整数，“无补考重修”为 <= 0），"
+    "应修学分是否修满统一使用 all_required_credits（布尔值 == true）；其他未列入已登记表的个人条件（如在读身份、无处分、书面材料等）"
+    "须使用简洁英文 snake_case 键名填入 rule_parameters 与 required_fact_keys，禁止因未列入已登记表而省略该条件。\n"
     "   - 可执行规则：\n"
-    "     * 排名阈值或“前 N% 且无补考重修 / 前 M% 且至多 1 门”等复合条件使用 rule_kind='any_of'，rule_parameters 为 "
-    '{"all_required": [{"fact": str, "operator": "<=" | "<" | ">=" | ">" | "==", "value": num|bool|str}], '
-    '"paths": [{"label": str, "checks": [{"fact": str, "operator": ..., "value": ...}]}]}；\n'
+    "     * 排名加课程或学分等复合条件必须使用 rule_kind='any_of'：公共前置条件（如应修学分）放入 all_required，"
+    "每条路径 checks 必须完整写出该路径的全部并列限制（如排名上限与补考/重修门数上限），并在 required_fact_keys 列出全部涉及键名。"
+    "示例如下："
+    '{"all_required": [{"fact": "all_required_credits", "operator": "==", "value": true}], '
+    '"paths": [{"label": "前35%无补考重修", "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 35}, '
+    '{"fact": "makeup_or_repeat_courses", "operator": "<=", "value": 0}]}, '
+    '{"label": "前20%至多1门补考重修", "checks": [{"fact": "gpa.rank", "operator": "<=", "value": 20}, '
+    '{"fact": "makeup_or_repeat_courses", "operator": "<=", "value": 1}]}]}；'
+    "严禁省略补考/重修或学分条件，也不得输出仅按不同阈值比较同一字段的多条 paths；\n"
     '     * 多项英语分数任一达标使用 rule_kind=\'any_minimum\'，rule_parameters 为 {"minimum": {"cet6": 425, "cet4": 480}, "operator": ">="}；\n'
-    '     * 固定期限/材料清单/缺位核对分别使用 fixed_deadline（{"before": ISO8601, "fact": str, "operator": "<="}）、'
-    'materials（{"required_facts": [str]}）、coverage_gap（{"missing_documents": [str]}）。\n'
-    '   - 涉及学业排名要求时，field_key 固定填 "gpa.rank"。'
+    "     * 独立的学分、在读身份或无处分等布尔资格条件使用单路径 rule_kind='any_of'（如 "
+    '{"paths": [{"label": "修满应修学分", "checks": [{"fact": "all_required_credits", "operator": "==", "value": true}]}]}）并填写 required_fact_keys；'
+    "纸质或电子材料准备清单使用 rule_kind='materials'（rule_parameters 为 {\"required_facts\": [str]}）并填写 required_fact_keys；"
+    '固定期限与缺位核对分别使用 fixed_deadline（{"before": ISO8601, "fact": str, "operator": "<="}）、'
+    'coverage_gap（{"missing_documents": [str]}）。\n'
+    "     * 无法表示为可执行规则的要求必须将 is_ambiguous 设为 true（可在 required_fact_keys 列出供核对的键名），严禁仅填 required_fact_keys 且保留 rule_kind=null 与 is_ambiguous=false。"
 )
 
 
