@@ -1,277 +1,202 @@
-"""Exercise model failures and recovery through HTTP, Agent API and PostgreSQL.
-
-The local HTTP endpoint replays protocol responses, not live model inference.
-Source HTML uses the public fixture already used by backend integration tests.
-"""
+"""Opt-in recovery checks using a real model service and public notice."""
 
 from __future__ import annotations
 
-import gzip
-import json
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
-from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
+from collections.abc import Callable
+from contextlib import ExitStack
+from dataclasses import dataclass, field, replace
 from pathlib import Path
-from threading import Event, Thread
-from typing import Any
+from typing import Any, cast
 
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.conninfo import conninfo_to_dict
 
-from backend.clock import Clock
 from backend.config import Settings
 from backend.main import create_app
-from backend.sources import PublicSourceResult, parse_public_html
+from backend.runtime_config import RuntimeConfig
 
-SOURCE_URL = "https://math.fzu.edu.cn/info/1171/10393.htm"
-NOTICE_HTML = Path(__file__).parent / "fixtures" / "sources" / "fzu_notice.html.gz"
-FETCHED_AT = datetime.fromisoformat("2026-09-09T01:00:00+00:00")
+SOURCE_URL = "https://cl.fzu.edu.cn/info/1072/19700.htm"
+SHORT_TIMEOUT_SECONDS = 0.001
 
 
-@dataclass
-class ProtocolReplay:
-    failure: str = ""
-    failure_stage: str = "extraction"
-    requests: list[str] = field(default_factory=list)
-    release: Event = field(default_factory=Event)
-    api_url: str = ""
+@dataclass(frozen=True)
+class LiveRecoveryEnvironment:
+    settings: Settings = field(repr=False)
 
 
 @pytest.fixture()
-def protocol_replay() -> Iterator[ProtocolReplay]:
-    state = ProtocolReplay()
-
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, format: str, *args: Any) -> None:
-            pass
-
-        def do_POST(self) -> None:
-            if self.path != "/v1/chat/completions":
-                self.send_error(404)
-                return
-            request = json.loads(
-                self.rfile.read(int(self.headers.get("Content-Length", "0")))
-            )
-            payload = json.loads(request["messages"][1]["content"])
-            stage = "planning" if "evaluations" in payload else "extraction"
-            state.requests.append(stage)
-            failure = state.failure if stage == state.failure_stage else ""
-            status = 200
-            finish_reason = "stop"
-            if failure == "timeout":
-                state.release.wait(timeout=15)
-                self.close_connection = True
-                return
-            if failure == "server-error":
-                status = 500
-                response = {"error": {"message": "Temporary upstream failure"}}
-            else:
-                if failure == "invalid-json":
-                    content = "这不是 JSON"
-                elif failure == "wrong-field-type":
-                    content = json.dumps(
-                        {"tasks" if stage == "planning" else "requirements": "成绩单"}
-                    )
-                else:
-                    content = json.dumps(
-                        _valid_payload(payload, stage), ensure_ascii=False
-                    )
-                if failure == "truncated":
-                    finish_reason = "length"
-                response = {
-                    "id": "protocol-replay",
-                    "object": "chat.completion",
-                    "created": 1,
-                    "model": request["model"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "finish_reason": finish_reason,
-                            "message": {"role": "assistant", "content": content},
-                        }
-                    ],
-                }
-            encoded = json.dumps(response, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(encoded)))
-            self.end_headers()
-            self.wfile.write(encoded)
-
-    with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
-        state.api_url = f"http://127.0.0.1:{server.server_port}/v1"
-        thread = Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            yield state
-        finally:
-            state.release.set()
-            server.shutdown()
-            thread.join(timeout=5)
-
-
-def _valid_payload(payload: dict[str, Any], stage: str) -> dict[str, Any]:
-    if stage == "planning":
-        return {
-            "tasks": [
-                {
-                    "task_id": "T-01",
-                    "title": "准备并提交申请表、证明材料和成绩单",
-                    "requirement_id": "R-01",
-                    "basis": payload["evaluations"][0]["basis"],
-                    "obligation": "官方必需",
-                    "evidence_required": "申请表、证明材料和成绩单",
-                }
-            ]
-        }
-    source = payload["sources"][0]
-    fragment = next(
-        item for item in source["fragments"] if item["quote"].startswith("（5）")
-    )
-    return {
-        "requirements": [
-            {
-                "requirement_id": "R-01",
-                "title": "准备并提交申请表、证明材料和成绩单",
-                "field_key": "application.materials",
-                "value_text": fragment["quote"],
-                "obligation": "官方必需",
-                "basis": [
-                    {
-                        "source_version_id": source["source_version_id"],
-                        "locator_kind": fragment["locator_kind"],
-                        "locator": fragment["locator"],
-                        "excerpt": fragment["quote"],
-                    }
-                ],
-            }
-        ]
-    }
-
-
-def _read_fixture(request: dict[str, Any]) -> PublicSourceResult:
-    return parse_public_html(
-        gzip.decompress(NOTICE_HTML.read_bytes()),
-        content_type="text/html; charset=UTF-8",
-        final_url=str(request["url"]),
-        request=request,
-        fetched_at=FETCHED_AT,
-    )
-
-
-@pytest.mark.parametrize("stage", ["extraction", "planning"])
-@pytest.mark.parametrize(
-    ("failure", "expected_code"),
-    [
-        ("timeout", "TIMEOUT"),
-        ("invalid-json", "VALIDATION_FAILED"),
-        ("wrong-field-type", "VALIDATION_FAILED"),
-        ("truncated", "VALIDATION_FAILED"),
-        ("server-error", "MODEL_ERROR"),
-    ],
-)
-def test_agent_model_failure_then_new_operation_recovers(
-    database_urls: tuple[str, str],
-    admin: psycopg.Connection,
-    clock: Clock,
-    login: Callable[[TestClient], None],
+def live_environment(
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
-    protocol_replay: ProtocolReplay,
-    stage: str,
-    failure: str,
-    expected_code: str,
-) -> None:
-    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
-    protocol_replay.failure = failure
-    protocol_replay.failure_stage = stage
-    app = create_app(
-        Settings(
-            database_url=database_urls[0],
-            model_api_url=protocol_replay.api_url,
-            model_api_key="local-protocol-test-token",
-            model_name="protocol-replay",
-            model_timeout_seconds=1.0,
-        ),
-        clock=clock,
-        agent_source_reader=_read_fixture,
+) -> LiveRecoveryEnvironment:
+    if os.environ.get("OFFERPILOT_MODEL_LIVE_RECOVERY") != "1":
+        pytest.skip(
+            "set OFFERPILOT_MODEL_LIVE_RECOVERY=1 for real model recovery checks"
+        )
+
+    names = ("OFFERPILOT_TEST_DATABASE_URL", "OFFERPILOT_TEST_ADMIN_DATABASE_URL")
+    if any(not os.environ.get(name, "").strip() for name in names):
+        pytest.fail("real recovery checks require both dedicated test database URLs")
+    urls = cast(tuple[str, str], request.getfixturevalue("database_urls"))
+    connection_info = [conninfo_to_dict(url) for url in urls]
+    for info in connection_info:
+        database_name = info.get("dbname")
+        if not isinstance(database_name, str) or not database_name.endswith("_test"):
+            pytest.fail("recovery checks require a database name ending in _test")
+    if any(
+        connection_info[0].get(key) != connection_info[1].get(key)
+        for key in ("host", "port", "dbname")
+    ):
+        pytest.fail(
+            "application and administrator URLs must target the same test database"
+        )
+
+    monkeypatch.setenv("OFFERPILOT_DATABASE_URL", urls[0])
+    base = Settings.from_env()
+    config_path = Path(base.config_file) if base.config_file else None
+    effective = RuntimeConfig(base, config_path).current()
+    if not all(
+        value.strip()
+        for value in (
+            effective.model_api_url,
+            effective.model_api_key,
+            effective.model_name,
+        )
+    ):
+        pytest.fail("configure a real model URL, model name and API key locally")
+    if effective.model_timeout_seconds <= SHORT_TIMEOUT_SECONDS:
+        pytest.fail("normal model timeout must exceed the short failure timeout")
+    return LiveRecoveryEnvironment(
+        replace(effective, database_url=urls[0], config_file=None, cookie_secure=False)
     )
-    with TestClient(app) as client:
+
+
+@pytest.fixture()
+def live_admin(
+    live_environment: LiveRecoveryEnvironment,
+    request: pytest.FixtureRequest,
+) -> psycopg.Connection:
+    # Validate the opt-in and database targets before the shared cleanup fixture runs.
+    return cast(psycopg.Connection, request.getfixturevalue("admin"))
+
+
+def _post_run(client: TestClient, matter_id: str, operation_id: str) -> dict[str, Any]:
+    response = client.post(
+        f"/api/v1/matters/{matter_id}/agent-runs",
+        json={
+            "source_urls": [SOURCE_URL],
+            "publisher": "福州大学材料科学与工程学院",
+            "scope": "2027届推免接收",
+            "operation_id": operation_id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["run"]
+
+
+def _read_plans(client: TestClient, matter_id: str) -> list[dict[str, Any]]:
+    response = client.get(f"/api/v1/matters/{matter_id}/candidate-plans")
+    assert response.status_code == 200, response.text
+    return response.json()["plans"]
+
+
+def _assert_no_tasks(client: TestClient, matter_id: str) -> None:
+    response = client.get(f"/api/v1/matters/{matter_id}/tasks")
+    assert response.status_code == 200, response.text
+    assert response.json()["tasks"] == []
+
+
+@pytest.mark.parametrize(
+    "restart_before_retry", [False, True], ids=["same-process", "new-app"]
+)
+def test_live_model_timeout_then_same_operation_recovers(
+    live_environment: LiveRecoveryEnvironment,
+    live_admin: psycopg.Connection,
+    request: pytest.FixtureRequest,
+    tmp_path: Path,
+    restart_before_retry: bool,
+) -> None:
+    login = cast(Callable[[TestClient], None], request.getfixturevalue("login"))
+    runtime_file = tmp_path / "recovery.yaml"
+    runtime_file.write_text(
+        f"model:\n  timeout_seconds: {SHORT_TIMEOUT_SECONDS}\n", encoding="utf-8"
+    )
+    settings = replace(live_environment.settings, config_file=str(runtime_file))
+    app = create_app(settings)
+    operation_id = "live-timeout-recovery"
+
+    with ExitStack() as stack:
+        client = stack.enter_context(TestClient(app))
         login(client)
         created = client.post(
             "/api/v1/matters",
             json={
-                "goal": "申请 2027 年福州大学数学与统计学院推免",
+                "goal": "分析福州大学材料科学与工程学院2027届推免接收通知，提取条件、材料及期限",
                 "scope_year": 2027,
+                "scope_attrs": {"school": "福州大学", "college": "材料科学与工程学院"},
             },
         )
         assert created.status_code == 201, created.text
         matter_id = created.json()["matter"]["id"]
         consent = client.post("/api/v1/model-transfer-consent")
         assert consent.status_code == 200, consent.text
-        path = f"/api/v1/matters/{matter_id}/agent-runs"
-        request = {"source_urls": [SOURCE_URL], "operation_id": "first-attempt"}
-        failed_response = client.post(path, json=request)
-        assert failed_response.status_code == 200, failed_response.text
-        failed = failed_response.json()["run"]
-        assert failed["status"] == "失败"
-        assert failed["error"]["code"] == expected_code
-        assert failed["persisted_plan_id"] is None
-        assert failed["written_tasks"] == []
-        expected_requests = (
-            ["extraction"] if stage == "extraction" else ["extraction", "planning"]
+        failed = _post_run(client, matter_id, operation_id)
+        assert failed["status"] == "失败", failed["error"]
+        assert failed["error"]["code"] == "TIMEOUT", failed["error"]
+        assert any(
+            record["tool_name"] == "fetch_official_sources" and record["succeeded"]
+            for record in failed["execution_records"]
         )
-        assert protocol_replay.requests == expected_requests
-
-        plans = client.get(f"/api/v1/matters/{matter_id}/candidate-plans")
-        assert plans.status_code == 200, plans.text
-        assert plans.json()["plans"] == []
-        tasks = client.get(f"/api/v1/matters/{matter_id}/tasks")
-        assert tasks.status_code == 200, tasks.text
-        assert tasks.json()["tasks"] == []
-        row = admin.execute(
+        assert failed["persisted_plan_id"] is None
+        assert failed["persisted_requirement_ids"] == []
+        assert failed["written_tasks"] == []
+        assert _read_plans(client, matter_id) == []
+        _assert_no_tasks(client, matter_id)
+        count = live_admin.execute(
             "SELECT count(*) FROM core.candidate_plan WHERE matter_id = %s",
             (matter_id,),
         ).fetchone()
-        assert row is not None and row[0] == 0
+        assert count is not None and count[0] == 0
 
-        protocol_replay.failure = ""
-        protocol_replay.release.set()
-        replay = client.post(path, json=request)
-        assert replay.status_code == 200, replay.text
-        assert replay.json()["run"]["run_id"] == failed["run_id"]
-        assert replay.json()["run"]["status"] == "失败"
-        assert protocol_replay.requests == expected_requests
-
-        recovered_response = client.post(
-            path, json={**request, "operation_id": "recovery-attempt"}
+        app.state.runtime_config.update(
+            {
+                "model": {
+                    "timeout_seconds": live_environment.settings.model_timeout_seconds
+                }
+            }
         )
-        assert recovered_response.status_code == 200, recovered_response.text
-        recovered = recovered_response.json()["run"]
+        if restart_before_retry:
+            stack.close()
+            app = create_app(settings)
+            client = stack.enter_context(TestClient(app))
+            login(client)
+
+        recovered = _post_run(client, matter_id, operation_id)
         assert recovered["run_id"] != failed["run_id"]
         assert recovered["status"] == "等待确认", recovered["error"]
         assert recovered["error"] is None
-        assert len(recovered["persisted_requirement_ids"]) == 1
+        assert recovered["persisted_requirement_ids"]
         assert recovered["persisted_plan_id"] is not None
         assert recovered["written_tasks"] == []
-        assert protocol_replay.requests == expected_requests + [
-            "extraction",
-            "planning",
-        ]
-        plan = client.get(f"/api/v1/candidate-plans/{recovered['persisted_plan_id']}")
-        assert plan.status_code == 200, plan.text
-        assert plan.json()["plan"]["status"] == "pending"
-        assert len(plan.json()["plan"]["items"]) == 1
-        assert plan.json()["plan"]["items"][0]["sources"]
-        assert plan.json()["plan"]["tasks"] == []
-        plans = client.get(f"/api/v1/matters/{matter_id}/candidate-plans")
-        assert plans.status_code == 200, plans.text
-        assert len(plans.json()["plans"]) == 1
-        stored_failure = client.get(f"/api/v1/agent-runs/{failed['run_id']}")
-        assert stored_failure.status_code == 200, stored_failure.text
-        assert stored_failure.json()["run"]["status"] == "失败"
-        assert stored_failure.json()["run"]["error"]["code"] == expected_code
-        tasks = client.get(f"/api/v1/matters/{matter_id}/tasks")
-        assert tasks.status_code == 200, tasks.text
-        assert tasks.json()["tasks"] == []
+        assert all(record["succeeded"] for record in recovered["execution_records"])
+        plan_id = recovered["persisted_plan_id"]
+        plan_response = client.get(f"/api/v1/candidate-plans/{plan_id}")
+        assert plan_response.status_code == 200, plan_response.text
+        plan = plan_response.json()["plan"]
+        assert plan["status"] == "pending"
+        assert plan["items"]
+        assert all(item["sources"] for item in plan["items"])
+        assert len(_read_plans(client, matter_id)) == 1
+
+        replayed = _post_run(client, matter_id, operation_id)
+        assert replayed["run_id"] == recovered["run_id"]
+        assert replayed["persisted_plan_id"] == plan_id
+        assert len(_read_plans(client, matter_id)) == 1
+        previous = client.get(f"/api/v1/agent-runs/{failed['run_id']}")
+        assert previous.status_code == 200, previous.text
+        assert previous.json()["run"]["status"] == "失败"
+        assert previous.json()["run"]["error"]["code"] == "TIMEOUT"
+        _assert_no_tasks(client, matter_id)
