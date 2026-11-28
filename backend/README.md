@@ -134,9 +134,13 @@ uv run pytest tests -q --cov --cov-report=term-missing
 
 ## CI
 
-`.github/workflows/backend-ci.yml` 在推送 `main` 和拉取请求时启动 PostgreSQL 16，创建测试库与应用角色，执行数据库迁移和参考数据种子，然后运行 Ruff、格式检查、ty 与测试。数据库集成测试使用上述真实 PostgreSQL 实例；本地未配置测试库时这些用例跳过。
+`.github/workflows/ci.yml` 是统一 CI 入口。推送 `main` 或提交拉取请求时，如果改动涉及 `frontend/**`、`backend/**` 或 `.github/workflows/**`，就同时运行前后端检查；也可通过 `workflow_dispatch` 手动运行。
 
-测试步骤使用 `pytest-cov` 统计 `src/backend` 的行覆盖率，门槛为 60%，覆盖率低于门槛时 CI 失败。覆盖率配置位于 `backend/pyproject.toml`。覆盖率报告以 LCOV 格式上传到 Coveralls，上传失败不阻断 CI。
+统一入口通过 `workflow_call` 调用 `.github/workflows/backend-ci.yml`。后端作业启动 PostgreSQL 16，创建测试库与应用角色，执行数据库迁移和参考数据种子，然后运行 Ruff、格式检查、ty 与测试。数据库集成测试使用上述真实 PostgreSQL 实例；本地未配置测试库时这些用例跳过。
+
+后端测试使用 `pytest-cov` 统计 `src/backend` 的行覆盖率，门槛为 60%，覆盖率低于门槛时 CI 失败，配置位于 `backend/pyproject.toml`。后端产出 `backend/lcov.info`，前端产出 `frontend/coverage/lcov.info`，两端作业各自保存 LCOV artifact。两端检查都通过后，`Combined coverage` 作业下载两份报告，将来源路径统一到仓库根目录，再一次性上传到 Coveralls，与 `main` 比较。上传失败不阻断 CI。
+
+统一上报修复合入后，需先等待 `main` 生成首份包含前后端数据的完整覆盖率基线，再让 #85 同步 `main` 并重跑检查，核对相同统计范围下的覆盖率变化。
 
 ## 检查
 

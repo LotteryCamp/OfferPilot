@@ -1,16 +1,7 @@
 name: Frontend CI
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
-  pull_request:
-    paths:
-      - "frontend/**"
-      - ".github/workflows/frontend-ci.yml"
+  workflow_call:
 
 permissions:
   contents: read
@@ -56,14 +47,12 @@ jobs:
         working-directory: frontend
         run: npm run test:unit:coverage
 
-      - name: Upload coverage to Coveralls
-        uses: coverallsapp/github-action@8d6379e14d29928660c4ba802d8e85393440b329 # v2.3.8
+      - name: Upload frontend coverage report
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          file: frontend/coverage/lcov.info
-          format: lcov
-          base-path: frontend
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          fail-on-error: false
+          name: frontend-coverage
+          path: frontend/coverage/lcov.info
+          if-no-files-found: error
 
       - name: Install Playwright browsers
         working-directory: frontend
