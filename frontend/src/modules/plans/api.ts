@@ -62,3 +62,20 @@ export function decisionMayBeCommitted(error: unknown): boolean {
   const status = error.response?.status
   return status === undefined || status === 408 || status === 429 || status >= 500
 }
+
+export function decisionNeedsReload(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response?.status !== 409) return false
+  const parsed = errorBody.safeParse(error.response.data)
+  return (
+    parsed.success &&
+    [
+      'basis_changed',
+      'plan_expired',
+      'plan_already_decided',
+      'plan_not_pending',
+      'official_deadline_passed',
+      'basis_unresolved',
+      'source_unavailable',
+    ].includes(parsed.data.error.code)
+  )
+}

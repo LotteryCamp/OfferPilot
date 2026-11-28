@@ -1,5 +1,65 @@
 import { describe, expect, it } from 'vitest'
-import { displayDate, normalizeMatterId, safeSourceUrl, statusLabel } from './presentation'
+import {
+  displayDate,
+  nextSnapshotId,
+  normalizeMatterId,
+  safeSourceUrl,
+  statusLabel,
+} from './presentation'
+import type { Source } from './contracts'
+
+function source(current: number): Source {
+  const sourceId = 'b0000000-0000-4000-8000-000000000001'
+  return {
+    id: sourceId,
+    publisher: '学校',
+    url: 'https://example.edu/notice',
+    scope: '本科生',
+    scope_year: 2027,
+    valid_from: null,
+    valid_to: null,
+    status: 'active',
+    auto_check_status: 'passed',
+    roi_status: 'original',
+    last_fetched_at: null,
+    snapshots: Array.from({ length: current }, (_, index) => ({
+      id: `b0000000-0000-4000-8000-00000000000${index + 2}`,
+      source_id: sourceId,
+      version_no: index + 1,
+      content_hash: 'a'.repeat(64),
+      title: `通知 v${index + 1}`,
+      published_date: null,
+      text: null,
+      fragments: [],
+      fetched_at: null,
+      is_current: index + 1 === current,
+      requirements: [],
+    })),
+  }
+}
+
+describe('来源快照的刷新选择', () => {
+  it('查看当前版本时，刷新后跟随新版本', () => {
+    const before = source(1)
+    const after = source(2)
+    expect(nextSnapshotId(after, before, before.snapshots[0]!.id)).toBe(after.snapshots[1]!.id)
+  })
+
+  it('主动查看历史版本时，刷新后保留该选择', () => {
+    const before = source(2)
+    expect(nextSnapshotId(source(3), before, before.snapshots[0]!.id)).toBe(before.snapshots[0]!.id)
+  })
+
+  it('已选快照不在读取结果中时，选择当前版本', () => {
+    const after = source(2)
+    expect(nextSnapshotId(after, undefined, crypto.randomUUID())).toBe(after.snapshots[1]!.id)
+  })
+
+  it('来源或快照为空时清除选择', () => {
+    expect(nextSnapshotId(undefined, source(1), crypto.randomUUID())).toBe('')
+    expect(nextSnapshotId(source(0), source(1), crypto.randomUUID())).toBe('')
+  })
+})
 
 describe('来源外链', () => {
   it.each([
