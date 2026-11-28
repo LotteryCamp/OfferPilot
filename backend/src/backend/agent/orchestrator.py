@@ -881,6 +881,7 @@ class AgentOrchestrator:
             sources_by_id,
             requirement_id_map=req_id_map,
             timezone=self._timezone,
+            requirements=requirements,
         )
         try:
             plan_resp = self._persistence.persist_candidate_plan(

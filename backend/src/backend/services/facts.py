@@ -315,12 +315,18 @@ def assert_fact_versions(
         )
 
 
+def stored_fact_types(basis_input: Any) -> list[str]:
+    return sorted(_stored_fact_entries(basis_input))
+
+
 def plan_basis_state(
     session: Session,
     plan_row: Mapping[str, Any],
 ) -> tuple[str, list[dict[str, Any]]]:
     matter_id = plan_row["matter_id"]
-    relevant = set(relevant_fact_types(session, matter_id))
+    relevant = set(relevant_fact_types(session, matter_id)) | set(
+        _stored_fact_entries(plan_row.get("basis_input"))
+    )
     current = current_fact_map(session, matter_id, relevant)
     return _basis_state(plan_row, relevant, current)
 
@@ -331,18 +337,23 @@ def plan_basis_states(
 ) -> dict[UUID, tuple[str, list[dict[str, Any]]]]:
     plan_list = list(plans)
     relevant_by_matter: dict[UUID, set[str]] = {}
+    lookup_by_matter: dict[UUID, set[str]] = {}
     current_by_matter: dict[UUID, dict[str, Mapping[str, Any]]] = {}
     for plan in plan_list:
         matter_id = plan["matter_id"]
         if matter_id not in relevant_by_matter:
             relevant_by_matter[matter_id] = set(relevant_fact_types(session, matter_id))
-            current_by_matter[matter_id] = current_fact_map(
-                session, matter_id, relevant_by_matter[matter_id]
-            )
+            lookup_by_matter[matter_id] = set(relevant_by_matter[matter_id])
+        lookup_by_matter[matter_id].update(
+            _stored_fact_entries(plan.get("basis_input"))
+        )
+    for matter_id, fact_types in lookup_by_matter.items():
+        current_by_matter[matter_id] = current_fact_map(session, matter_id, fact_types)
     return {
         plan["id"]: _basis_state(
             plan,
-            relevant_by_matter.get(plan["matter_id"], set()),
+            relevant_by_matter.get(plan["matter_id"], set())
+            | set(_stored_fact_entries(plan.get("basis_input"))),
             current_by_matter.get(plan["matter_id"], {}),
         )
         for plan in plan_list
@@ -354,7 +365,9 @@ def stale_facts_for_plan(
     plan_row: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     matter_id = plan_row["matter_id"]
-    relevant = set(relevant_fact_types(session, matter_id))
+    relevant = set(relevant_fact_types(session, matter_id)) | set(
+        _stored_fact_entries(plan_row.get("basis_input"))
+    )
     current = current_fact_map(session, matter_id, relevant)
     _, stale = _basis_state(plan_row, relevant, current)
     return stale

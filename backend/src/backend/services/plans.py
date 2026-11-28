@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -130,7 +130,12 @@ def create_plan(
                 )
         session.flush()
 
-        basis_input = collect_basis_input(session, matter_id, plan_id)
+        basis_input = collect_basis_input(
+            session,
+            matter_id,
+            plan_id,
+            extra_fact_types=body.referenced_fact_types,
+        )
         session.execute(
             update(candidate_plan)
             .where(candidate_plan.c.id == plan_id)
@@ -248,7 +253,11 @@ def basis_states_for_plan_ids(
 
 
 def collect_basis_input(
-    session: Session, matter_id: UUID, plan_id: UUID
+    session: Session,
+    matter_id: UUID,
+    plan_id: UUID,
+    *,
+    extra_fact_types: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     matter_row = (
         session.execute(select(matter).where(matter.c.id == matter_id)).mappings().one()
@@ -298,9 +307,16 @@ def collect_basis_input(
         .mappings()
         .all()
     )
-    relevant_fact_types = fact_service.relevant_fact_types(session, matter_id)
+    relevant_types = set(fact_service.relevant_fact_types(session, matter_id))
+    if extra_fact_types is not None:
+        relevant_types.update(extra_fact_types)
+    else:
+        stored_basis = session.execute(
+            select(candidate_plan.c.basis_input).where(candidate_plan.c.id == plan_id)
+        ).scalar_one_or_none()
+        relevant_types.update(fact_service.stored_fact_types(stored_basis))
     fact_rows = fact_service.current_fact_entries(
-        session, matter_id, relevant_fact_types
+        session, matter_id, sorted(relevant_types)
     )
     return build_basis_input(
         matter_row=matter_row,

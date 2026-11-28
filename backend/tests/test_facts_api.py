@@ -4,12 +4,29 @@ from __future__ import annotations
 
 from typing import Any
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 import psycopg
 from fastapi.testclient import TestClient
 
+from backend.agent import (
+    CandidatePlan,
+    CandidateTask,
+    EvaluationStatus,
+    ExtractedRequirement,
+    ExtractedRequirementDraft,
+    ObligationType,
+    SourceCitation,
+    SourceDocument,
+    build_candidate_plan_create_payload,
+    build_requirements_batch_payload,
+    evaluate_requirements,
+)
+from backend.agent.model_bridge import normalize_requirement_field_key
 from backend.config import Settings
 from backend.main import create_app
+
+SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 FX_URL = "https://example.edu/admission/notice"
 FX_TEXT = "申请条件：成绩排名位于专业前 10%。"
@@ -593,6 +610,250 @@ def test_rank_greater_than_cohort_is_rejected(client: TestClient) -> None:
     stored = client.get(_fact_url(matter_id, "gpa.rank")).json()
     assert stored["fact"] is None
     assert stored["versions"] == []
+
+
+def test_rank_recheck_flow_binds_rank_fact_and_invalidates_pending_plan(
+    client: TestClient,
+) -> None:
+    matter_id = _create_matter(client)
+    source = _create_source(client, matter_id)
+    src_id = source["source"]["id"]
+    snap_id = source["snapshot"]["id"]
+    cite = SourceCitation(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        locator_kind="section",
+        locator="第（1）项",
+        excerpt=FX_TEXT,
+    )
+    rank_params = {
+        "all_required": [
+            {"fact": "all_required_credits", "operator": "==", "value": True}
+        ],
+        "paths": [
+            {
+                "label": "前35%无补考重修",
+                "checks": [
+                    {"fact": "gpa.rank", "operator": "<=", "value": 35},
+                    {
+                        "fact": "makeup_or_repeat_courses",
+                        "operator": "<=",
+                        "value": 0,
+                    },
+                ],
+            },
+            {
+                "label": "前20%至多1门补考重修",
+                "checks": [
+                    {"fact": "gpa.rank", "operator": "<=", "value": 20},
+                    {
+                        "fact": "makeup_or_repeat_courses",
+                        "operator": "<=",
+                        "value": 1,
+                    },
+                ],
+            },
+        ],
+    }
+    draft = ExtractedRequirementDraft(
+        requirement_id="GR-01",
+        title="专业排名要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="academic_rank_top_percent",
+        rule_kind="any_of",
+        rule_parameters=rank_params,
+    )
+    aligned_key = normalize_requirement_field_key(draft)
+    assert aligned_key == "gpa.rank"
+
+    req = ExtractedRequirement(
+        requirement_id="GR-01",
+        title="专业排名要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key=aligned_key,
+        rule_kind="any_of",
+        rule_parameters=rank_params,
+    )
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        title="2027 年推荐免试攻读研究生工作方案",
+        publisher="福州大学数学与统计学院",
+        content=FX_TEXT,
+    )
+    evals1, _ = evaluate_requirements([req], {snap_id: doc}, {})
+    assert evals1[0].status == EvaluationStatus.MISSING_INFO
+    assert "gpa.rank" in evals1[0].missing_fields
+
+    req_payload = build_requirements_batch_payload([req], evals1, {snap_id: doc})
+    created_req = client.post(
+        f"/api/v1/matters/{matter_id}/requirements", json=req_payload
+    )
+    assert created_req.status_code == 201, created_req.text
+    created_req_id = created_req.json()["requirements"][0]["id"]
+    assert created_req.json()["requirements"][0]["field_key"] == "gpa.rank"
+
+    plan = CandidatePlan(
+        candidate_id=f"cand-{matter_id}",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=[
+            CandidateTask(
+                task_id="T-01",
+                title="核对排名及学分要求",
+                requirement_id="GR-01",
+                basis=[cite],
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                evidence_required="教务系统成绩单",
+            )
+        ],
+    )
+    plan_payload = build_candidate_plan_create_payload(
+        plan,
+        {snap_id: doc},
+        requirement_id_map={"GR-01": created_req_id},
+        timezone=SHANGHAI,
+        requirements=[req],
+    )
+    created_plan = client.post(
+        f"/api/v1/matters/{matter_id}/candidate-plans", json=plan_payload
+    )
+    assert created_plan.status_code == 201, created_plan.text
+    plan_id = created_plan.json()["plan"]["id"]
+    assert created_plan.json()["plan"]["basis_status"] == "current"
+
+    saved_rank_10 = _save_rank(client, matter_id, position=10, cohort_size=100)
+    assert plan_id in [item["plan_id"] for item in saved_rank_10["affected_plans"]]
+
+    stale_plan = client.get(f"/api/v1/candidate-plans/{plan_id}").json()["plan"]
+    assert stale_plan["basis_status"] == "stale"
+    assert stale_plan["stale_facts"][0]["fact_type"] == "gpa.rank"
+
+    rank_percentile = saved_rank_10["fact"]["value"]["percentile"]
+    assert rank_percentile == 10.0
+    evals2, _ = evaluate_requirements(
+        [req], {snap_id: doc}, {"gpa.rank": rank_percentile}
+    )
+    assert evals2[0].status == EvaluationStatus.MISSING_INFO
+    assert "gpa.rank" not in evals2[0].missing_fields
+    assert "all_required_credits" in evals2[0].missing_fields
+    assert "makeup_or_repeat_courses" in evals2[0].missing_fields
+    assert "gpa.rank=10" in evals2[0].reason
+
+    saved_rank_40 = _save_rank(client, matter_id, position=40, cohort_size=100)
+    evals3, _ = evaluate_requirements(
+        [req],
+        {snap_id: doc},
+        {"gpa.rank": saved_rank_40["fact"]["value"]["percentile"]},
+    )
+    assert evals3[0].status == EvaluationStatus.NOT_MATCHED
+
+
+def test_multi_fact_plan_tracks_all_referenced_registered_facts(
+    client: TestClient,
+) -> None:
+    matter_id = _create_matter(client)
+    cet4_res = client.put(_fact_url(matter_id, "cet4"), json={"value": {"score": 500}})
+    assert cet4_res.status_code == 200, cet4_res.text
+    cet6_res = client.put(_fact_url(matter_id, "cet6"), json={"value": {"score": 450}})
+    assert cet6_res.status_code == 200, cet6_res.text
+
+    source = _create_source(client, matter_id)
+    src_id = source["source"]["id"]
+    snap_id = source["snapshot"]["id"]
+    cite = SourceCitation(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        locator_kind="section",
+        locator="第（1）项",
+        excerpt=FX_TEXT,
+    )
+    req = ExtractedRequirement(
+        requirement_id="GR-ENG",
+        title="外语成绩要求",
+        obligation=ObligationType.OFFICIAL_REQUIRED,
+        basis=[cite],
+        field_key="english.proficiency",
+        rule_kind="any_minimum",
+        rule_parameters={"minimum": {"cet4": 480, "cet6": 425}, "operator": ">="},
+    )
+    doc = SourceDocument(
+        source_version_id=snap_id,
+        source_id=src_id,
+        snapshot_id=snap_id,
+        title="2027 年推荐免试攻读研究生工作方案",
+        publisher="福州大学数学与统计学院",
+        content=FX_TEXT,
+    )
+    evals, _ = evaluate_requirements([req], {snap_id: doc}, {"cet4": 500, "cet6": 450})
+    assert evals[0].status == EvaluationStatus.MATCHED
+    assert evals[0].missing_fields == []
+
+    req_payload = build_requirements_batch_payload([req], evals, {snap_id: doc})
+    created_req = client.post(
+        f"/api/v1/matters/{matter_id}/requirements", json=req_payload
+    )
+    assert created_req.status_code == 201, created_req.text
+    created_req_id = created_req.json()["requirements"][0]["id"]
+
+    plan = CandidatePlan(
+        candidate_id=f"cand-{matter_id}",
+        workspace_version=1,
+        candidate_version=1,
+        input_snapshot_id=snap_id,
+        tasks=[
+            CandidateTask(
+                task_id="T-ENG",
+                title="核对外语成绩",
+                requirement_id="GR-ENG",
+                basis=[cite],
+                obligation=ObligationType.OFFICIAL_REQUIRED,
+                evidence_required="英语四六级成绩单",
+            )
+        ],
+    )
+    plan_payload = build_candidate_plan_create_payload(
+        plan,
+        {snap_id: doc},
+        requirement_id_map={"GR-ENG": created_req_id},
+        timezone=SHANGHAI,
+        requirements=[req],
+    )
+    assert plan_payload["referenced_fact_types"] == ["cet4", "cet6"]
+
+    created_plan = client.post(
+        f"/api/v1/matters/{matter_id}/candidate-plans", json=plan_payload
+    )
+    assert created_plan.status_code == 201, created_plan.text
+    plan_id = created_plan.json()["plan"]["id"]
+    assert created_plan.json()["plan"]["basis_status"] == "current"
+
+    updated_cet4 = client.put(
+        _fact_url(matter_id, "cet4"), json={"value": {"score": 400}}
+    )
+    assert updated_cet4.status_code == 200, updated_cet4.text
+    assert [item["plan_id"] for item in updated_cet4.json()["affected_plans"]] == [
+        plan_id
+    ]
+
+    stale_plan = client.get(f"/api/v1/candidate-plans/{plan_id}").json()["plan"]
+    assert stale_plan["basis_status"] == "stale"
+    assert [item["fact_type"] for item in stale_plan["stale_facts"]] == ["cet4"]
+
+    confirmed = client.post(
+        f"/api/v1/candidate-plans/{plan_id}/confirm",
+        headers={"Idempotency-Key": "f0000000-0000-4000-8000-000000000009"},
+    )
+    assert confirmed.status_code == 409, confirmed.text
+    error = confirmed.json()["error"]
+    assert error["code"] == "basis_changed"
+    assert [item["fact_type"] for item in error["details"]["stale_facts"]] == ["cet4"]
 
 
 def _fact_url(matter_id: str, fact_type: str | None = None) -> str:
